@@ -43,12 +43,12 @@ bind Alt+Shift+sc_b  closest_squad_select_filtered append
 *(change `sc_b` to your preferred key)*
 
 
-| Action                                 | What it does                                                                   |
-| -------------------------------------- | ------------------------------------------------------------------------------ |
-| `closest_squad_select`                 | Selects the entire squad closest to the cursor                                 |
-| `closest_squad_select append`          | Appends the closest squad to the current selection                             |
+| Action                                 | What it does                                                                                                          |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `closest_squad_select`                 | Selects the entire squad closest to the cursor                                                                        |
+| `closest_squad_select append`          | Appends the closest squad to the current selection                                                                    |
 | `closest_squad_select_filtered`        | Selects only the unit types (from your current selection or closest unit if nothing is selected) in the closest squad |
-| `closest_squad_select_filtered append` | Same, but appends to selection                                                 |
+| `closest_squad_select_filtered append` | Same, but appends to selection                                                                                        |
 
 ### Mouse controls
 
@@ -103,8 +103,8 @@ Enable it in-game with **F11** (widget list) or just write this into chat:
 
 ## Credits
 
-- **yyyy** — original concept and the [Fassst Selectionssss](https://kk1ff.com/bar/select.lua) prototype
-- **Baldric** — this implementation
+- **yyyy**: original concept and the [Fassst Selectionssss](https://kk1ff.com/bar/select.lua) prototype
+- **Baldric**: this implementation
 - Built with **assistance** from [Claude Code](https://claude.ai/code)
 
 ## License
