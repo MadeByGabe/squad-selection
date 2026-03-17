@@ -86,7 +86,8 @@ local CYCLING_TO_NEXT_SQUAD = true      -- cycle when full squad is selected
 
 ## Installation
 
-Drop `squad-selection.lua` into your `data/LuaUI/Widgets/` directory. Enable it in-game with **F11** (widget list) or just write this into chat:
+Download and drop [squad-selection.lua](https://raw.githubusercontent.com/MadeByGabe/squad-selection/refs/heads/main/squad-selection.lua) into your `data/LuaUI/Widgets/` directory.  
+Enable it in-game with **F11** (widget list) or just write this into chat:
 
 ```
 /luaui togglewidget Squad Selection
