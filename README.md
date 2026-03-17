@@ -84,6 +84,14 @@ local CYCLING_TO_NEXT_SQUAD = true      -- cycle when full squad is selected
 
 *Note: control groups have a nice feature when we double tap their number key to move the camera to that group. Something similar for squads should be possible but in the meantime you can bind `viewselection` to a hotkey for a similar effect (it centers the camera on your current selection).*
 
+## Roadmap
+
+- [ ] **Control group squad intersection**: gets the units from a control group, finds the closest unit from that set, then selects that unit's squad and the control group's intersection.
+- [ ] **Split squad**: select a fraction of the closest squad (or any selection?) sorted by distance to the cursor. 
+- [ ] **Settings menu**: in-game for most important options.
+
+*For possible future features check the issues with the idea tag.*
+
 ## Installation
 
 Download and drop [squad-selection.lua](https://raw.githubusercontent.com/MadeByGabe/squad-selection/refs/heads/main/squad-selection.lua) into your `data/LuaUI/Widgets/` directory.  
