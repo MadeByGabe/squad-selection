@@ -676,7 +676,7 @@ function widget:MousePress(x, y, button)
 				local def_id = get_defid(selected[i])
 				if def_id then
 					local def = UnitDefs[def_id]
-					if def.buildOptions and #def.buildOptions > 0 then
+					if def.canResurrect or (def.buildOptions and #def.buildOptions > 0) then
 						has_builder = true
 						break
 					end
