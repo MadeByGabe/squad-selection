@@ -667,31 +667,33 @@ function widget:MousePress(x, y, button)
 			create_squad_from_selection()
 		end
 	elseif button == 1 and LEFT_CLICK_SELECTS_SQUAD then
-		local hit_type = spTraceScreenRay(x, y)
-		if hit_type ~= "unit" then
-			-- Skip if any selected unit is a builder (avoid interfering with build queuing)
-			local selected = spGetSelectedUnits()
-			local has_builder = false
-			for i = 1, #selected do
-				local def_id = get_defid(selected[i])
-				if def_id then
-					local def = UnitDefs[def_id]
-					if def.canResurrect or (def.buildOptions and #def.buildOptions > 0) then
-						has_builder = true
-						break
+		local alt, ctrl, _, shift = spGetModKeyState()
+		if alt or ctrl or shift then
+			local hit_type = spTraceScreenRay(x, y)
+			if hit_type ~= "unit" then
+				-- Skip if any selected unit is a builder (avoid interfering with build queuing)
+				local selected = spGetSelectedUnits()
+				local has_builder = false
+				for i = 1, #selected do
+					local def_id = get_defid(selected[i])
+					if def_id then
+						local def = UnitDefs[def_id]
+						if def.canResurrect or (def.buildOptions and #def.buildOptions > 0) then
+							has_builder = true
+							break
+						end
 					end
 				end
-			end
-			if not has_builder then
-				local alt, ctrl, _, shift = spGetModKeyState()
-				if alt and shift then
-					closest_squad_select_filtered(nil, nil, {"append"})
-				elseif alt and ctrl then
-					closest_squad_select_filtered(nil, nil, nil)
-				elseif shift then
-					closest_squad_select(nil, nil, {"append"})
-				elseif ctrl then
-					closest_squad_select(nil, nil, nil)
+				if not has_builder then
+					if alt and shift then
+						closest_squad_select_filtered(nil, nil, {"append"})
+					elseif alt and ctrl then
+						closest_squad_select_filtered(nil, nil, nil)
+					elseif shift then
+						closest_squad_select(nil, nil, {"append"})
+					elseif ctrl then
+						closest_squad_select(nil, nil, nil)
+					end
 				end
 			end
 		end
