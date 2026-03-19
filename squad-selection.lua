@@ -18,6 +18,7 @@ end
 local config = {
 	leftClickSelectsSquad = true, -- left-click can be used to select squads
 	cyclingToNextSquad = true, -- when full squad/type is selected, exclude it to cycle to next
+	rightClickSquadCreate = true, -- right-click creates squads; toggle with squad_create_toggle action
 }
 
 -------------------------------------------------------------------------------
@@ -306,7 +307,7 @@ end
 -- Finding closest unit
 --
 -- Returns the mouse cursor's world position, then iterates all tracked units
--- to find the one nearest to it.  Reusable for filtered variants later.
+-- to find the one nearest to it. 
 -------------------------------------------------------------------------------
 
 local function get_mouse_world_pos()
@@ -499,6 +500,21 @@ end
 
 
 -------------------------------------------------------------------------------
+-- Squad creation toggle + on-demand creation
+-------------------------------------------------------------------------------
+
+local function squad_create_toggle()
+	config.rightClickSquadCreate = not config.rightClickSquadCreate
+	spEcho("[Squad] Squad creation " .. (config.rightClickSquadCreate and "enabled" or "disabled"))
+end
+
+
+local function squad_create_now()
+	create_squad_from_selection()
+end
+
+
+-------------------------------------------------------------------------------
 -- Filtered squad selection
 --
 -- See development.md "Selection action decision matrix" for the full table.
@@ -594,6 +610,8 @@ function widget:Initialize()
 
 	widgetHandler:AddAction("closest_squad_select", closest_squad_select, nil, "p")
 	widgetHandler:AddAction("closest_squad_select_filtered", closest_squad_select_filtered, nil, "p")
+	widgetHandler:AddAction("squad_create_toggle", squad_create_toggle, nil, "p")
+	widgetHandler:AddAction("squad_create_now", squad_create_now, nil, "p")
 
 	-- WG interface for gui_options.lua integration
 	WG['squadselection'] = {
@@ -613,6 +631,14 @@ function widget:Initialize()
 			config.leftClickSelectsSquad = v
 		end
 ,
+		getRightClickSquadCreate = function()
+			return config.rightClickSquadCreate
+		end
+,
+		setRightClickSquadCreate = function(v)
+			config.rightClickSquadCreate = v
+		end
+,
 	}
 
 	log("Initialized — " .. count .. " combat units across reserve squads")
@@ -624,6 +650,8 @@ function widget:Shutdown()
 	WG['squadselection'] = nil
 	widgetHandler:RemoveAction("closest_squad_select")
 	widgetHandler:RemoveAction("closest_squad_select_filtered")
+	widgetHandler:RemoveAction("squad_create_toggle")
+	widgetHandler:RemoveAction("squad_create_now")
 	log("Shutdown")
 end
 
@@ -709,7 +737,7 @@ end
 -------------------------------------------------------------------------------
 
 function widget:MousePress(x, y, button)
-	if button == 3 then
+	if button == 3 and config.rightClickSquadCreate then
 		local alt, ctrl, meta, shift = spGetModKeyState()
 		if not (alt or ctrl or meta or shift) then
 			create_squad_from_selection()
