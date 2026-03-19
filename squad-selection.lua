@@ -65,7 +65,7 @@ local DOMAINS = {"land", "air", "naval"}
 -- Debug
 -------------------------------------------------------------------------------
 
-local DEBUG = true
+local DEBUG = false
 
 local function log(msg)
 	if DEBUG then
@@ -240,27 +240,32 @@ local function remove_from_squad(unit_id)
 end
 
 
--- Remove squads that have become empty (never removes reserve or active factory squads).
+-- Remove squads that have become empty (never removes reserve squads).
 local function prune_empty_squads()
 	for i = #squads, 1, -1 do
 		local sq = squads[i]
 		if not sq.is_reserve and #sq == 0 then
-			-- Keep factory squads that still have factories assigned to them
-			local has_factory = false
-			if sq.from_factory then
-				for _, fsq in pairs(factory_squad) do
-					if fsq == sq then
-						has_factory = true
-						break
-					end
-				end
-			end
-			if not has_factory then
-				log("Squad [" .. (sq.letter or "?") .. "] emptied and removed")
-				table.remove(squads, i)
-			end
+			log("Squad [" .. (sq.letter or "?") .. "] emptied and removed")
+			table.remove(squads, i)
 		end
 	end
+end
+
+
+-- Check whether any factory still references the given squad.
+-- If none do, clear is_reserve so the squad becomes prunable.
+local function update_factory_squad_reserve(sq)
+	if not sq or not sq.from_factory then
+		return
+	end
+	for _, fsq in pairs(factory_squad) do
+		if fsq == sq then
+			return
+		end
+	end
+	sq.is_reserve = false
+	sq.from_factory = false
+	assign_squad_tag(sq)
 end
 
 
@@ -318,9 +323,19 @@ local function create_squad_from_selection()
 			end
 		end
 		if any_assigned then
+			-- Collect affected squads before clearing
+			local affected = {}
 			for i = 1, #factories do
+				local sq = factory_squad[factories[i]]
+				if sq then
+					affected[sq] = true
+				end
 				factory_squad[factories[i]] = nil
 			end
+			for sq in pairs(affected) do
+				update_factory_squad_reserve(sq)
+			end
+			prune_empty_squads()
 			log("Removed factory squad assignments from " .. #factories .. " factory(s)")
 			return
 		end
@@ -329,6 +344,7 @@ local function create_squad_from_selection()
 		local new_squad = {}
 		assign_squad_tag(new_squad)
 		new_squad.color = FACTORY_RESERVE_COLOR
+		new_squad.is_reserve = true
 		new_squad.from_factory = true
 
 		local first_def = get_defid(factories[1])
@@ -903,12 +919,17 @@ end
 
 function widget:UnitDestroyed(unit_id, unit_def_id, unit_team, attacker_id)
 	local tracked = unit_squad[unit_id] ~= nil
+	local fq = factory_squad[unit_id]
 
 	remove_from_squad(unit_id)
 	defid_of[unit_id] = nil
 	factory_squad[unit_id] = nil
 
-	if tracked then
+	if fq then
+		update_factory_squad_reserve(fq)
+	end
+
+	if tracked or fq then
 		prune_empty_squads()
 		log("Unit " .. unit_id .. " destroyed — " .. #squads .. " squad(s) remain")
 	end
@@ -921,12 +942,17 @@ function widget:UnitTaken(unit_id, unit_def_id, unit_team, new_team)
 	end
 
 	local tracked = unit_squad[unit_id] ~= nil
+	local fq = factory_squad[unit_id]
 
 	remove_from_squad(unit_id)
 	defid_of[unit_id] = nil
 	factory_squad[unit_id] = nil
 
-	if tracked then
+	if fq then
+		update_factory_squad_reserve(fq)
+	end
+
+	if tracked or fq then
 		prune_empty_squads()
 		log("Unit " .. unit_id .. " taken by team " .. new_team)
 	end
@@ -1014,7 +1040,7 @@ function widget:DrawScreen()
 	end
 
 	for _, squad in ipairs(squads) do
-		if #squad > 0 and squad.color and not squad.is_reserve then
+		if #squad > 0 and squad.color and squad.letter then
 			local c = squad.color
 			glColor(c[1], c[2], c[3], 0.75)
 			for j = 1, #squad do
