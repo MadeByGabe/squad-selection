@@ -609,6 +609,50 @@ local function squad_select_group(_, _, args)
 		end
 	end
 
+	-- Cycling: if current selection exactly matches a squad∩group intersection,
+	-- exclude those units so we cycle to the next squad.
+	local exclude = nil
+	if config.cyclingToNextSquad then
+		local selected = spGetSelectedUnits()
+		if #selected > 0 then
+			local selected_set = {}
+			for i = 1, #selected do
+				selected_set[selected[i]] = true
+			end
+			-- Check if selection is a single squad's intersection with this group
+			local sel_squad = nil
+			local all_match = true
+			for i = 1, #selected do
+				local u = selected[i]
+				local sq = unit_squad[u]
+				if not sq or not group_set[u] then
+					all_match = false
+					break
+				end
+				if sel_squad == nil then
+					sel_squad = sq
+				elseif sq ~= sel_squad then
+					all_match = false
+					break
+				end
+			end
+			if all_match and sel_squad then
+				-- Check that the full intersection is selected (no unselected group members in that squad)
+				local full_intersection = true
+				for j = 1, #sel_squad do
+					local u = sel_squad[j]
+					if group_set[u] and not selected_set[u] then
+						full_intersection = false
+						break
+					end
+				end
+				if full_intersection then
+					exclude = selected_set
+				end
+			end
+		end
+	end
+
 	-- Filter to tracked units only and find closest to mouse
 	local wx, wz = get_mouse_world_pos()
 	if not wx then
@@ -619,7 +663,7 @@ local function squad_select_group(_, _, args)
 	local best_dist_sq = math.huge
 
 	for uid, _ in pairs(group_set) do
-		if unit_squad[uid] then
+		if unit_squad[uid] and not (exclude and exclude[uid]) then
 			local x, _, z = spGetUnitPosition(uid)
 			if x then
 				local dx = x - wx
