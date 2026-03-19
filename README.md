@@ -26,7 +26,7 @@ There is also a **filtered select** option that only selects the unit types from
 
 Both selection methods can be used with shift to append to the current selection instead of replacing it.  
 
-*Note: the left mouse selection methods can be disabled if you prefer to use hotkeys exclusively (set `LEFT_CLICK_SELECTS_SQUAD` to false).*
+*Note: the left mouse selection methods can be disabled if you prefer to use hotkeys exclusively (set `leftClickSelectsSquad` to false in data/LuaUi/Config/BYAR.lua -> Squad Selection section).*
 
 Each squad is labeled with a colored letter above its units so you can see which units belong together at a glance.
 
@@ -52,7 +52,7 @@ bind Alt+Shift+sc_b  closest_squad_select_filtered append
 
 ### Mouse controls
 
-With `LEFT_CLICK_SELECTS_SQUAD` enabled (default), clicking on empty ground triggers squad selection:
+With `leftClickSelectsSquad` enabled (default), clicking on empty ground triggers squad selection:
 
 | Click               | Action                          |
 | ------------------- | ------------------------------- |
@@ -61,13 +61,13 @@ With `LEFT_CLICK_SELECTS_SQUAD` enabled (default), clicking on empty ground trig
 | **Alt+Ctrl+click**  | Filtered squad select (replace) |
 | **Alt+Shift+click** | Filtered squad select (append)  |
 
-Mouse controls are skipped when clicking directly on a unit or when any selected unit is a builder (to avoid interfering with build placement).
+Mouse squad selections are skipped when clicking directly on a unit or when an active command is pending (fight, patrol, build placement, etc.).
 
 **Right-click** (no modifiers) with a selection creates a squad from selected combat units.
 
 ### Cycling
 
-When you already have a full squad selected (or all matching types for filtered select), the action automatically excludes your current selection and finds the *next* closest squad. This lets you cycle through squads by pressing the same key repeatedly (can be disabled by CYCLING_TO_NEXT_SQUAD).
+When you already have a full squad selected (or all matching types for filtered select), the action automatically excludes your current selection and finds the *next* closest squad. This lets you cycle through squads by pressing the same key repeatedly (can be disabled via `cyclingToNextSquad` in data/LuaUi/Config/BYAR.lua -> Squad Selection section).
 
 ## Filtered selection
 
@@ -75,12 +75,12 @@ Filtered selection is useful with some playstyles but unnecessary for others. If
 
 ## Configuration
 
-At the top of the file:
+In `data/LuaUi/Config/BYAR.lua` there will be a "Squad Selection" section after you have a game with the widget enabled at least once. You can change the settings there. 
 
-```lua
-local LEFT_CLICK_SELECTS_SQUAD = true   -- modifier+click on empty ground
-local CYCLING_TO_NEXT_SQUAD = true      -- cycle when full squad is selected
-```
+| Setting                 | Default | Description                                     |
+| ----------------------- | ------- | ----------------------------------------------- |
+| `leftClickSelectsSquad` | `true`  | Modifier+click on empty ground selects squads   |
+| `cyclingToNextSquad`    | `true`  | Cycle to next squad when full squad is selected |
 
 *Note: control groups have a nice feature when we double tap their number key to move the camera to that group. Something similar for squads should be possible but in the meantime you can bind `viewselection` to a hotkey for a similar effect (it centers the camera on your current selection).*
 
@@ -88,7 +88,7 @@ local CYCLING_TO_NEXT_SQUAD = true      -- cycle when full squad is selected
 
 - [ ] **Control group squad intersection**: gets the units from a control group, finds the closest unit from that set, then selects that unit's squad and the control group's intersection.
 - [ ] **Split squad**: select a fraction of the closest squad (or any selection?) sorted by distance to the cursor. 
-- [ ] **Settings menu**: in-game for most important options.
+- [ ] **Settings menu**: in-game settings menu integration (WG interface is ready).
 
 *For possible future features check the issues with the idea tag.*
 
