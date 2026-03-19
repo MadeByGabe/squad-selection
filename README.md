@@ -81,13 +81,43 @@ In `data/LuaUi/Config/BYAR.lua` there will be a "Squad Selection" section after 
 | ----------------------- | ------- | ----------------------------------------------- |
 | `leftClickSelectsSquad` | `true`  | Modifier+click on empty ground selects squads   |
 | `cyclingToNextSquad`    | `true`  | Cycle to next squad when full squad is selected |
+| `squadCreateEnabled`    | `true`  | Right-click squad creation is active            |
 
 *Note: control groups have a nice feature when we double tap their number key to move the camera to that group. Something similar for squads should be possible but in the meantime you can bind `viewselection` to a hotkey for a similar effect (it centers the camera on your current selection).*
 
+### Squad creation toggle + hotkey
+
+Right-click squad creation can be toggled on/off. (Detailed explanation for the why soon). 
+
+There's also an action to create a squad on demand (without needing right-click).
+
+
+| Action                | What it does                               |
+| --------------------- | ------------------------------------------ |
+| `squad_create_now`    | Creates a squad from the current selection |
+| `squad_create_toggle` | Toggles right-click squad creation on/off  |
+
+### Control group intersection
+
+Select the intersection of a squad and a control group. Uses the closest unit from the control group to determine which squad, then selects only the units that are in both that squad and the control group.
+
+Suggested keybinds:
+```
+bind Shift+Meta+sc_1 squad_select_group 1 append
+bind Meta+sc_1 squad_select_group 1
+bind Shift+Meta+sc_2 squad_select_group 2 append
+bind Meta+sc_2 squad_select_group 2
+...
+```
+
+| Action                        | What it does                           |
+| ----------------------------- | -------------------------------------- |
+| `squad_select_group N`        | Select squad ∩ group N closest to cursor |
+| `squad_select_group N append` | Same, but appends to selection         |
+
 ## Roadmap
 
-- [ ] **Control group squad intersection**: gets the units from a control group, finds the closest unit from that set, then selects that unit's squad and the control group's intersection.
-- [ ] **Split squad**: select a fraction of the closest squad (or any selection?) sorted by distance to the cursor. 
+- [ ] **Split squad**: select a fraction of the closest squad (or any selection?) sorted by distance to the cursor.
 - [ ] **Settings menu**: in-game settings menu integration (WG interface is ready).
 
 *For possible future features check the issues with the idea tag.*
