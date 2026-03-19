@@ -115,6 +115,18 @@ bind Meta+2 squad_select_group 2
 | `squad_select_group N`        | Select squad ∩ group N closest to cursor |
 | `squad_select_group N append` | Same, but appends to selection           |
 
+### Factory / lab assignment
+
+By default, newly built combat units go into a domain reserve squad (land, air, or naval). You can assign factories to their own reserve squad so their units are tracked separately.
+
+**How to use:** Select one or more factories and press the `squad_create_now` hotkey. A new factory reserve squad is created and all selected factories are assigned to it. Units built by those factories will go into that squad instead of the domain reserve.
+
+Factory reserve squads are shown with a gray label decorated with domain symbols (e.g. `-A-` for a land factory, `^B^` for air, `~C~` for naval). Multiple factories can share one squad.
+
+**Toggling:** If any selected factory already has a squad assigned, pressing the hotkey removes the assignment from all selected factories. Press again to assign a new squad.
+
+**Example use case:** You have 3 bot labs, 2 producing cheap spam units for distraction, 1 producing expensive units you want to micro. Assign the expensive lab to its own squad, then easily select just those units when you need them.
+
 ## Roadmap
 
 - [ ] **Split squad**: select a fraction of the closest squad (or any selection?) sorted by distance to the cursor.

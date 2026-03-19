@@ -66,7 +66,7 @@ local DOMAINS = {"land", "air", "naval"}
 -- Debug
 -------------------------------------------------------------------------------
 
-local DEBUG = true
+local DEBUG = false
 
 local function log(msg)
 	if DEBUG then
