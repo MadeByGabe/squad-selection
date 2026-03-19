@@ -15,8 +15,34 @@ end
 -- Config
 -------------------------------------------------------------------------------
 
+local CONFIG_PRESET = "default"
+
 local LEFT_CLICK_SELECTS_SQUAD = true -- left-click can be used to select squads
+local COMMAND_CREATES_SQUAD = false
+local RIGHT_CLICK_CREATES_SQUAD = true
 local CYCLING_TO_NEXT_SQUAD = true -- when full squad/type is selected, exclude it to cycle to next
+local COLORED_LABEL_VISIBLE = true -- draws a colored letter or symbol next to each unit, with consistent colors/symbols for the units in each squad
+
+local CONVEX_HULL_VISIBLE = false -- draws a colored border around the units in the squad, with a semi-transparent fill
+local CONVEX_HULL_PADDING_LAND = 50 -- space (in elmos?) between the units and the hull boundary
+local CONVEX_HULL_PADDING_NAVY = 100
+local CONVEX_HULL_PADDING_AIR = 500 -- for idle airplanes this padding is relative to the position they went idle at
+local CONVEX_HULL_ARC_RESOLUTION = math.rad(30) -- angle that each chord of the arc spans
+local CONVEX_HULL_AIR_HEIGHT_BOOST = 200
+local CONVEX_HULL_AIR_FLOOR_DELTA = 200 -- grid size (elmos?)
+local CONVEX_HULL_AIR_FLOOR_CURTAIN_SLOPE = 0.2
+local CONVEX_HULL_AIR_FLOOR_SEARCH_DISTANCE = 1000
+local CONVEX_HULL_FILL_OPACITY = 0.1
+local CONVEX_HULL_BORDER_OPACITY = 0.2
+local CONVEX_HULL_BORDER_THICKNESS = 2
+
+if CONFIG_PRESET == "yyyy" then
+	COMMAND_CREATES_SQUAD = true
+	RIGHT_CLICK_CREATES_SQUAD = false
+	LEFT_CLICK_SELECTS_SQUAD = false
+	CONVEX_HULL_VISIBLE = true
+	COLORED_LABEL_VISIBLE = false
+end
 
 -------------------------------------------------------------------------------
 -- Localized Spring API
@@ -77,6 +103,15 @@ local function log_squads()
 		end
 		log("    [" .. label .. "] " .. #squad .. " units")
 	end
+end
+
+-------------------------------------------------------------------------------
+-- Utility
+-------------------------------------------------------------------------------
+
+-- more readable way to limit a value at two ends
+function constrain(x,min,max)
+    return math.max(min,math.min(max,x))
 end
 
 
@@ -264,8 +299,9 @@ local function selection_is_existing_squad(selected)
 	return squad ~= nil and #squad == combat_count
 end
 
-
+local player_input_since_last_resquad = false
 local function create_squad_from_selection()
+	player_input_since_last_resquad = false
 	local selected = spGetSelectedUnits()
 	if #selected == 0 then
 		return
@@ -549,6 +585,9 @@ end
 -------------------------------------------------------------------------------
 
 function widget:Initialize()
+
+	create_airplane_floor()
+
 	squads = {}
 	reserve_squads = {}
 	unit_squad = {}
@@ -611,6 +650,7 @@ function widget:UnitCreated(unit_id, unit_def_id, unit_team, builder_id)
 end
 
 
+local last_idle_locations = {}
 function widget:UnitDestroyed(unit_id, unit_def_id, unit_team, attacker_id)
 	local tracked = unit_squad[unit_id] ~= nil
 
@@ -621,6 +661,10 @@ function widget:UnitDestroyed(unit_id, unit_def_id, unit_team, attacker_id)
 		prune_empty_squads()
 		log("Unit " .. unit_id .. " destroyed — " .. #squads .. " squad(s) remain")
 	end
+
+	-- location where a unit became idle is useful
+	-- for constructing less visually obnoxious aircraft convex hulls
+	if last_idle_locations[unitID] then last_idle_locations[unitID]=nil end
 end
 
 
@@ -659,12 +703,14 @@ end
 -------------------------------------------------------------------------------
 -- Input
 -------------------------------------------------------------------------------
-
 function widget:MousePress(x, y, button)
+	player_input_since_last_resquad = true
 	if button == 3 then
-		local alt, ctrl, meta, shift = spGetModKeyState()
-		if not (alt or ctrl or meta or shift) then
-			create_squad_from_selection()
+		if RIGHT_CLICK_CREATES_SQUAD then
+			local alt, ctrl, meta, shift = spGetModKeyState()
+			if not (alt or ctrl or meta or shift) then
+				create_squad_from_selection()
+			end
 		end
 	elseif button == 1 and LEFT_CLICK_SELECTS_SQUAD then
 		local alt, ctrl, _, shift = spGetModKeyState()
@@ -701,11 +747,14 @@ function widget:MousePress(x, y, button)
 	-- Never return true: let the click pass through to the engine.
 end
 
+function widget:KeyPress(key, mods, isRepeat)
+	player_input_since_last_resquad = true
+end
+
 
 -------------------------------------------------------------------------------
 -- Drawing
 --
--- Each squad draws its assigned letter above every unit in its color.
 -------------------------------------------------------------------------------
 
 function widget:DrawScreen()
@@ -713,23 +762,362 @@ function widget:DrawScreen()
 		return
 	end
 
-	for _, squad in ipairs(squads) do
-		if #squad > 0 and squad.color then
-			local c = squad.color
-			glColor(c[1], c[2], c[3], 0.75)
-			for j = 1, #squad do
-				local _, _, _, x, y, z = spGetUnitPosition(squad[j], true)
-				if x then
-					local sx, sy = spWorldToScreenCoords(x, y, z)
-					if sx then
-						glText(squad.letter, sx, sy + 14, 10, "co")
+	-- Each squad draws its assigned letter above every unit in its color.
+	if COLORED_LABEL_VISIBLE then
+		for _, squad in ipairs(squads) do
+			if #squad > 0 and squad.color then
+				local c = squad.color
+				glColor(c[1], c[2], c[3], 0.75)
+				for j = 1, #squad do
+					local _, _, _, x, y, z = spGetUnitPosition(squad[j], true)
+					if x then
+						local sx, sy = spWorldToScreenCoords(x, y, z)
+						if sx then
+							glText(squad.letter, sx, sy + 14, 10, "co")
+						end
 					end
 				end
 			end
 		end
+		glColor(1, 1, 1, 1)
 	end
 
-	glColor(1, 1, 1, 1)
 end
 
 
+
+
+-- convex hull
+
+
+
+
+
+-- compute a nicer surface to project the aircraft convex hulls onto
+-- airplane_floor is a 2d array containing
+-- sampled map heights, with cliffs turn into hills
+-- like draping a stiff blanket over the map
+-- for example, it turns this
+--                 ___                                                         
+--                |   |                                                       
+--                |   |                                                       
+--  ______________|   |___________________________                            
+--                                                                            
+--                                                                            
+-- into this                                                                  
+--                 ___                                                        
+--             _ -     - _                                                   
+--          _ -           - _                                                 
+--  ______-                   -__________________                          
+--                                                                                     
+--                                                                            
+--                          
+
+ -- shorter name
+local delta = CONVEX_HULL_AIR_FLOOR_DELTA
+
+-- map dimensions for determining grid size
+-- and for limiting lookups to be inside the floor
+local map_xmax = Game.mapSizeX
+local map_ymax = Game.mapSizeZ
+                                                  
+local airplane_floor = {}
+function create_airplane_floor()
+
+
+	local curtain_slope=CONVEX_HULL_AIR_FLOOR_CURTAIN_SLOPE -- shorter name
+
+	-- number of boxes in the grid. each box has 4 lookup points
+	local n_box_x = math.floor(map_xmax/delta)
+	local n_box_y = math.floor(map_ymax/delta)
+
+    -- pass 1 - sample random map points in the area
+	-- from the actual map
+    for i=0,n_box_x do
+        airplane_floor[i]={}
+        for j=0,n_box_y do
+			local map_height = Spring.GetGroundHeight(i*delta,j*delta)
+            local floor_height = map_height
+            for r = 0,CONVEX_HULL_AIR_FLOOR_SEARCH_DISTANCE,200 do
+                for theta = 0,6 do
+					local sample_height = Spring.GetGroundHeight(i*delta+r*math.cos(theta),j*delta+r*math.sin(theta))
+                    floor_height = math.max(floor_height,sample_height-r*curtain_slope)
+                end
+            end
+            airplane_floor[i][j]=floor_height
+        end
+    end
+
+    -- pass 2 - sample every point in the vicinity
+	-- taken from the floor computed in pass 1
+    for i=0,n_box_x do
+        for j=0,n_box_y do
+            local floor_height = 0
+            local curtain_block_length = math.ceil(CONVEX_HULL_AIR_FLOOR_SEARCH_DISTANCE/delta)
+            for ii=math.max(0,i-curtain_block_length),math.min(n_box_x,i+curtain_block_length) do
+                for jj=math.max(0,j-curtain_block_length),math.min(n_box_y,j+curtain_block_length) do
+                    local distance = ((i-ii)^2+(j-jj)^2)^0.5*delta
+                    floor_height = math.max(floor_height,airplane_floor[ii][jj]-distance*curtain_slope)
+                end
+            end
+			airplane_floor[i][j]=floor_height
+        end
+    end
+end
+
+-- bilinear interpolation of the airplane floor
+function airplane_floor_height(x,y)
+    x=constrain(x,0,map_xmax-delta)
+    y=constrain(y,0,map_ymax-delta)
+    local left = math.floor(x/delta)
+    local bottom = math.floor(y/delta)
+    local right = left+1
+    local top = bottom+1
+    local box_x = (x-left*delta)/delta
+    local box_y = (y-bottom*delta)/delta
+    local weight_bottomleft=(1-box_x)*(1-box_y)
+    local weight_bottomright=(box_x)*(1-box_y)
+    local weight_topleft=(1-box_x)*(box_y)
+    local weight_topright=(box_x)*(box_y)
+    return airplane_floor[left][bottom]*weight_bottomleft+
+			airplane_floor[right][bottom]*weight_bottomright+
+			airplane_floor[left][top]*weight_topleft+
+			airplane_floor[right][top]*weight_topright
+end
+
+
+-- idle detection for less visually distracting aircraft hulls
+function widget:UnitIdle(unitID, unitDefID, unitTeam)
+  local x,y,z=Spring.GetUnitPosition(unitID)
+  local idle_pos = {x=x,y=y,z=z}
+  last_idle_locations[unitID]=idle_pos
+end
+
+-- the position for a unit that is used to create the convex hull
+-- for a squad the unit is in
+-- 
+-- this is typically just the unit position
+-- but idle aircraft use the position that they went idle at
+function unit_hull_reference_position(u)
+    local command_queue_length = Spring.GetUnitCommands(u,0)
+	local unit_def = get_defid(u)
+	local domain = unit_def and unit_domain[unit_def]
+    local x,y,z = Spring.GetUnitPosition(u)
+    if not command_queue_length or not x or not y or not z or not unit_def then return nil,nil,nil end -- return nil if unit got detroyed mid-function
+    if command_queue_length>0 then return x,y,z end 
+    local idle_pos = last_idle_locations[u]
+    if idle_pos and domain == "air" then return idle_pos.x,idle_pos.y,idle_pos.z end
+    return x,y,z
+end
+
+
+function convex_hull(points)
+    local function compare(a, b)
+        return a.x < b.x or (a.x == b.x and a.y < b.y)
+    end
+    table.sort(points, compare)
+    local function cross(o, a, b)
+        return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x)
+    end
+    local hull = {}
+    for _, p in ipairs(points) do
+        while #hull >= 2 and cross(hull[#hull-1], hull[#hull], p) <= 0 do
+            table.remove(hull)
+        end
+        hull[#hull+1] = p
+    end
+    local upper = {}
+    for i = #points, 1, -1 do
+        local p = points[i]
+        while #upper >= 2 and cross(upper[#upper-1], upper[#upper], p) <= 0 do
+            table.remove(upper)
+        end
+        upper[#upper+1] = p
+    end
+    for i = 2, #upper-1 do
+        hull[#hull+1] = upper[i]
+    end
+    return hull
+end
+
+-- Compute right normal for CCW edge
+local function edge_normal(dx, dy)
+    return dy, -dx
+end
+
+-- circle for squads with only one unit
+local function padded_circle(center, radius, arc_segments_angle)
+    local arc_angle = 2*math.pi
+    local segments = math.ceil(arc_angle / arc_segments_angle)
+    segments = math.max(segments, 3)
+    local points = {}
+    for i = 0, segments-1 do
+        local angle = 2*math.pi*i/segments
+        points[#points+1] = {
+            x = center.x + radius * math.cos(angle),
+            y = center.y + radius * math.sin(angle)
+        }
+    end
+    return points
+end
+
+-- rounded padded convex hull for 2+ units
+local function padded_more_than_one_unit(hull, radius, arc_segments_angle)
+    local n = #hull
+    local points = {}
+    for i = 1, n do
+
+		-- neighbors
+        local prev = hull[i == 1 and n or i - 1]
+        local curr = hull[i]
+        local next = hull[i == n and 1 or i + 1]
+
+        -- Edge directions
+        local dx_prev, dy_prev = curr.x - prev.x, curr.y - prev.y
+        local dx_next, dy_next = next.x - curr.x, next.y - curr.y
+
+        -- Right normals (outward for CCW)
+        local nx_prev, ny_prev = edge_normal(dx_prev, dy_prev)
+        local nx_next, ny_next = edge_normal(dx_next, dy_next)
+
+        -- Arc at corner from prev normal to next normal
+        local angle_prev = math.atan2(ny_prev, nx_prev)
+        local angle_next = math.atan2(ny_next, nx_next)
+        local angle_diff = angle_next - angle_prev
+        while angle_diff < 0 do angle_diff = angle_diff + 2*math.pi end
+        local arc_segments = math.ceil(angle_diff / arc_segments_angle)
+        arc_segments = math.max(arc_segments, 1)
+        for j = 0, arc_segments do
+            local t = j / arc_segments
+            local theta = angle_prev + t * angle_diff
+            points[#points+1] = {
+                x = curr.x + radius * math.cos(theta),
+                y = curr.y + radius * math.sin(theta)
+            }
+        end
+    end
+    return points
+end
+
+-- Choose the correct function for the current squad
+function get_padded_hull(worldPoints, radius, arc_segments_angle)
+    if #worldPoints == 1 then
+        return padded_circle(worldPoints[1], radius, arc_segments_angle)
+    elseif #worldPoints >= 2 then
+        local hull = convex_hull(worldPoints)
+        return padded_more_than_one_unit(hull, radius, arc_segments_angle)
+    else
+        return {}
+    end
+end
+
+local team_r,team_g,team_b,team_a = Spring.GetTeamColor(Spring.GetMyTeamID())
+local HULL_PARAMETERS_FULLY_SELECTED = {
+    fillColor = {1, 1, 1, CONVEX_HULL_FILL_OPACITY},
+    borderColor = {1, 1, 1, CONVEX_HULL_BORDER_OPACITY},
+    borderThickness = CONVEX_HULL_BORDER_THICKNESS
+}
+local HULL_PARAMETERS_UNSELECTED = {
+    fillColor = {team_r, team_g, team_b, CONVEX_HULL_FILL_OPACITY},
+    borderColor = {team_r, team_g, team_b, CONVEX_HULL_BORDER_OPACITY},
+    borderThickness = CONVEX_HULL_BORDER_THICKNESS
+}
+
+function widget:DrawWorldPreUnit()
+	if CONVEX_HULL_VISIBLE then
+		if not squads or #squads == 0 then return end
+
+		-- build list of selected units, for later use
+		local selectedUnitList = Spring.GetSelectedUnits()
+		local selectedUnits = {}
+		for _, id in ipairs(selectedUnitList) do
+			selectedUnits[id] = true
+		end
+
+		for _, squad in ipairs(squads) do
+
+			if not squad.is_reserve then
+
+				-- determine color styling
+				-- based on whether all units in the squad are selected
+				local allSelected = true
+				for _, unitID in ipairs(squad) do
+					if not selectedUnits[unitID] then
+						allSelected = false
+						break
+					end
+				end
+				local params = allSelected and HULL_PARAMETERS_FULLY_SELECTED or HULL_PARAMETERS_UNSELECTED
+
+				-- collect unit positions (in world coordinates?)
+				local worldPoints = {}
+				for _, unitID in ipairs(squad) do
+					local x, y, z = unit_hull_reference_position(unitID)
+					if x and y and z then
+						worldPoints[#worldPoints+1] = {x=x, y=z}
+					end
+				end
+
+				-- determine domains present in the squad
+				local air_present = false
+				local land_present = false
+				local navy_present = false
+				for _, unitID in ipairs(squad) do
+					local unit_def = get_defid(unitID)
+					if unit_def then 
+						if unit_domain[unit_def]=="naval" then navy_present = true end
+						if unit_domain[unit_def]=="land" then land_present = true end
+						if unit_domain[unit_def]=="air" then air_present = true end
+					end
+				end
+
+				-- calculate and draw hull
+				if #worldPoints > 0 then
+
+					local radius = CONVEX_HULL_PADDING_LAND
+					if navy_present then radius = CONVEX_HULL_PADDING_NAVY end
+					if air_present then radius = CONVEX_HULL_PADDING_AIR end
+
+					-- calculate the 2d hull
+					local paddedHull = get_padded_hull(worldPoints, radius, CONVEX_HULL_ARC_RESOLUTION)
+
+					-- calculate the 3d projection of this hull
+					local screenHull = {}
+					for _, p in ipairs(paddedHull) do
+						local h = 0
+						if air_present then h=airplane_floor_height(p.x,p.y)+CONVEX_HULL_AIR_HEIGHT_BOOST end
+						if navy_present then h = 0 end
+						if land_present then h = Spring.GetGroundHeight(p.x,p.y) end
+						screenHull[#screenHull+1] = {x=p.x, y=h, z=p.y}
+					end
+					
+					-- draw the hull
+					gl.DepthTest(false)
+					gl.Color(params.fillColor)
+					gl.BeginEnd(GL.POLYGON, function()
+						for _, p in ipairs(screenHull) do
+							-- gl.Vertex(p.x, p.y)
+							gl.Vertex(p.x, p.y, p.z)
+						end
+					end)
+					gl.Color(params.borderColor)
+					gl.LineWidth(params.borderThickness)
+					gl.BeginEnd(GL.LINE_LOOP, function()
+						for _, p in ipairs(screenHull) do
+							-- gl.Vertex(p.x, p.y)
+							gl.Vertex(p.x, p.y, p.z)
+						end
+					end)
+					gl.DepthTest(true)
+					glColor(1, 1, 1, 1)
+					gl.LineWidth(1)
+				end
+			end
+		end
+	end
+end
+
+
+function widget:UnitCommand(unitID, unitDefID, unitTeam, cmdID, cmdParams, cmdOpts, cmdTag)
+	if COMMAND_CREATES_SQUAD and player_input_since_last_resquad then create_squad_from_selection() end
+end
