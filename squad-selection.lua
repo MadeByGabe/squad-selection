@@ -46,6 +46,7 @@ local spGetActiveCommand = Spring.GetActiveCommand
 local spGetMyPlayerID = Spring.GetMyPlayerID
 local spGetGroupUnits = Spring.GetGroupUnits
 local spGetUnitGroup = Spring.GetUnitGroup
+local spGetMouseCursor = Spring.GetMouseCursor
 
 local glColor = gl.Color
 local glText = gl.Text
@@ -65,7 +66,7 @@ local DOMAINS = {"land", "air", "naval"}
 -- Debug
 -------------------------------------------------------------------------------
 
-local DEBUG = false
+local DEBUG = true
 
 local function log(msg)
 	if DEBUG then
@@ -995,8 +996,9 @@ function widget:MousePress(x, y, button)
 			if cmdID then
 				return
 			end
+			local cursor = spGetMouseCursor()
 			local hit_type = spTraceScreenRay(x, y)
-			if hit_type ~= "unit" then
+			if cursor == "Move" and hit_type ~= "unit" then
 				if alt and shift then
 					closest_squad_select_filtered(nil, nil, {"append"})
 				elseif alt and ctrl then
