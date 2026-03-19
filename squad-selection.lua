@@ -44,6 +44,8 @@ local spGetModKeyState = Spring.GetModKeyState
 local spGetSpectatingState = Spring.GetSpectatingState
 local spGetActiveCommand = Spring.GetActiveCommand
 local spGetMyPlayerID = Spring.GetMyPlayerID
+local spGetGroupUnits = Spring.GetGroupUnits
+local spGetUnitGroup = Spring.GetUnitGroup
 
 local glColor = gl.Color
 local glText = gl.Text
@@ -566,6 +568,97 @@ end
 
 
 -------------------------------------------------------------------------------
+-- Control group intersection
+--
+-- Selects the intersection of a control group and the closest squad.
+-- Algorithm: get units in group N → filter to tracked → find closest to
+-- mouse → get its squad → select squad ∩ group.
+-------------------------------------------------------------------------------
+
+local function squad_select_group(_, _, args)
+	if not args or not args[1] then
+		return
+	end
+	local group_num = tonumber(args[1])
+	if not group_num then
+		return
+	end
+	local append = args[2] == "append"
+
+	-- Get units in the control group — try GetGroupUnits first, fall back to
+	-- iterating tracked units with GetUnitGroup.
+	local group_units
+	if spGetGroupUnits then
+		group_units = spGetGroupUnits(group_num)
+	end
+
+	local group_set = {}
+	if group_units and #group_units > 0 then
+		for i = 1, #group_units do
+			group_set[group_units[i]] = true
+		end
+	else
+		-- Fallback: iterate all tracked units
+		for _, squad in ipairs(squads) do
+			for j = 1, #squad do
+				local u = squad[j]
+				if spGetUnitGroup(u) == group_num then
+					group_set[u] = true
+				end
+			end
+		end
+	end
+
+	-- Filter to tracked units only and find closest to mouse
+	local wx, wz = get_mouse_world_pos()
+	if not wx then
+		return
+	end
+
+	local best_unit = nil
+	local best_dist_sq = math.huge
+
+	for uid, _ in pairs(group_set) do
+		if unit_squad[uid] then
+			local x, _, z = spGetUnitPosition(uid)
+			if x then
+				local dx = x - wx
+				local dz = z - wz
+				local dist_sq = dx * dx + dz * dz
+				if dist_sq < best_dist_sq then
+					best_dist_sq = dist_sq
+					best_unit = uid
+				end
+			end
+		end
+	end
+
+	if not best_unit then
+		return
+	end
+
+	local squad = unit_squad[best_unit]
+	if not squad then
+		return
+	end
+
+	-- Select intersection of squad and control group
+	local result = {}
+	for j = 1, #squad do
+		local u = squad[j]
+		if group_set[u] then
+			result[#result + 1] = u
+		end
+	end
+
+	if #result > 0 then
+		spSelectUnitArray(result, append)
+		log("Group " .. group_num .. " ∩ squad [" .. (squad.letter or "?") .. "]: " .. #result .. " units" .. (append and " +append" or ""))
+	end
+end
+
+
+-------------------------------------------------------------------------------
 -- Lifecycle
 -------------------------------------------------------------------------------
 
@@ -612,6 +705,7 @@ function widget:Initialize()
 	widgetHandler:AddAction("closest_squad_select_filtered", closest_squad_select_filtered, nil, "p")
 	widgetHandler:AddAction("squad_create_toggle", squad_create_toggle, nil, "p")
 	widgetHandler:AddAction("squad_create_now", squad_create_now, nil, "p")
+	widgetHandler:AddAction("squad_select_group", squad_select_group, nil, "p")
 
 	-- WG interface for gui_options.lua integration
 	WG['squadselection'] = {
@@ -652,6 +746,7 @@ function widget:Shutdown()
 	widgetHandler:RemoveAction("closest_squad_select_filtered")
 	widgetHandler:RemoveAction("squad_create_toggle")
 	widgetHandler:RemoveAction("squad_create_now")
+	widgetHandler:RemoveAction("squad_select_group")
 	log("Shutdown")
 end
 
