@@ -15,34 +15,32 @@ end
 -- Config
 -------------------------------------------------------------------------------
 
-local CONFIG_PRESET = "default"
 
-local LEFT_CLICK_SELECTS_SQUAD = true -- left-click can be used to select squads
-local COMMAND_CREATES_SQUAD = false
-local RIGHT_CLICK_CREATES_SQUAD = true
-local CYCLING_TO_NEXT_SQUAD = true -- when full squad/type is selected, exclude it to cycle to next
-local COLORED_LABEL_VISIBLE = true -- draws a colored letter or symbol next to each unit, with consistent colors/symbols for the units in each squad
+local default_config = {
+	leftClickSelectsSquad = true, -- left-click can be used to select squads
+	cyclingToNextSquad = true, -- when full squad/type is selected, exclude it to cycle to next
+	rightClickSquadCreate = true, -- right-click creates squads; toggle with squad_create_toggle action
+	commandCreatesSquad = false,
+	cyclingToNextSquad = true, -- when full squad/type is selected, exclude it to cycle to next
+	coloredLabelVisible = true, -- draws a colored letter or symbol next to each unit, with consistent colors/symbols for the units in each squad
 
-local CONVEX_HULL_VISIBLE = false -- draws a colored border around the units in the squad, with a semi-transparent fill
-local CONVEX_HULL_PADDING_LAND = 50 -- space (in elmos?) between the units and the hull boundary
-local CONVEX_HULL_PADDING_NAVY = 100
-local CONVEX_HULL_PADDING_AIR = 500 -- for idle airplanes this padding is relative to the position they went idle at
-local CONVEX_HULL_ARC_RESOLUTION = math.rad(30) -- angle that each chord of the arc spans
-local CONVEX_HULL_AIR_HEIGHT_BOOST = 200
-local CONVEX_HULL_AIR_FLOOR_DELTA = 200 -- grid size (elmos?)
-local CONVEX_HULL_AIR_FLOOR_CURTAIN_SLOPE = 0.2
-local CONVEX_HULL_AIR_FLOOR_SEARCH_DISTANCE = 1000
-local CONVEX_HULL_FILL_OPACITY = 0.1
-local CONVEX_HULL_BORDER_OPACITY = 0.2
-local CONVEX_HULL_BORDER_THICKNESS = 2
+	convexHullVisible = false, -- draws a colored border around the units in the squad, with a semi-transparent fill
+	convexHullPaddingLand = 50, -- space (in elmos?) between the units and the hull boundary
+	convexHullPaddingNavy = 100,
+	convexHullPaddingAir = 500, -- for idle airplanes this padding is relative to the position they went idle at
+	convexHullArcResolution = math.rad(30), -- angle that each chord of the arc spans
+	convexHullAirHeightBoost = 200,
+	convexHullAirFloorDelta = 200, -- grid size (elmos?)
+	convexHullAirFloorCurtainSlope = 0.2,
+	convexHullAirFloorSearchDistance = 1000,
+	convexHullFillOpacity = 0.1,
+	convexHullBorderOpacity = 0.2,
+	convexHullBorderThickness = 2,
+}
+local config = default_config
 
-if CONFIG_PRESET == "yyyy" then
-	COMMAND_CREATES_SQUAD = true
-	RIGHT_CLICK_CREATES_SQUAD = false
-	LEFT_CLICK_SELECTS_SQUAD = false
-	CONVEX_HULL_VISIBLE = true
-	COLORED_LABEL_VISIBLE = false
-end
+
+
 
 -------------------------------------------------------------------------------
 -- Localized Spring API
@@ -64,6 +62,11 @@ local spTraceScreenRay = Spring.TraceScreenRay
 local spWorldToScreenCoords = Spring.WorldToScreenCoords
 local spIsGUIHidden = Spring.IsGUIHidden
 local spGetModKeyState = Spring.GetModKeyState
+local spGetSpectatingState = Spring.GetSpectatingState
+local spGetActiveCommand = Spring.GetActiveCommand
+local spGetMyPlayerID = Spring.GetMyPlayerID
+local spGetGroupUnits = Spring.GetGroupUnits
+local spGetUnitGroup = Spring.GetUnitGroup
 
 local glColor = gl.Color
 local glText = gl.Text
@@ -337,7 +340,7 @@ end
 -- Finding closest unit
 --
 -- Returns the mouse cursor's world position, then iterates all tracked units
--- to find the one nearest to it.  Reusable for filtered variants later.
+-- to find the one nearest to it. 
 -------------------------------------------------------------------------------
 
 local function get_mouse_world_pos()
@@ -510,7 +513,7 @@ local function closest_squad_select(_, _, args)
 
 	-- Full squad: cycle to next squad (exclude selected) or fall through as multi-squad
 	local exclude = nil
-	if sel.is_full_squad and CYCLING_TO_NEXT_SQUAD then
+	if sel.is_full_squad and config.cyclingToNextSquad then
 		exclude = sel.selected_set
 	end
 
@@ -526,6 +529,21 @@ local function closest_squad_select(_, _, args)
 
 	spSelectUnitArray(squad, append)
 	log("Selected squad [" .. (squad.letter or "?") .. "] (" .. #squad .. " units)" .. (append and " +append" or ""))
+end
+
+
+-------------------------------------------------------------------------------
+-- Squad creation toggle + on-demand creation
+-------------------------------------------------------------------------------
+
+local function squad_create_toggle()
+	config.rightClickSquadCreate = not config.rightClickSquadCreate
+	spEcho("[Squad] Squad creation " .. (config.rightClickSquadCreate and "enabled" or "disabled"))
+end
+
+
+local function squad_create_now()
+	create_squad_from_selection()
 end
 
 
@@ -546,7 +564,7 @@ local function closest_squad_select_filtered(_, _, args)
 
 	-- Full type match: cycle to next squad (exclude selected) or fall through as multi-squad
 	local exclude = nil
-	if sel.is_full_type_match and CYCLING_TO_NEXT_SQUAD then
+	if sel.is_full_type_match and config.cyclingToNextSquad then
 		exclude = sel.selected_set
 	end
 
@@ -581,12 +599,151 @@ end
 
 
 -------------------------------------------------------------------------------
+-- Control group intersection
+--
+-- Selects the intersection of a control group and the closest squad.
+-- Algorithm: get units in group N → filter to tracked → find closest to
+-- mouse → get its squad → select squad ∩ group.
+-------------------------------------------------------------------------------
+
+local function squad_select_group(_, _, args)
+	if not args or not args[1] then
+		return
+	end
+	local group_num = tonumber(args[1])
+	if not group_num then
+		return
+	end
+	local append = args[2] == "append"
+
+	-- Get units in the control group — try GetGroupUnits first, fall back to
+	-- iterating tracked units with GetUnitGroup.
+	local group_units
+	if spGetGroupUnits then
+		group_units = spGetGroupUnits(group_num)
+	end
+
+	local group_set = {}
+	if group_units and #group_units > 0 then
+		for i = 1, #group_units do
+			group_set[group_units[i]] = true
+		end
+	else
+		-- Fallback: iterate all tracked units
+		for _, squad in ipairs(squads) do
+			for j = 1, #squad do
+				local u = squad[j]
+				if spGetUnitGroup(u) == group_num then
+					group_set[u] = true
+				end
+			end
+		end
+	end
+
+	-- Cycling: if current selection exactly matches a squad∩group intersection,
+	-- exclude those units so we cycle to the next squad.
+	local exclude = nil
+	if config.cyclingToNextSquad then
+		local selected = spGetSelectedUnits()
+		if #selected > 0 then
+			local selected_set = {}
+			for i = 1, #selected do
+				selected_set[selected[i]] = true
+			end
+			-- Check if selection is a single squad's intersection with this group
+			local sel_squad = nil
+			local all_match = true
+			for i = 1, #selected do
+				local u = selected[i]
+				local sq = unit_squad[u]
+				if not sq or not group_set[u] then
+					all_match = false
+					break
+				end
+				if sel_squad == nil then
+					sel_squad = sq
+				elseif sq ~= sel_squad then
+					all_match = false
+					break
+				end
+			end
+			if all_match and sel_squad then
+				-- Check that the full intersection is selected (no unselected group members in that squad)
+				local full_intersection = true
+				for j = 1, #sel_squad do
+					local u = sel_squad[j]
+					if group_set[u] and not selected_set[u] then
+						full_intersection = false
+						break
+					end
+				end
+				if full_intersection then
+					exclude = selected_set
+				end
+			end
+		end
+	end
+
+	-- Filter to tracked units only and find closest to mouse
+	local wx, wz = get_mouse_world_pos()
+	if not wx then
+		return
+	end
+
+	local best_unit = nil
+	local best_dist_sq = math.huge
+
+	for uid, _ in pairs(group_set) do
+		if unit_squad[uid] and not (exclude and exclude[uid]) then
+			local x, _, z = spGetUnitPosition(uid)
+			if x then
+				local dx = x - wx
+				local dz = z - wz
+				local dist_sq = dx * dx + dz * dz
+				if dist_sq < best_dist_sq then
+					best_dist_sq = dist_sq
+					best_unit = uid
+				end
+			end
+		end
+	end
+
+	if not best_unit then
+		return
+	end
+
+	local squad = unit_squad[best_unit]
+	if not squad then
+		return
+	end
+
+	-- Select intersection of squad and control group
+	local result = {}
+	for j = 1, #squad do
+		local u = squad[j]
+		if group_set[u] then
+			result[#result + 1] = u
+		end
+	end
+
+	if #result > 0 then
+		spSelectUnitArray(result, append)
+		log("Group " .. group_num .. " ∩ squad [" .. (squad.letter or "?") .. "]: " .. #result .. " units" .. (append and " +append" or ""))
+	end
+end
+
+
+-------------------------------------------------------------------------------
 -- Lifecycle
 -------------------------------------------------------------------------------
 
 function widget:Initialize()
-
 	create_airplane_floor()
+	if spGetSpectatingState() or Spring.IsReplay() then
+		log("Spectating or replay mode detected, not initializing")
+		widgetHandler:RemoveWidget()
+		return
+	end
 
 	squads = {}
 	reserve_squads = {}
@@ -622,6 +779,37 @@ function widget:Initialize()
 
 	widgetHandler:AddAction("closest_squad_select", closest_squad_select, nil, "p")
 	widgetHandler:AddAction("closest_squad_select_filtered", closest_squad_select_filtered, nil, "p")
+	widgetHandler:AddAction("squad_create_toggle", squad_create_toggle, nil, "p")
+	widgetHandler:AddAction("squad_create_now", squad_create_now, nil, "p")
+	widgetHandler:AddAction("squad_select_group", squad_select_group, nil, "p")
+
+	-- WG interface for gui_options.lua integration
+	WG['squadselection'] = {
+		getCycling = function()
+			return config.cyclingToNextSquad
+		end
+,
+		setCycling = function(v)
+			config.cyclingToNextSquad = v
+		end
+,
+		getLeftClickSelects = function()
+			return config.leftClickSelectsSquad
+		end
+,
+		setLeftClickSelects = function(v)
+			config.leftClickSelectsSquad = v
+		end
+,
+		getRightClickSquadCreate = function()
+			return config.rightClickSquadCreate
+		end
+,
+		setRightClickSquadCreate = function(v)
+			config.rightClickSquadCreate = v
+		end
+,
+	}
 
 	log("Initialized — " .. count .. " combat units across reserve squads")
 	log_squads()
@@ -629,9 +817,29 @@ end
 
 
 function widget:Shutdown()
+	WG['squadselection'] = nil
 	widgetHandler:RemoveAction("closest_squad_select")
 	widgetHandler:RemoveAction("closest_squad_select_filtered")
+	widgetHandler:RemoveAction("squad_create_toggle")
+	widgetHandler:RemoveAction("squad_create_now")
+	widgetHandler:RemoveAction("squad_select_group")
 	log("Shutdown")
+end
+
+
+function widget:PlayerChanged(playerID)
+	if playerID ~= spGetMyPlayerID() then
+		return
+	end
+	if spGetSpectatingState() then
+		log("Became spectator, shutting down")
+		widgetHandler:RemoveWidget()
+	end
+end
+
+
+function widget:GameOver()
+	widgetHandler:RemoveWidget()
 end
 
 
@@ -705,41 +913,29 @@ end
 -------------------------------------------------------------------------------
 function widget:MousePress(x, y, button)
 	player_input_since_last_resquad = true
-	if button == 3 then
-		if RIGHT_CLICK_CREATES_SQUAD then
-			local alt, ctrl, meta, shift = spGetModKeyState()
-			if not (alt or ctrl or meta or shift) then
-				create_squad_from_selection()
-			end
+	if button == 3 and config.rightClickSquadCreate then
+		local alt, ctrl, meta, shift = spGetModKeyState()
+		if not (alt or ctrl or meta or shift) then
+			create_squad_from_selection()
 		end
-	elseif button == 1 and LEFT_CLICK_SELECTS_SQUAD then
+	elseif button == 1 and config.leftClickSelectsSquad then
 		local alt, ctrl, _, shift = spGetModKeyState()
 		if alt or ctrl or shift then
+			-- Skip when an active command is pending (fight, patrol, build, etc.)
+			local _, cmdID = spGetActiveCommand()
+			if cmdID then
+				return
+			end
 			local hit_type = spTraceScreenRay(x, y)
 			if hit_type ~= "unit" then
-				-- Skip if any selected unit is a builder (avoid interfering with build queuing)
-				local selected = spGetSelectedUnits()
-				local has_builder = false
-				for i = 1, #selected do
-					local def_id = get_defid(selected[i])
-					if def_id then
-						local def = UnitDefs[def_id]
-						if def.canResurrect or (def.buildOptions and #def.buildOptions > 0) then
-							has_builder = true
-							break
-						end
-					end
-				end
-				if not has_builder then
-					if alt and shift then
-						closest_squad_select_filtered(nil, nil, {"append"})
-					elseif alt and ctrl then
-						closest_squad_select_filtered(nil, nil, nil)
-					elseif shift then
-						closest_squad_select(nil, nil, {"append"})
-					elseif ctrl then
-						closest_squad_select(nil, nil, nil)
-					end
+				if alt and shift then
+					closest_squad_select_filtered(nil, nil, {"append"})
+				elseif alt and ctrl then
+					closest_squad_select_filtered(nil, nil, nil)
+				elseif shift then
+					closest_squad_select(nil, nil, {"append"})
+				elseif ctrl then
+					closest_squad_select(nil, nil, nil)
 				end
 			end
 		end
@@ -749,6 +945,24 @@ end
 
 function widget:KeyPress(key, mods, isRepeat)
 	player_input_since_last_resquad = true
+end
+
+
+-------------------------------------------------------------------------------
+-- Settings persistence (data/LuaUi/Config/BYAR.lua -> Squad Selection)
+-------------------------------------------------------------------------------
+
+function widget:SetConfigData(data)
+	for key, value in pairs(data) do
+		if config[key] ~= nil then
+			config[key] = value
+		end
+	end
+end
+
+
+function widget:GetConfigData()
+	return config
 end
 
 
@@ -763,7 +977,7 @@ function widget:DrawScreen()
 	end
 
 	-- Each squad draws its assigned letter above every unit in its color.
-	if COLORED_LABEL_VISIBLE then
+	if config.coloredLabelVisible then
 		for _, squad in ipairs(squads) do
 			if #squad > 0 and squad.color then
 				local c = squad.color
@@ -814,7 +1028,7 @@ end
 --                          
 
  -- shorter name
-local delta = CONVEX_HULL_AIR_FLOOR_DELTA
+local delta = config.convexHullAirFloorDelta
 
 -- map dimensions for determining grid size
 -- and for limiting lookups to be inside the floor
@@ -825,7 +1039,7 @@ local airplane_floor = {}
 function create_airplane_floor()
 
 
-	local curtain_slope=CONVEX_HULL_AIR_FLOOR_CURTAIN_SLOPE -- shorter name
+	local curtain_slope=config.convexHullAirFloorCurtainSlope -- shorter name
 
 	-- number of boxes in the grid. each box has 4 lookup points
 	local n_box_x = math.floor(map_xmax/delta)
@@ -838,7 +1052,7 @@ function create_airplane_floor()
         for j=0,n_box_y do
 			local map_height = Spring.GetGroundHeight(i*delta,j*delta)
             local floor_height = map_height
-            for r = 0,CONVEX_HULL_AIR_FLOOR_SEARCH_DISTANCE,200 do
+            for r = 0,config.convexHullAirFloorSearchDistance,200 do
                 for theta = 0,6 do
 					local sample_height = Spring.GetGroundHeight(i*delta+r*math.cos(theta),j*delta+r*math.sin(theta))
                     floor_height = math.max(floor_height,sample_height-r*curtain_slope)
@@ -853,7 +1067,7 @@ function create_airplane_floor()
     for i=0,n_box_x do
         for j=0,n_box_y do
             local floor_height = 0
-            local curtain_block_length = math.ceil(CONVEX_HULL_AIR_FLOOR_SEARCH_DISTANCE/delta)
+            local curtain_block_length = math.ceil(config.convexHullAirFloorSearchDistance/delta)
             for ii=math.max(0,i-curtain_block_length),math.min(n_box_x,i+curtain_block_length) do
                 for jj=math.max(0,j-curtain_block_length),math.min(n_box_y,j+curtain_block_length) do
                     local distance = ((i-ii)^2+(j-jj)^2)^0.5*delta
@@ -1013,18 +1227,18 @@ end
 
 local team_r,team_g,team_b,team_a = Spring.GetTeamColor(Spring.GetMyTeamID())
 local HULL_PARAMETERS_FULLY_SELECTED = {
-    fillColor = {1, 1, 1, CONVEX_HULL_FILL_OPACITY},
-    borderColor = {1, 1, 1, CONVEX_HULL_BORDER_OPACITY},
-    borderThickness = CONVEX_HULL_BORDER_THICKNESS
+    fillColor = {1, 1, 1, config.convexHullFillOpacity},
+    borderColor = {1, 1, 1, config.convexHullBorderOpacity},
+    borderThickness = config.convexHullBorderThickness
 }
 local HULL_PARAMETERS_UNSELECTED = {
-    fillColor = {team_r, team_g, team_b, CONVEX_HULL_FILL_OPACITY},
-    borderColor = {team_r, team_g, team_b, CONVEX_HULL_BORDER_OPACITY},
-    borderThickness = CONVEX_HULL_BORDER_THICKNESS
+    fillColor = {team_r, team_g, team_b, config.convexHullFillOpacity},
+    borderColor = {team_r, team_g, team_b, config.convexHullBorderOpacity},
+    borderThickness = config.convexHullBorderThickness
 }
 
 function widget:DrawWorldPreUnit()
-	if CONVEX_HULL_VISIBLE then
+	if config.convexHullVisible then
 		if not squads or #squads == 0 then return end
 
 		-- build list of selected units, for later use
@@ -1074,18 +1288,18 @@ function widget:DrawWorldPreUnit()
 				-- calculate and draw hull
 				if #worldPoints > 0 then
 
-					local radius = CONVEX_HULL_PADDING_LAND
-					if navy_present then radius = CONVEX_HULL_PADDING_NAVY end
-					if air_present then radius = CONVEX_HULL_PADDING_AIR end
+					local radius = config.convexHullPaddingLand
+					if navy_present then radius = config.convexHullPaddingNavy end
+					if air_present then radius = config.convexHullPaddingAir end
 
 					-- calculate the 2d hull
-					local paddedHull = get_padded_hull(worldPoints, radius, CONVEX_HULL_ARC_RESOLUTION)
+					local paddedHull = get_padded_hull(worldPoints, radius, config.convexHullArcResolution)
 
 					-- calculate the 3d projection of this hull
 					local screenHull = {}
 					for _, p in ipairs(paddedHull) do
 						local h = 0
-						if air_present then h=airplane_floor_height(p.x,p.y)+CONVEX_HULL_AIR_HEIGHT_BOOST end
+						if air_present then h=airplane_floor_height(p.x,p.y)+config.convexHullAirHeightBoost end
 						if navy_present then h = 0 end
 						if land_present then h = Spring.GetGroundHeight(p.x,p.y) end
 						screenHull[#screenHull+1] = {x=p.x, y=h, z=p.y}
@@ -1119,5 +1333,5 @@ end
 
 
 function widget:UnitCommand(unitID, unitDefID, unitTeam, cmdID, cmdParams, cmdOpts, cmdTag)
-	if COMMAND_CREATES_SQUAD and player_input_since_last_resquad then create_squad_from_selection() end
+	if config.commandCreatesSquad and player_input_since_last_resquad then create_squad_from_selection() end
 end
