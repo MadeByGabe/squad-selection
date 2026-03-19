@@ -298,13 +298,8 @@ local function selection_is_existing_squad(selected)
 end
 
 
-local function create_squad_from_selection()
+local function assign_factory_squad()
 	local selected = spGetSelectedUnits()
-	if #selected == 0 then
-		return
-	end
-
-	-- Check for factories in selection
 	local factories = {}
 	for i = 1, #selected do
 		local u = selected[i]
@@ -313,58 +308,65 @@ local function create_squad_from_selection()
 			factories[#factories + 1] = u
 		end
 	end
-	if #factories > 0 and #factories == #selected then
-		-- If any selected factory already has an assignment, unassign all and return
-		local any_assigned = false
-		for i = 1, #factories do
-			if factory_squad[factories[i]] then
-				any_assigned = true
-				break
-			end
-		end
-		if any_assigned then
-			-- Collect affected squads before clearing
-			local affected = {}
-			for i = 1, #factories do
-				local sq = factory_squad[factories[i]]
-				if sq then
-					affected[sq] = true
-				end
-				factory_squad[factories[i]] = nil
-			end
-			for sq in pairs(affected) do
-				update_factory_squad_reserve(sq)
-			end
-			prune_empty_squads()
-			log("Removed factory squad assignments from " .. #factories .. " factory(s)")
-			return
-		end
-
-		-- Create a new factory reserve squad
-		local new_squad = {}
-		assign_squad_tag(new_squad)
-		new_squad.color = FACTORY_RESERVE_COLOR
-		new_squad.is_reserve = true
-		new_squad.from_factory = true
-
-		local first_def = get_defid(factories[1])
-		local domain = factory_domain[first_def] or "land"
-		new_squad.domain = domain
-
-		local sym = DOMAIN_SYMBOL[domain] or "-"
-		new_squad.letter = sym .. new_squad.letter .. sym
-
-		for i = 1, #factories do
-			factory_squad[factories[i]] = new_squad
-		end
-		squads[#squads + 1] = new_squad
-
-		log("Factory squad [" .. new_squad.letter .. "] assigned to " .. #factories .. " factory(s)")
-		log_squads()
+	if #factories == 0 or #factories ~= #selected then
 		return
 	end
 
-	-- Normal squad creation from combat units
+	-- If any selected factory already has an assignment, unassign all and return
+	local any_assigned = false
+	for i = 1, #factories do
+		if factory_squad[factories[i]] then
+			any_assigned = true
+			break
+		end
+	end
+	if any_assigned then
+		local affected = {}
+		for i = 1, #factories do
+			local sq = factory_squad[factories[i]]
+			if sq then
+				affected[sq] = true
+			end
+			factory_squad[factories[i]] = nil
+		end
+		for sq in pairs(affected) do
+			update_factory_squad_reserve(sq)
+		end
+		prune_empty_squads()
+		log("Removed factory squad assignments from " .. #factories .. " factory(s)")
+		return
+	end
+
+	-- Create a new factory reserve squad
+	local new_squad = {}
+	assign_squad_tag(new_squad)
+	new_squad.color = FACTORY_RESERVE_COLOR
+	new_squad.is_reserve = true
+	new_squad.from_factory = true
+
+	local first_def = get_defid(factories[1])
+	local domain = factory_domain[first_def] or "land"
+	new_squad.domain = domain
+
+	local sym = DOMAIN_SYMBOL[domain] or "-"
+	new_squad.letter = sym .. new_squad.letter .. sym
+
+	for i = 1, #factories do
+		factory_squad[factories[i]] = new_squad
+	end
+	squads[#squads + 1] = new_squad
+
+	log("Factory squad [" .. new_squad.letter .. "] assigned to " .. #factories .. " factory(s)")
+	log_squads()
+end
+
+
+local function create_squad_from_selection()
+	local selected = spGetSelectedUnits()
+	if #selected == 0 then
+		return
+	end
+
 	if selection_is_existing_squad(selected) then
 		return
 	end
@@ -599,6 +601,7 @@ end
 
 
 local function squad_create_now()
+	assign_factory_squad()
 	create_squad_from_selection()
 end
 
