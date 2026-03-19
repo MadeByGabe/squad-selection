@@ -103,17 +103,17 @@ Select the intersection of a squad and a control group. Uses the closest unit fr
 
 Suggested keybinds:
 ```
-bind Shift+Meta+sc_1 squad_select_group 1 append
-bind Meta+sc_1 squad_select_group 1
-bind Shift+Meta+sc_2 squad_select_group 2 append
-bind Meta+sc_2 squad_select_group 2
+bind Shift+Meta+1 squad_select_group 1 append //shift+space+1
+bind Meta+1 squad_select_group 1 //space+1
+bind Shift+Meta+2 squad_select_group 2 append
+bind Meta+2 squad_select_group 2
 ...
 ```
 
-| Action                        | What it does                           |
-| ----------------------------- | -------------------------------------- |
+| Action                        | What it does                             |
+| ----------------------------- | ---------------------------------------- |
 | `squad_select_group N`        | Select squad ∩ group N closest to cursor |
-| `squad_select_group N append` | Same, but appends to selection         |
+| `squad_select_group N append` | Same, but appends to selection           |
 
 ## Roadmap
 
