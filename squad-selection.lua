@@ -15,8 +15,10 @@ end
 -- Config
 -------------------------------------------------------------------------------
 
-local LEFT_CLICK_SELECTS_SQUAD = true -- left-click can be used to select squads
-local CYCLING_TO_NEXT_SQUAD = true -- when full squad/type is selected, exclude it to cycle to next
+local config = {
+	leftClickSelectsSquad = true, -- left-click can be used to select squads
+	cyclingToNextSquad = true, -- when full squad/type is selected, exclude it to cycle to next
+}
 
 -------------------------------------------------------------------------------
 -- Localized Spring API
@@ -477,7 +479,7 @@ local function closest_squad_select(_, _, args)
 
 	-- Full squad: cycle to next squad (exclude selected) or fall through as multi-squad
 	local exclude = nil
-	if sel.is_full_squad and CYCLING_TO_NEXT_SQUAD then
+	if sel.is_full_squad and config.cyclingToNextSquad then
 		exclude = sel.selected_set
 	end
 
@@ -513,7 +515,7 @@ local function closest_squad_select_filtered(_, _, args)
 
 	-- Full type match: cycle to next squad (exclude selected) or fall through as multi-squad
 	local exclude = nil
-	if sel.is_full_type_match and CYCLING_TO_NEXT_SQUAD then
+	if sel.is_full_type_match and config.cyclingToNextSquad then
 		exclude = sel.selected_set
 	end
 
@@ -593,12 +595,33 @@ function widget:Initialize()
 	widgetHandler:AddAction("closest_squad_select", closest_squad_select, nil, "p")
 	widgetHandler:AddAction("closest_squad_select_filtered", closest_squad_select_filtered, nil, "p")
 
+	-- WG interface for gui_options.lua integration
+	WG['squadselection'] = {
+		getCycling = function()
+			return config.cyclingToNextSquad
+		end
+,
+		setCycling = function(v)
+			config.cyclingToNextSquad = v
+		end
+,
+		getLeftClickSelects = function()
+			return config.leftClickSelectsSquad
+		end
+,
+		setLeftClickSelects = function(v)
+			config.leftClickSelectsSquad = v
+		end
+,
+	}
+
 	log("Initialized — " .. count .. " combat units across reserve squads")
 	log_squads()
 end
 
 
 function widget:Shutdown()
+	WG['squadselection'] = nil
 	widgetHandler:RemoveAction("closest_squad_select")
 	widgetHandler:RemoveAction("closest_squad_select_filtered")
 	log("Shutdown")
@@ -691,7 +714,7 @@ function widget:MousePress(x, y, button)
 		if not (alt or ctrl or meta or shift) then
 			create_squad_from_selection()
 		end
-	elseif button == 1 and LEFT_CLICK_SELECTS_SQUAD then
+	elseif button == 1 and config.leftClickSelectsSquad then
 		local alt, ctrl, _, shift = spGetModKeyState()
 		if alt or ctrl or shift then
 			-- Skip when an active command is pending (fight, patrol, build, etc.)
@@ -714,6 +737,24 @@ function widget:MousePress(x, y, button)
 		end
 	end
 	-- Never return true: let the click pass through to the engine.
+end
+
+
+-------------------------------------------------------------------------------
+-- Settings persistence (data/LuaUi/Config/BYAR.lua -> Squad Selection)
+-------------------------------------------------------------------------------
+
+function widget:SetConfigData(data)
+	for key, value in pairs(data) do
+		if config[key] ~= nil then
+			config[key] = value
+		end
+	end
+end
+
+
+function widget:GetConfigData()
+	return config
 end
 
 
