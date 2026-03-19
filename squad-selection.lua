@@ -38,6 +38,8 @@ local spTraceScreenRay = Spring.TraceScreenRay
 local spWorldToScreenCoords = Spring.WorldToScreenCoords
 local spIsGUIHidden = Spring.IsGUIHidden
 local spGetModKeyState = Spring.GetModKeyState
+local spGetSpectatingState = Spring.GetSpectatingState
+local spGetMyPlayerID = Spring.GetMyPlayerID
 
 local glColor = gl.Color
 local glText = gl.Text
@@ -549,6 +551,12 @@ end
 -------------------------------------------------------------------------------
 
 function widget:Initialize()
+	if spGetSpectatingState() or Spring.IsReplay() then
+		log("Spectating or replay mode detected, not initializing")
+		widgetHandler:RemoveWidget()
+		return
+	end
+
 	squads = {}
 	reserve_squads = {}
 	unit_squad = {}
@@ -593,6 +601,17 @@ function widget:Shutdown()
 	widgetHandler:RemoveAction("closest_squad_select")
 	widgetHandler:RemoveAction("closest_squad_select_filtered")
 	log("Shutdown")
+end
+
+
+function widget:PlayerChanged(playerID)
+	if playerID ~= spGetMyPlayerID() then
+		return
+	end
+	if spGetSpectatingState() then
+		log("Became spectator, shutting down")
+		widgetHandler:RemoveWidget()
+	end
 end
 
 
