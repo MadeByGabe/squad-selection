@@ -615,6 +615,11 @@ function widget:PlayerChanged(playerID)
 end
 
 
+function widget:GameOver()
+	widgetHandler:RemoveWidget()
+end
+
+
 function widget:UnitCreated(unit_id, unit_def_id, unit_team, builder_id)
 	if unit_team ~= spGetMyTeamID() then
 		return
