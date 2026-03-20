@@ -1039,7 +1039,7 @@ end
 -- Each squad draws its assigned letter above every unit in its color.
 -------------------------------------------------------------------------------
 
-function widget:DrawScreen()
+function widget:DrawScreenEffects()
 	if spIsGUIHidden() then
 		return
 	end
@@ -1047,13 +1047,13 @@ function widget:DrawScreen()
 	for _, squad in ipairs(squads) do
 		if #squad > 0 and squad.color and squad.letter then
 			local c = squad.color
-			glColor(c[1], c[2], c[3], 0.75)
+			glColor(c[1], c[2], c[3], 0.8)
 			for j = 1, #squad do
 				local _, _, _, x, y, z = spGetUnitPosition(squad[j], true)
 				if x then
 					local sx, sy = spWorldToScreenCoords(x, y, z)
 					if sx then
-						glText(squad.letter, sx, sy + 14, 10, "co")
+						glText(squad.letter, sx, sy, 10, "co")
 					end
 				end
 			end
