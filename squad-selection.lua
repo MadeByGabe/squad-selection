@@ -605,7 +605,7 @@ local function squad_create_toggle()
 end
 
 
-local function squad_create_now()
+local function squad_create()
 	assign_factory_squad()
 	create_squad_from_selection()
 end
@@ -841,7 +841,7 @@ function widget:Initialize()
 	widgetHandler:AddAction("closest_squad_select", closest_squad_select, nil, "p")
 	widgetHandler:AddAction("closest_squad_select_filtered", closest_squad_select_filtered, nil, "p")
 	widgetHandler:AddAction("squad_create_toggle", squad_create_toggle, nil, "p")
-	widgetHandler:AddAction("squad_create_now", squad_create_now, nil, "p")
+	widgetHandler:AddAction("squad_create", squad_create, nil, "p")
 	widgetHandler:AddAction("squad_select_group", squad_select_group, nil, "p")
 
 	-- WG interface for gui_options.lua integration
@@ -882,7 +882,7 @@ function widget:Shutdown()
 	widgetHandler:RemoveAction("closest_squad_select")
 	widgetHandler:RemoveAction("closest_squad_select_filtered")
 	widgetHandler:RemoveAction("squad_create_toggle")
-	widgetHandler:RemoveAction("squad_create_now")
+	widgetHandler:RemoveAction("squad_create")
 	widgetHandler:RemoveAction("squad_select_group")
 	log("Shutdown")
 end
