@@ -22,7 +22,7 @@ The reason for the "no modifiers" requirement is that it allows you to use units
 Repeatedly selecting when the closest full squad is already selected **cycles** to the next closest squad (this feature can be disabled).  
 *Note: the ctrl modifier is technically not required, but the normal selectbox would interfere without it.*  
 
-There is also a **filtered select** option that only selects the unit types from your current selection, or the closest unit's type if nothing is selected. This is hotkey or alt+ctrl+leftclick. (again, it could be just alt+leftclick).
+There is also a **filtered select** option that only selects the unit types from your current selection, or the closest unit's type if nothing is selected. This is hotkey or alt+ctrl+leftclick.
 
 Both selection methods can be used with shift to append to the current selection instead of replacing it.  
 
@@ -81,7 +81,7 @@ In `data/LuaUi/Config/BYAR.lua` there will be a "Squad Selection" section after 
 | ----------------------- | ------- | ----------------------------------------------- |
 | `leftClickSelectsSquad` | `true`  | Modifier+click on empty ground selects squads   |
 | `cyclingToNextSquad`    | `true`  | Cycle to next squad when full squad is selected |
-| `squadCreateEnabled`    | `true`  | Right-click squad creation is active            |
+| `rightClickSquadCreate` | `true`  | Right-click squad creation is active            |
 
 *Note: control groups have a nice feature when we double tap their number key to move the camera to that group. Something similar for squads should be possible but in the meantime you can bind `viewselection` to a hotkey for a similar effect (it centers the camera on your current selection).*
 
@@ -94,7 +94,7 @@ There's also an action to create a squad on demand (without needing right-click)
 
 | Action                | What it does                               |
 | --------------------- | ------------------------------------------ |
-| `squad_create_now`    | Creates a squad from the current selection |
+| `squad_create`        | Creates a squad from the current selection |
 | `squad_create_toggle` | Toggles right-click squad creation on/off  |
 
 ### Control group intersection
@@ -114,6 +114,16 @@ bind Meta+2 squad_select_group 2
 | ----------------------------- | ---------------------------------------- |
 | `squad_select_group N`        | Select squad ∩ group N closest to cursor |
 | `squad_select_group N append` | Same, but appends to selection           |
+
+### Factory / lab assignment
+
+By default, newly built combat units go into a domain reserve squad (land, air, or naval). You can assign factories to their own reserve squad so their units are tracked separately.
+
+**How to use:** Select one or more factories and press the `squad_create` hotkey. A new factory reserve squad is created and all selected factories are assigned to it. Units built by those factories will go into that squad instead of the domain reserve.
+
+Factory reserve squads are shown with a white label decorated with domain symbols (e.g. `-A-` for a land factory, `^B^` for air, `~C~` for naval). Multiple factories can share one squad.
+
+**Example use case:** You have 3 bot labs, 2 producing cheap spam units for distraction, 1 producing expensive units you want to micro. Assign the expensive lab to its own squad, then easily select just those units when you need them.
 
 ## Roadmap
 

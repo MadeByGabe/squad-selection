@@ -67,6 +67,7 @@ local spGetActiveCommand = Spring.GetActiveCommand
 local spGetMyPlayerID = Spring.GetMyPlayerID
 local spGetGroupUnits = Spring.GetGroupUnits
 local spGetUnitGroup = Spring.GetUnitGroup
+local spGetMouseCursor = Spring.GetMouseCursor
 
 local glColor = gl.Color
 local glText = gl.Text
@@ -79,6 +80,7 @@ local squads = {} -- ordered list of squad arrays; reserve squads are always fir
 local unit_squad = {} -- unitID -> the squad array it belongs to
 local unit_slot = {} -- unitID -> index within that squad (for O(1) removal)
 local reserve_squads = {} -- domain string -> reserve squad for that domain
+local factory_squad = {} -- factoryUnitID -> squad
 local DOMAINS = {"land", "air", "naval"}
 
 -------------------------------------------------------------------------------
@@ -156,19 +158,12 @@ local SQUAD_COLORS = {
 local SQUAD_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ+#@!$=&"
 local next_squad_tag = 0
 
-local RESERVE_SQUAD_STYLES = {
-	land = {
-		color = {0.75, 0.75, 0.55},
-		letter = "-",
-	},
-	air = {
-		color = {0.65, 0.55, 0.50},
-		letter = "^",
-	},
-	naval = {
-		color = {0.45, 0.55, 0.80},
-		letter = "~",
-	},
+local FACTORY_RESERVE_COLOR = {1, 1, 1}
+
+local DOMAIN_SYMBOL = {
+	land = "-",
+	air = "^",
+	naval = "~",
 }
 
 local function assign_squad_tag(squad)
@@ -192,6 +187,8 @@ end
 local defid_of = {} -- unitID -> defID  (false when lookup fails)
 local is_combat = {} -- defID  -> bool
 local unit_domain = {} -- defID -> "land" | "air" | "naval"
+local is_factory = {} -- defID  -> bool (immobile with buildOptions)
+local factory_domain = {} -- defID -> "land" | "air" | "naval" (from buildOptions)
 
 local function get_defid(unit_id)
 	local v = defid_of[unit_id]
@@ -220,10 +217,22 @@ local function classify_unitdefs()
 		-- Squad eligibility
 		if SQUAD_ELIGIBLE_EXTRAS[def.name] then
 			is_combat[defID] = true
-		elseif def.canMove and def.weapons and #def.weapons > 0 and not (def.buildOptions and #def.buildOptions > 0) then
+		elseif not def.isBuilding and def.weapons and #def.weapons > 0 and not (def.buildOptions and #def.buildOptions > 0) then
 			is_combat[defID] = true
 		else
 			is_combat[defID] = false
+		end
+
+		-- Factory detection
+		if def.isFactory then
+			is_factory[defID] = true
+		end
+	end
+
+	-- Second pass: determine factory domains from their buildOptions
+	for defID, def in pairs(UnitDefs) do
+		if is_factory[defID] then
+			factory_domain[defID] = unit_domain[def.buildOptions[1]] or "land"
 		end
 	end
 end
@@ -274,6 +283,23 @@ local function prune_empty_squads()
 end
 
 
+-- Check whether any factory still references the given squad.
+-- If none do, clear is_reserve so the squad becomes prunable.
+local function update_factory_squad_reserve(sq)
+	if not sq or not sq.from_factory then
+		return
+	end
+	for _, fsq in pairs(factory_squad) do
+		if fsq == sq then
+			return
+		end
+	end
+	sq.is_reserve = false
+	sq.from_factory = false
+	assign_squad_tag(sq)
+end
+
+
 -------------------------------------------------------------------------------
 -- Squad creation from selection
 -------------------------------------------------------------------------------
@@ -302,6 +328,76 @@ local function selection_is_existing_squad(selected)
 	return squad ~= nil and #squad == combat_count
 end
 
+
+
+local function assign_factory_squad()
+	local selected = spGetSelectedUnits()
+	local factories = {}
+	for i = 1, #selected do
+		local u = selected[i]
+		local def_id = get_defid(u)
+		if def_id and is_factory[def_id] then
+			factories[#factories + 1] = u
+		end
+	end
+	if #factories == 0 or #factories ~= #selected then
+		return
+	end
+
+	-- Count how many factories already have an assignment
+	local assigned_count = 0
+	for i = 1, #factories do
+		if factory_squad[factories[i]] then
+			assigned_count = assigned_count + 1
+		end
+	end
+
+	-- Clear existing assignments if any
+	if assigned_count > 0 then
+		local affected = {}
+		for i = 1, #factories do
+			local sq = factory_squad[factories[i]]
+			if sq then
+				affected[sq] = true
+			end
+			factory_squad[factories[i]] = nil
+		end
+		for sq in pairs(affected) do
+			update_factory_squad_reserve(sq)
+		end
+		prune_empty_squads()
+		log("Removed factory squad assignments from " .. assigned_count .. " factory(s)")
+		-- If ALL were assigned, just toggle off
+		if assigned_count == #factories then
+			return
+		end
+	end
+
+	-- Create a new factory reserve squad
+	local new_squad = {}
+	assign_squad_tag(new_squad)
+	new_squad.color = FACTORY_RESERVE_COLOR
+	new_squad.is_reserve = true
+	new_squad.from_factory = true
+
+	local first_def = get_defid(factories[1])
+	local domain = factory_domain[first_def] or "land"
+	new_squad.domain = domain
+
+	local sym = DOMAIN_SYMBOL[domain] or "-"
+	new_squad.letter = sym .. new_squad.letter .. sym
+
+	for i = 1, #factories do
+		factory_squad[factories[i]] = new_squad
+	end
+	squads[#squads + 1] = new_squad
+
+	log("Factory squad [" .. new_squad.letter .. "] assigned to " .. #factories .. " factory(s)")
+	log_squads()
+end
+
+
+
 local player_input_since_last_resquad = false
 local function create_squad_from_selection()
 	player_input_since_last_resquad = false
@@ -309,6 +405,7 @@ local function create_squad_from_selection()
 	if #selected == 0 then
 		return
 	end
+
 	if selection_is_existing_squad(selected) then
 		return
 	end
@@ -542,7 +639,8 @@ local function squad_create_toggle()
 end
 
 
-local function squad_create_now()
+local function squad_create()
+	assign_factory_squad()
 	create_squad_from_selection()
 end
 
@@ -747,6 +845,7 @@ function widget:Initialize()
 
 	squads = {}
 	reserve_squads = {}
+	factory_squad = {}
 	unit_squad = {}
 	unit_slot = {}
 	next_squad_tag = 0
@@ -755,9 +854,6 @@ function widget:Initialize()
 
 	for _, domain in ipairs(DOMAINS) do
 		local sq = {}
-		local style = RESERVE_SQUAD_STYLES[domain]
-		sq.color = style.color
-		sq.letter = style.letter
 		sq.is_reserve = true
 		sq.domain = domain
 		reserve_squads[domain] = sq
@@ -780,7 +876,7 @@ function widget:Initialize()
 	widgetHandler:AddAction("closest_squad_select", closest_squad_select, nil, "p")
 	widgetHandler:AddAction("closest_squad_select_filtered", closest_squad_select_filtered, nil, "p")
 	widgetHandler:AddAction("squad_create_toggle", squad_create_toggle, nil, "p")
-	widgetHandler:AddAction("squad_create_now", squad_create_now, nil, "p")
+	widgetHandler:AddAction("squad_create", squad_create, nil, "p")
 	widgetHandler:AddAction("squad_select_group", squad_select_group, nil, "p")
 
 	-- WG interface for gui_options.lua integration
@@ -821,7 +917,7 @@ function widget:Shutdown()
 	widgetHandler:RemoveAction("closest_squad_select")
 	widgetHandler:RemoveAction("closest_squad_select_filtered")
 	widgetHandler:RemoveAction("squad_create_toggle")
-	widgetHandler:RemoveAction("squad_create_now")
+	widgetHandler:RemoveAction("squad_create")
 	widgetHandler:RemoveAction("squad_select_group")
 	log("Shutdown")
 end
@@ -850,10 +946,16 @@ function widget:UnitCreated(unit_id, unit_def_id, unit_team, builder_id)
 	defid_of[unit_id] = unit_def_id or false
 
 	if unit_def_id and is_combat[unit_def_id] then
-		local domain = unit_domain[unit_def_id]
-		local sq = reserve_squads[domain]
-		add_to_squad(unit_id, sq)
-		log("Unit " .. unit_id .. " created → reserve:" .. domain .. " (" .. #sq .. " units)")
+		if builder_id and factory_squad[builder_id] then
+			local sq = factory_squad[builder_id]
+			add_to_squad(unit_id, sq)
+			log("Unit " .. unit_id .. " created → factory squad [" .. (sq.letter or "?") .. "] (" .. #sq .. " units)")
+		else
+			local domain = unit_domain[unit_def_id]
+			local sq = reserve_squads[domain]
+			add_to_squad(unit_id, sq)
+			log("Unit " .. unit_id .. " created → reserve:" .. domain .. " (" .. #sq .. " units)")
+		end
 	end
 end
 
@@ -861,11 +963,17 @@ end
 local last_idle_locations = {}
 function widget:UnitDestroyed(unit_id, unit_def_id, unit_team, attacker_id)
 	local tracked = unit_squad[unit_id] ~= nil
+	local fq = factory_squad[unit_id]
 
 	remove_from_squad(unit_id)
 	defid_of[unit_id] = nil
+	factory_squad[unit_id] = nil
 
-	if tracked then
+	if fq then
+		update_factory_squad_reserve(fq)
+	end
+
+	if tracked or fq then
 		prune_empty_squads()
 		log("Unit " .. unit_id .. " destroyed — " .. #squads .. " squad(s) remain")
 	end
@@ -882,11 +990,17 @@ function widget:UnitTaken(unit_id, unit_def_id, unit_team, new_team)
 	end
 
 	local tracked = unit_squad[unit_id] ~= nil
+	local fq = factory_squad[unit_id]
 
 	remove_from_squad(unit_id)
 	defid_of[unit_id] = nil
+	factory_squad[unit_id] = nil
 
-	if tracked then
+	if fq then
+		update_factory_squad_reserve(fq)
+	end
+
+	if tracked or fq then
 		prune_empty_squads()
 		log("Unit " .. unit_id .. " taken by team " .. new_team)
 	end
@@ -926,8 +1040,9 @@ function widget:MousePress(x, y, button)
 			if cmdID then
 				return
 			end
+			local cursor = spGetMouseCursor()
 			local hit_type = spTraceScreenRay(x, y)
-			if hit_type ~= "unit" then
+			if cursor == "Move" and hit_type ~= "unit" then
 				if alt and shift then
 					closest_squad_select_filtered(nil, nil, {"append"})
 				elseif alt and ctrl then
@@ -971,24 +1086,22 @@ end
 --
 -------------------------------------------------------------------------------
 
-function widget:DrawScreen()
+function widget:DrawScreenEffects()
 	if spIsGUIHidden() then
 		return
 	end
 
-	-- Each squad draws its assigned letter above every unit in its color.
-	if config.coloredLabelVisible then
-		for _, squad in ipairs(squads) do
-			if #squad > 0 and squad.color then
-				local c = squad.color
-				glColor(c[1], c[2], c[3], 0.75)
-				for j = 1, #squad do
-					local _, _, _, x, y, z = spGetUnitPosition(squad[j], true)
-					if x then
-						local sx, sy = spWorldToScreenCoords(x, y, z)
-						if sx then
-							glText(squad.letter, sx, sy + 14, 10, "co")
-						end
+
+	for _, squad in ipairs(squads) do
+		if #squad > 0 and squad.color and squad.letter then
+			local c = squad.color
+			glColor(c[1], c[2], c[3], 0.75)
+			for j = 1, #squad do
+				local _, _, _, x, y, z = spGetUnitPosition(squad[j], true)
+				if x then
+					local sx, sy = spWorldToScreenCoords(x, y, z - 40)
+					if sx then
+						glText(squad.letter, sx, sy, 10, "co")
 					end
 				end
 			end
@@ -996,6 +1109,21 @@ function widget:DrawScreen()
 		glColor(1, 1, 1, 1)
 	end
 
+
+	-- Draw labels on assigned factory buildings
+	for fid, sq in pairs(factory_squad) do
+		local c = sq.color
+		glColor(c[1], c[2], c[3], 0.75)
+		local _, _, _, x, y, z = spGetUnitPosition(fid, true)
+		if x then
+			local sx, sy = spWorldToScreenCoords(x, y, z)
+			if sx then
+				glText(sq.letter, sx, sy + 14, 16, "co")
+			end
+		end
+	end
+
+	glColor(1, 1, 1, 1)
 end
 
 
