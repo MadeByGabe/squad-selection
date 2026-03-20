@@ -128,7 +128,7 @@ local SQUAD_COLORS = {
 local SQUAD_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ+#@!$=&"
 local next_squad_tag = 0
 
-local FACTORY_RESERVE_COLOR = {0.1, 0.1, 0.1}
+local FACTORY_RESERVE_COLOR = {1, 1, 1}
 
 local DOMAIN_SYMBOL = {
 	land = "-",
@@ -1047,11 +1047,11 @@ function widget:DrawScreenEffects()
 	for _, squad in ipairs(squads) do
 		if #squad > 0 and squad.color and squad.letter then
 			local c = squad.color
-			glColor(c[1], c[2], c[3], 0.8)
+			glColor(c[1], c[2], c[3], 0.75)
 			for j = 1, #squad do
 				local _, _, _, x, y, z = spGetUnitPosition(squad[j], true)
 				if x then
-					local sx, sy = spWorldToScreenCoords(x, y, z)
+					local sx, sy = spWorldToScreenCoords(x, y, z - 40)
 					if sx then
 						glText(squad.letter, sx, sy, 10, "co")
 					end
@@ -1063,7 +1063,7 @@ function widget:DrawScreenEffects()
 	-- Draw labels on assigned factory buildings
 	for fid, sq in pairs(factory_squad) do
 		local c = sq.color
-		glColor(c[1], c[2], c[3], 1.0)
+		glColor(c[1], c[2], c[3], 0.75)
 		local _, _, _, x, y, z = spGetUnitPosition(fid, true)
 		if x then
 			local sx, sy = spWorldToScreenCoords(x, y, z)
