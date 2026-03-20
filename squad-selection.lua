@@ -135,7 +135,7 @@ local SQUAD_COLORS = {
 local SQUAD_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ+#@!$=&"
 local next_squad_tag = 0
 
-local FACTORY_RESERVE_COLOR = {0.1, 0.1, 0.1}
+local FACTORY_RESERVE_COLOR = {1, 1, 1}
 
 local DOMAIN_SYMBOL = {
 	land = "-",
@@ -320,15 +320,16 @@ local function assign_factory_squad()
 		return
 	end
 
-	-- If any selected factory already has an assignment, unassign all and return
-	local any_assigned = false
+	-- Count how many factories already have an assignment
+	local assigned_count = 0
 	for i = 1, #factories do
 		if factory_squad[factories[i]] then
-			any_assigned = true
-			break
+			assigned_count = assigned_count + 1
 		end
 	end
-	if any_assigned then
+
+	-- Clear existing assignments if any
+	if assigned_count > 0 then
 		local affected = {}
 		for i = 1, #factories do
 			local sq = factory_squad[factories[i]]
@@ -341,8 +342,11 @@ local function assign_factory_squad()
 			update_factory_squad_reserve(sq)
 		end
 		prune_empty_squads()
-		log("Removed factory squad assignments from " .. #factories .. " factory(s)")
-		return
+		log("Removed factory squad assignments from " .. assigned_count .. " factory(s)")
+		-- If ALL were assigned, just toggle off
+		if assigned_count == #factories then
+			return
+		end
 	end
 
 	-- Create a new factory reserve squad
@@ -608,7 +612,7 @@ local function squad_create_toggle()
 end
 
 
-local function squad_create_now()
+local function squad_create()
 	assign_factory_squad()
 	create_squad_from_selection()
 end
@@ -844,7 +848,7 @@ function widget:Initialize()
 	widgetHandler:AddAction("closest_squad_select", closest_squad_select, nil, "p")
 	widgetHandler:AddAction("closest_squad_select_filtered", closest_squad_select_filtered, nil, "p")
 	widgetHandler:AddAction("squad_create_toggle", squad_create_toggle, nil, "p")
-	widgetHandler:AddAction("squad_create_now", squad_create_now, nil, "p")
+	widgetHandler:AddAction("squad_create", squad_create, nil, "p")
 	widgetHandler:AddAction("squad_select_group", squad_select_group, nil, "p")
 
 	-- WG interface for gui_options.lua integration
@@ -885,7 +889,7 @@ function widget:Shutdown()
 	widgetHandler:RemoveAction("closest_squad_select")
 	widgetHandler:RemoveAction("closest_squad_select_filtered")
 	widgetHandler:RemoveAction("squad_create_toggle")
-	widgetHandler:RemoveAction("squad_create_now")
+	widgetHandler:RemoveAction("squad_create")
 	widgetHandler:RemoveAction("squad_select_group")
 	log("Shutdown")
 end
