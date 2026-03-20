@@ -47,9 +47,16 @@ local spGetMyPlayerID = Spring.GetMyPlayerID
 local spGetGroupUnits = Spring.GetGroupUnits
 local spGetUnitGroup = Spring.GetUnitGroup
 local spGetMouseCursor = Spring.GetMouseCursor
+local spGetCameraPosition = Spring.GetCameraPosition
 
 local glColor = gl.Color
 local glText = gl.Text
+local glPushMatrix = gl.PushMatrix
+local glPopMatrix = gl.PopMatrix
+local glTranslate = gl.Translate
+local glBillboard = gl.Billboard
+local glScale = gl.Scale
+local glDepthTest = gl.DepthTest
 
 -------------------------------------------------------------------------------
 -- State
@@ -66,7 +73,7 @@ local DOMAINS = {"land", "air", "naval"}
 -- Debug
 -------------------------------------------------------------------------------
 
-local DEBUG = false
+local DEBUG = true
 
 local function log(msg)
 	if DEBUG then
@@ -1039,22 +1046,29 @@ end
 -- Each squad draws its assigned letter above every unit in its color.
 -------------------------------------------------------------------------------
 
-function widget:DrawScreen()
+function widget:DrawWorld()
 	if spIsGUIHidden() then
 		return
 	end
 
+	local _, cy, _ = spGetCameraPosition()
+	local s = 0.1 + cy * 0.001
+
 	for _, squad in ipairs(squads) do
 		if #squad > 0 and squad.color and squad.letter then
 			local c = squad.color
-			glColor(c[1], c[2], c[3], 0.75)
 			for j = 1, #squad do
 				local _, _, _, x, y, z = spGetUnitPosition(squad[j], true)
 				if x then
-					local sx, sy = spWorldToScreenCoords(x, y, z)
-					if sx then
-						glText(squad.letter, sx, sy + 14, 10, "co")
-					end
+					local defID = defid_of[squad[j]]
+					-- local h = defID and UnitDefs[defID].height or 40
+					glPushMatrix()
+					glTranslate(x, y, z + 50)
+					glBillboard()
+					glScale(s, s, s)
+					glColor(c[1], c[2], c[3], 1)
+					glText(squad.letter, 0, 0, 12, "co")
+					glPopMatrix()
 				end
 			end
 		end
@@ -1062,14 +1076,17 @@ function widget:DrawScreen()
 
 	-- Draw labels on assigned factory buildings
 	for fid, sq in pairs(factory_squad) do
-		local c = sq.color
-		glColor(c[1], c[2], c[3], 1.0)
 		local _, _, _, x, y, z = spGetUnitPosition(fid, true)
 		if x then
-			local sx, sy = spWorldToScreenCoords(x, y, z)
-			if sx then
-				glText(sq.letter, sx, sy + 14, 16, "co")
-			end
+			local defID = defid_of[fid]
+			local c = sq.color
+			glPushMatrix()
+			glTranslate(x, y, z + 50)
+			glBillboard()
+			glScale(s, s, s)
+			glColor(c[1], c[2], c[3], 1.0)
+			glText(sq.letter, 0, 0, 16, "co")
+			glPopMatrix()
 		end
 	end
 
