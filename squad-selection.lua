@@ -313,15 +313,16 @@ local function assign_factory_squad()
 		return
 	end
 
-	-- If any selected factory already has an assignment, unassign all and return
-	local any_assigned = false
+	-- Count how many factories already have an assignment
+	local assigned_count = 0
 	for i = 1, #factories do
 		if factory_squad[factories[i]] then
-			any_assigned = true
-			break
+			assigned_count = assigned_count + 1
 		end
 	end
-	if any_assigned then
+
+	-- Clear existing assignments if any
+	if assigned_count > 0 then
 		local affected = {}
 		for i = 1, #factories do
 			local sq = factory_squad[factories[i]]
@@ -334,8 +335,11 @@ local function assign_factory_squad()
 			update_factory_squad_reserve(sq)
 		end
 		prune_empty_squads()
-		log("Removed factory squad assignments from " .. #factories .. " factory(s)")
-		return
+		log("Removed factory squad assignments from " .. assigned_count .. " factory(s)")
+		-- If ALL were assigned, just toggle off
+		if assigned_count == #factories then
+			return
+		end
 	end
 
 	-- Create a new factory reserve squad
