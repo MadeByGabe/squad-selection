@@ -397,13 +397,29 @@ local function assign_factory_squad()
 	log_squads()
 end
 
-
+-- The use case for checking for the presence of a specific unit
+-- in the current selection is so that units being given a new command
+-- only triggers a resquad if said unit is actually selected
+--
+-- Other events that give commands to unselected units include
+-- Builders going through their queue, and new units coming out of the lab
 local player_input_since_last_resquad = false
-local function create_squad_from_selection()
-	player_input_since_last_resquad = false
+local function create_squad_from_selection(unit_that_must_be_in_selection)
 	local selected = spGetSelectedUnits()
 	if #selected == 0 then
 		return
+	end
+
+	local required_unit_present = false
+	if unit_that_must_be_in_selection then
+		for i=1,#selected do
+			if selected[i]==unit_that_must_be_in_selection then
+				required_unit_present = true
+			end
+		end
+		if not required_unit_present then
+			return
+		end
 	end
 
 	if selection_is_existing_squad(selected) then
@@ -417,6 +433,7 @@ local function create_squad_from_selection()
 		if def_id and is_combat[def_id] then
 			remove_from_squad(u)
 			add_to_squad(u, new_squad)
+			player_input_since_last_resquad = false
 		end
 	end
 
@@ -1507,8 +1524,15 @@ end
 
 
 function widget:UnitCommand(unitID, unitDefID, unitTeam, cmdID, cmdParams, cmdOpts, cmdTag)
-	if config.commandCreatesSquad and player_input_since_last_resquad then
-		create_squad_from_selection()
+
+	-- low cost for players who do not select this function
+	if not config.commandCreatesSquad then
+		return
+	end
+
+	local team_id = spGetMyTeamID()
+	if player_input_since_last_resquad and unitTeam == team_id and is_combat[unitDefID] then
+		create_squad_from_selection(unitID)
 	end
 end
 
