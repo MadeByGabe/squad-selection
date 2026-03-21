@@ -397,6 +397,7 @@ local function assign_factory_squad()
 	log_squads()
 end
 
+
 -- The use case for checking for the presence of a specific unit
 -- in the current selection is so that units being given a new command
 -- only triggers a resquad if said unit is actually selected
@@ -412,8 +413,8 @@ local function create_squad_from_selection(unit_that_must_be_in_selection)
 
 	local required_unit_present = false
 	if unit_that_must_be_in_selection then
-		for i=1,#selected do
-			if selected[i]==unit_that_must_be_in_selection then
+		for i = 1, #selected do
+			if selected[i] == unit_that_must_be_in_selection then
 				required_unit_present = true
 			end
 		end
@@ -848,7 +849,6 @@ local function squad_select_group(_, _, args)
 end
 
 
-
 -- compute a nicer surface to project the aircraft convex hulls onto
 -- airplane_floor is a 2d array containing
 -- sampled map heights, with cliffs turn into hills
@@ -937,7 +937,6 @@ local function airplane_floor_height(x, y)
 	local weight_topright = (box_x) * (box_y)
 	return airplane_floor[left][bottom] * weight_bottomleft + airplane_floor[right][bottom] * weight_bottomright + airplane_floor[left][top] * weight_topleft + airplane_floor[right][top] * weight_topright
 end
-
 
 
 -------------------------------------------------------------------------------
@@ -1241,8 +1240,6 @@ end
 
 
 -- convex hull
-
-
 
 -- idle detection for less visually distracting aircraft hulls
 function widget:UnitIdle(unitID, unitDefID, unitTeam)
