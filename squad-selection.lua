@@ -847,9 +847,6 @@ end
 --                                                                            
 --                          
 
--- shorter name
-local delta = config.convexHullAirFloorDelta
-
 -- map dimensions for determining grid size
 -- and for limiting lookups to be inside the floor
 local map_xmax = Game.mapSizeX
@@ -861,19 +858,19 @@ local function create_airplane_floor()
 	local curtain_slope = config.convexHullAirFloorCurtainSlope -- shorter name
 
 	-- number of boxes in the grid. each box has 4 lookup points
-	local n_box_x = math.floor(map_xmax / delta)
-	local n_box_y = math.floor(map_ymax / delta)
+	local n_box_x = math.floor(map_xmax / config.convexHullAirFloorDelta)
+	local n_box_y = math.floor(map_ymax / config.convexHullAirFloorDelta)
 
 	-- pass 1 - sample random map points in the area
 	-- from the actual map
 	for i = 0, n_box_x do
 		airplane_floor[i] = {}
 		for j = 0, n_box_y do
-			local map_height = spGetGroundHeight(i * delta, j * delta)
+			local map_height = spGetGroundHeight(i * config.convexHullAirFloorDelta, j * config.convexHullAirFloorDelta)
 			local floor_height = map_height
 			for r = 0, config.convexHullAirFloorSearchDistance, 200 do
 				for theta = 0, 6 do
-					local sample_height = spGetGroundHeight(i * delta + r * math.cos(theta), j * delta + r * math.sin(theta))
+					local sample_height = spGetGroundHeight(i * config.convexHullAirFloorDelta + r * math.cos(theta), j * config.convexHullAirFloorDelta + r * math.sin(theta))
 					floor_height = math.max(floor_height, sample_height - r * curtain_slope)
 				end
 			end
@@ -886,10 +883,10 @@ local function create_airplane_floor()
 	for i = 0, n_box_x do
 		for j = 0, n_box_y do
 			local floor_height = 0
-			local curtain_block_length = math.ceil(config.convexHullAirFloorSearchDistance / delta)
+			local curtain_block_length = math.ceil(config.convexHullAirFloorSearchDistance / config.convexHullAirFloorDelta)
 			for ii = math.max(0, i - curtain_block_length), math.min(n_box_x, i + curtain_block_length) do
 				for jj = math.max(0, j - curtain_block_length), math.min(n_box_y, j + curtain_block_length) do
-					local distance = ((i - ii) ^ 2 + (j - jj) ^ 2) ^ 0.5 * delta
+					local distance = ((i - ii) ^ 2 + (j - jj) ^ 2) ^ 0.5 * config.convexHullAirFloorDelta
 					floor_height = math.max(floor_height, airplane_floor[ii][jj] - distance * curtain_slope)
 				end
 			end
@@ -901,14 +898,14 @@ end
 
 -- bilinear interpolation of the airplane floor
 local function airplane_floor_height(x, y)
-	x = constrain(x, 0, map_xmax - delta)
-	y = constrain(y, 0, map_ymax - delta)
-	local left = math.floor(x / delta)
-	local bottom = math.floor(y / delta)
+	x = constrain(x, 0, map_xmax - config.convexHullAirFloorDelta)
+	y = constrain(y, 0, map_ymax - config.convexHullAirFloorDelta)
+	local left = math.floor(x / config.convexHullAirFloorDelta)
+	local bottom = math.floor(y / config.convexHullAirFloorDelta)
 	local right = left + 1
 	local top = bottom + 1
-	local box_x = (x - left * delta) / delta
-	local box_y = (y - bottom * delta) / delta
+	local box_x = (x - left * config.convexHullAirFloorDelta) / config.convexHullAirFloorDelta
+	local box_y = (y - bottom * config.convexHullAirFloorDelta) / config.convexHullAirFloorDelta
 	local weight_bottomleft = (1 - box_x) * (1 - box_y)
 	local weight_bottomright = (box_x) * (1 - box_y)
 	local weight_topleft = (1 - box_x) * (box_y)
