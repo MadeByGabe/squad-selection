@@ -1110,7 +1110,7 @@ end
 
 -- idle detection for convex hull visualization: for less visually distracting aircraft hulls
 function widget:UnitIdle(unitID, unitDefID, unitTeam)
-	if unit_team ~= spGetMyTeamID() then
+	if unitTeam ~= spGetMyTeamID() then
 		return
 	end
 	local x, y, z = spGetUnitPosition(unitID)
