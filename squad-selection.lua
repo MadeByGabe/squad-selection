@@ -20,8 +20,7 @@ local default_config = {
 	cyclingToNextSquad = true, -- when full squad/type is selected, exclude it to cycle to next
 	rightClickSquadCreate = true, -- right-click creates squads; toggle with squad_create_toggle action
 	commandCreatesSquad = false,
-	coloredLabelVisible = true, -- draws a colored letter or symbol next to each unit, with consistent colors/symbols for the units in each squad
-	convexHullVisible = false, -- draws a colored border around the units in the squad, with a semi-transparent fill
+	visualizationMode = "coloredLabel", -- "convexHull" or "coloredLabel"
 	convexHullPaddingLand = 50, -- space (in elmos?) between the units and the hull boundary
 	convexHullPaddingNavy = 100,
 	convexHullPaddingAir = 500, -- for idle airplanes this padding is relative to the position they went idle at
@@ -1188,32 +1187,34 @@ function widget:DrawScreenEffects()
 		return
 	end
 
-	for _, squad in ipairs(squads) do
-		if #squad > 0 and squad.color and squad.letter then
-			local c = squad.color
-			glColor(c[1], c[2], c[3], 0.75)
-			for j = 1, #squad do
-				local _, _, _, x, y, z = spGetUnitPosition(squad[j], true)
-				if x then
-					local sx, sy = spWorldToScreenCoords(x, y, z - 40)
-					if sx then
-						glText(squad.letter, sx, sy, 10, "co")
+	if config.visualizationMode == "coloredLabel" then
+		for _, squad in ipairs(squads) do
+			if #squad > 0 and squad.color and squad.letter then
+				local c = squad.color
+				glColor(c[1], c[2], c[3], 0.75)
+				for j = 1, #squad do
+					local _, _, _, x, y, z = spGetUnitPosition(squad[j], true)
+					if x then
+						local sx, sy = spWorldToScreenCoords(x, y, z - 40)
+						if sx then
+							glText(squad.letter, sx, sy, 10, "co")
+						end
 					end
 				end
 			end
+			glColor(1, 1, 1, 1)
 		end
-		glColor(1, 1, 1, 1)
-	end
 
-	-- Draw labels on assigned factory buildings
-	for fid, sq in pairs(factory_squad) do
-		local c = sq.color
-		glColor(c[1], c[2], c[3], 0.75)
-		local _, _, _, x, y, z = spGetUnitPosition(fid, true)
-		if x then
-			local sx, sy = spWorldToScreenCoords(x, y, z)
-			if sx then
-				glText(sq.letter, sx, sy + 14, 16, "co")
+		-- Draw labels on assigned factory buildings
+		for fid, sq in pairs(factory_squad) do
+			local c = sq.color
+			glColor(c[1], c[2], c[3], 0.75)
+			local _, _, _, x, y, z = spGetUnitPosition(fid, true)
+			if x then
+				local sx, sy = spWorldToScreenCoords(x, y, z)
+				if sx then
+					glText(sq.letter, sx, sy + 14, 16, "co")
+				end
 			end
 		end
 	end
@@ -1386,7 +1387,7 @@ local HULL_PARAMETERS_UNSELECTED = {
 }
 
 function widget:DrawWorldPreUnit()
-	if config.convexHullVisible then
+	if config.visualizationMode == "convexHull" then
 		if not squads or #squads == 0 then
 			return
 		end
