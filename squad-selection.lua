@@ -1183,38 +1183,36 @@ end
 -------------------------------------------------------------------------------
 
 function widget:DrawScreenEffects()
-	if spIsGUIHidden() then
+	if spIsGUIHidden() or config.visualizationMode ~= "coloredLabel" then
 		return
 	end
 
-	if config.visualizationMode == "coloredLabel" then
-		for _, squad in ipairs(squads) do
-			if #squad > 0 and squad.color and squad.letter then
-				local c = squad.color
-				glColor(c[1], c[2], c[3], 0.75)
-				for j = 1, #squad do
-					local _, _, _, x, y, z = spGetUnitPosition(squad[j], true)
-					if x then
-						local sx, sy = spWorldToScreenCoords(x, y, z - 40)
-						if sx then
-							glText(squad.letter, sx, sy, 10, "co")
-						end
+	for _, squad in ipairs(squads) do
+		if #squad > 0 and squad.color and squad.letter then
+			local c = squad.color
+			glColor(c[1], c[2], c[3], 0.75)
+			for j = 1, #squad do
+				local _, _, _, x, y, z = spGetUnitPosition(squad[j], true)
+				if x then
+					local sx, sy = spWorldToScreenCoords(x, y, z - 40)
+					if sx then
+						glText(squad.letter, sx, sy, 10, "co")
 					end
 				end
 			end
-			glColor(1, 1, 1, 1)
 		end
+		glColor(1, 1, 1, 1)
+	end
 
-		-- Draw labels on assigned factory buildings
-		for fid, sq in pairs(factory_squad) do
-			local c = sq.color
-			glColor(c[1], c[2], c[3], 0.75)
-			local _, _, _, x, y, z = spGetUnitPosition(fid, true)
-			if x then
-				local sx, sy = spWorldToScreenCoords(x, y, z)
-				if sx then
-					glText(sq.letter, sx, sy + 14, 16, "co")
-				end
+	-- Draw labels on assigned factory buildings
+	for fid, sq in pairs(factory_squad) do
+		local c = sq.color
+		glColor(c[1], c[2], c[3], 0.75)
+		local _, _, _, x, y, z = spGetUnitPosition(fid, true)
+		if x then
+			local sx, sy = spWorldToScreenCoords(x, y, z)
+			if sx then
+				glText(sq.letter, sx, sy + 14, 16, "co")
 			end
 		end
 	end
@@ -1375,119 +1373,121 @@ local HULL_PARAMETERS_UNSELECTED = {
 }
 
 function widget:DrawWorldPreUnit()
-	if config.visualizationMode == "convexHull" then
-		if not squads or #squads == 0 then
-			return
-		end
+	if spIsGUIHidden() or config.visualizationMode ~= "convexHull" then
+		return
+	end
 
-		-- build list of selected units, for later use
-		local selectedUnitList = spGetSelectedUnits()
-		local selectedUnits = {}
-		for _, id in ipairs(selectedUnitList) do
-			selectedUnits[id] = true
-		end
+	if not squads or #squads == 0 then
+		return
+	end
 
-		for _, squad in ipairs(squads) do
+	-- build list of selected units, for later use
+	local selectedUnitList = spGetSelectedUnits()
+	local selectedUnits = {}
+	for _, id in ipairs(selectedUnitList) do
+		selectedUnits[id] = true
+	end
 
-			if not squad.is_reserve then
+	for _, squad in ipairs(squads) do
 
-				-- determine color styling
-				-- based on whether all units in the squad are selected
-				local allSelected = true
-				for _, unitID in ipairs(squad) do
-					if not selectedUnits[unitID] then
-						allSelected = false
-						break
+		if not squad.is_reserve then
+
+			-- determine color styling
+			-- based on whether all units in the squad are selected
+			local allSelected = true
+			for _, unitID in ipairs(squad) do
+				if not selectedUnits[unitID] then
+					allSelected = false
+					break
+				end
+			end
+			local params = allSelected and HULL_PARAMETERS_FULLY_SELECTED or HULL_PARAMETERS_UNSELECTED
+
+			-- collect unit positions (in world coordinates?)
+			local worldPoints = {}
+			for _, unitID in ipairs(squad) do
+				local x, y, z = unit_hull_reference_position(unitID)
+				if x and y and z then
+					worldPoints[#worldPoints + 1] = {
+						x = x,
+						y = z,
+					}
+				end
+			end
+
+			-- determine domains present in the squad
+			local air_present = false
+			local land_present = false
+			local navy_present = false
+			for _, unitID in ipairs(squad) do
+				local unit_def = get_defid(unitID)
+				if unit_def then
+					if unit_domain[unit_def] == "naval" then
+						navy_present = true
+					end
+					if unit_domain[unit_def] == "land" then
+						land_present = true
+					end
+					if unit_domain[unit_def] == "air" then
+						air_present = true
 					end
 				end
-				local params = allSelected and HULL_PARAMETERS_FULLY_SELECTED or HULL_PARAMETERS_UNSELECTED
+			end
 
-				-- collect unit positions (in world coordinates?)
-				local worldPoints = {}
-				for _, unitID in ipairs(squad) do
-					local x, y, z = unit_hull_reference_position(unitID)
-					if x and y and z then
-						worldPoints[#worldPoints + 1] = {
-							x = x,
-							y = z,
-						}
-					end
+			-- calculate and draw hull
+			if #worldPoints > 0 then
+
+				local radius = config.convexHullPaddingLand
+				if navy_present then
+					radius = config.convexHullPaddingNavy
+				end
+				if air_present then
+					radius = config.convexHullPaddingAir
 				end
 
-				-- determine domains present in the squad
-				local air_present = false
-				local land_present = false
-				local navy_present = false
-				for _, unitID in ipairs(squad) do
-					local unit_def = get_defid(unitID)
-					if unit_def then
-						if unit_domain[unit_def] == "naval" then
-							navy_present = true
-						end
-						if unit_domain[unit_def] == "land" then
-							land_present = true
-						end
-						if unit_domain[unit_def] == "air" then
-							air_present = true
-						end
-					end
-				end
+				-- calculate the 2d hull
+				local paddedHull = get_padded_hull(worldPoints, radius, config.convexHullArcResolution)
 
-				-- calculate and draw hull
-				if #worldPoints > 0 then
-
-					local radius = config.convexHullPaddingLand
-					if navy_present then
-						radius = config.convexHullPaddingNavy
-					end
+				-- calculate the 3d projection of this hull
+				local screenHull = {}
+				for _, p in ipairs(paddedHull) do
+					local h = 0
 					if air_present then
-						radius = config.convexHullPaddingAir
+						h = airplane_floor_height(p.x, p.y) + config.convexHullAirHeightBoost
 					end
-
-					-- calculate the 2d hull
-					local paddedHull = get_padded_hull(worldPoints, radius, config.convexHullArcResolution)
-
-					-- calculate the 3d projection of this hull
-					local screenHull = {}
-					for _, p in ipairs(paddedHull) do
-						local h = 0
-						if air_present then
-							h = airplane_floor_height(p.x, p.y) + config.convexHullAirHeightBoost
-						end
-						if navy_present then
-							h = 0
-						end
-						if land_present then
-							h = spGetGroundHeight(p.x, p.y)
-						end
-						screenHull[#screenHull + 1] = {
-							x = p.x,
-							y = h,
-							z = p.y,
-						}
+					if navy_present then
+						h = 0
 					end
-
-					-- draw the hull
-					glDepthTest(false)
-					glColor(params.fillColor)
-					glBeginEnd(GL.POLYGON, function()
-						for _, p in ipairs(screenHull) do
-							glVertex(p.x, p.y, p.z)
-						end
+					if land_present then
+						h = spGetGroundHeight(p.x, p.y)
 					end
-)
-					glColor(params.borderColor)
-					glLineWidth(params.borderThickness)
-					glBeginEnd(GL.LINE_LOOP, function()
-						for _, p in ipairs(screenHull) do
-							glVertex(p.x, p.y, p.z)
-						end
-					end
-)
-					glDepthTest(true)
-					glColor(1, 1, 1, 1)
-					glLineWidth(1)
+					screenHull[#screenHull + 1] = {
+						x = p.x,
+						y = h,
+						z = p.y,
+					}
 				end
+
+				-- draw the hull
+				glDepthTest(false)
+				glColor(params.fillColor)
+				glBeginEnd(GL.POLYGON, function()
+					for _, p in ipairs(screenHull) do
+						glVertex(p.x, p.y, p.z)
+					end
+				end
+)
+				glColor(params.borderColor)
+				glLineWidth(params.borderThickness)
+				glBeginEnd(GL.LINE_LOOP, function()
+					for _, p in ipairs(screenHull) do
+						glVertex(p.x, p.y, p.z)
+					end
+				end
+)
+				glDepthTest(true)
+				glColor(1, 1, 1, 1)
+				glLineWidth(1)
 			end
 		end
 	end
