@@ -15,7 +15,7 @@ end
 -- Config
 -------------------------------------------------------------------------------
 
-local default_config = {
+local config = {
 	leftClickSelectsSquad = true, -- left-click can be used to select squads
 	cyclingToNextSquad = true, -- when full squad/type is selected, exclude it to cycle to next
 	rightClickSquadCreate = true, -- right-click creates squads; toggle with squad_create_toggle action
@@ -33,7 +33,6 @@ local default_config = {
 	convexHullBorderOpacity = 0.2,
 	convexHullBorderThickness = 2,
 }
-local config = default_config
 
 -------------------------------------------------------------------------------
 -- Localized Spring API
