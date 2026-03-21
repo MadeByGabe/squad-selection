@@ -300,7 +300,9 @@ local function initgl4()
 		shaderConfig = {
 			CIRCLE_OPACITY = CIRCLE_OPACITY,
 		},
-		uniformInt = {},
+		uniformInt = {
+			heightmapTex = 0,
+		},
 		-- silent = true,
 	}
 
@@ -1214,6 +1216,7 @@ function widget:DrawWorldPreUnit()
 
 	-- GL4 circle mode — MAX blending so overlapping circles don't accumulate opacity
 	if gl4Available and circleInstanceVBO and circleInstanceVBO.usedElements > 0 then
+		gl.Texture(0, "$heightmap")
 		gl.BlendEquation(GL_MAX)
 		gl.Blending(GL.ONE, GL.ONE)
 		circleShader:Activate()
@@ -1222,6 +1225,7 @@ function widget:DrawWorldPreUnit()
 		circleShader:Deactivate()
 		gl.BlendEquation(GL_FUNC_ADD)
 		gl.Blending(false)
+		gl.Texture(0, false)
 	end
 end
 
