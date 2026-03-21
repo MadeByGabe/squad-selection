@@ -1108,6 +1108,21 @@ function widget:UnitGiven(unit_id, unit_def_id, unit_team, old_team)
 end
 
 
+-- idle detection for convex hull visualization: for less visually distracting aircraft hulls
+function widget:UnitIdle(unitID, unitDefID, unitTeam)
+	if unit_team ~= spGetMyTeamID() then
+		return
+	end
+	local x, y, z = spGetUnitPosition(unitID)
+	local idle_pos = {
+		x = x,
+		y = y,
+		z = z,
+	}
+	last_idle_locations[unitID] = idle_pos
+end
+
+
 -------------------------------------------------------------------------------
 -- Input
 -------------------------------------------------------------------------------
@@ -1165,7 +1180,6 @@ end
 
 -------------------------------------------------------------------------------
 -- Drawing
---
 -------------------------------------------------------------------------------
 
 function widget:DrawScreenEffects()
@@ -1209,22 +1223,9 @@ function widget:DrawScreenEffects()
 end
 
 
--- convex hull
-
--- idle detection for less visually distracting aircraft hulls
-function widget:UnitIdle(unitID, unitDefID, unitTeam)
-	if unit_team ~= spGetMyTeamID() then
-		return
-	end
-	local x, y, z = spGetUnitPosition(unitID)
-	local idle_pos = {
-		x = x,
-		y = y,
-		z = z,
-	}
-	last_idle_locations[unitID] = idle_pos
-end
-
+-------------------------------------------------------------------------------
+-- Convex hull
+-------------------------------------------------------------------------------
 
 -- the position for a unit that is used to create the convex hull
 -- for a squad the unit is in
