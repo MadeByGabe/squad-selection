@@ -1064,9 +1064,7 @@ function widget:UnitDestroyed(unit_id, unit_def_id, unit_team, attacker_id)
 
 	-- location where a unit became idle is useful
 	-- for constructing less visually obnoxious aircraft convex hulls
-	if last_idle_locations[unit_id] then
-		last_idle_locations[unit_id] = nil
-	end
+	last_idle_locations[unit_id] = nil
 end
 
 
