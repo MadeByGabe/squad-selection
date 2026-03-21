@@ -62,9 +62,17 @@ local spGetMyPlayerID = Spring.GetMyPlayerID
 local spGetGroupUnits = Spring.GetGroupUnits
 local spGetUnitGroup = Spring.GetUnitGroup
 local spGetMouseCursor = Spring.GetMouseCursor
+local spIsReplay = Spring.IsReplay
+local spGetGroundHeight = Spring.GetGroundHeight
+local spGetUnitCommands = Spring.GetUnitCommands
+local spGetTeamColor = Spring.GetTeamColor
 
 local glColor = gl.Color
 local glText = gl.Text
+local glDepthTest = gl.DepthTest
+local glBeginEnd = gl.BeginEnd
+local glLineWidth = gl.LineWidth
+local glVertex = gl.Vertex
 
 -------------------------------------------------------------------------------
 -- State
@@ -830,7 +838,7 @@ end
 
 function widget:Initialize()
 	create_airplane_floor()
-	if spGetSpectatingState() or Spring.IsReplay() then
+	if spGetSpectatingState() or spIsReplay() then
 		log("Spectating or replay mode detected, not initializing")
 		widgetHandler:RemoveWidget()
 		return
@@ -1165,11 +1173,11 @@ local function create_airplane_floor()
 	for i = 0, n_box_x do
 		airplane_floor[i] = {}
 		for j = 0, n_box_y do
-			local map_height = Spring.GetGroundHeight(i * delta, j * delta)
+			local map_height = spGetGroundHeight(i * delta, j * delta)
 			local floor_height = map_height
 			for r = 0, config.convexHullAirFloorSearchDistance, 200 do
 				for theta = 0, 6 do
-					local sample_height = Spring.GetGroundHeight(i * delta + r * math.cos(theta), j * delta + r * math.sin(theta))
+					local sample_height = spGetGroundHeight(i * delta + r * math.cos(theta), j * delta + r * math.sin(theta))
 					floor_height = math.max(floor_height, sample_height - r * curtain_slope)
 				end
 			end
@@ -1215,7 +1223,7 @@ end
 
 -- idle detection for less visually distracting aircraft hulls
 function widget:UnitIdle(unitID, unitDefID, unitTeam)
-	local x, y, z = Spring.GetUnitPosition(unitID)
+	local x, y, z = spGetUnitPosition(unitID)
 	local idle_pos = {
 		x = x,
 		y = y,
@@ -1231,10 +1239,10 @@ end
 -- this is typically just the unit position
 -- but idle aircraft use the position that they went idle at
 local function unit_hull_reference_position(u)
-	local command_queue_length = Spring.GetUnitCommands(u, 0)
+	local command_queue_length = spGetUnitCommands(u, 0)
 	local unit_def = get_defid(u)
 	local domain = unit_def and unit_domain[unit_def]
-	local x, y, z = Spring.GetUnitPosition(u)
+	local x, y, z = spGetUnitPosition(u)
 	if not command_queue_length or not x or not y or not z or not unit_def then
 		return nil, nil, nil
 	end -- return nil if unit got detroyed mid-function
@@ -1360,7 +1368,7 @@ local function get_padded_hull(worldPoints, radius, arc_segments_angle)
 end
 
 
-local team_r, team_g, team_b, team_a = Spring.GetTeamColor(Spring.GetMyTeamID())
+local team_r, team_g, team_b, team_a = spGetTeamColor(spGetMyTeamID())
 local HULL_PARAMETERS_FULLY_SELECTED = {
 	fillColor = {1, 1, 1, config.convexHullFillOpacity},
 	borderColor = {1, 1, 1, config.convexHullBorderOpacity},
@@ -1379,7 +1387,7 @@ function widget:DrawWorldPreUnit()
 		end
 
 		-- build list of selected units, for later use
-		local selectedUnitList = Spring.GetSelectedUnits()
+		local selectedUnitList = spGetSelectedUnits()
 		local selectedUnits = {}
 		for _, id in ipairs(selectedUnitList) do
 			selectedUnits[id] = true
@@ -1456,7 +1464,7 @@ function widget:DrawWorldPreUnit()
 							h = 0
 						end
 						if land_present then
-							h = Spring.GetGroundHeight(p.x, p.y)
+							h = spGetGroundHeight(p.x, p.y)
 						end
 						screenHull[#screenHull + 1] = {
 							x = p.x,
@@ -1466,27 +1474,25 @@ function widget:DrawWorldPreUnit()
 					end
 
 					-- draw the hull
-					gl.DepthTest(false)
-					gl.Color(params.fillColor)
-					gl.BeginEnd(GL.POLYGON, function()
+					glDepthTest(false)
+					glColor(params.fillColor)
+					glBeginEnd(GL.POLYGON, function()
 						for _, p in ipairs(screenHull) do
-							-- gl.Vertex(p.x, p.y)
-							gl.Vertex(p.x, p.y, p.z)
+							glVertex(p.x, p.y, p.z)
 						end
 					end
 )
-					gl.Color(params.borderColor)
-					gl.LineWidth(params.borderThickness)
-					gl.BeginEnd(GL.LINE_LOOP, function()
+					glColor(params.borderColor)
+					glLineWidth(params.borderThickness)
+					glBeginEnd(GL.LINE_LOOP, function()
 						for _, p in ipairs(screenHull) do
-							-- gl.Vertex(p.x, p.y)
-							gl.Vertex(p.x, p.y, p.z)
+							glVertex(p.x, p.y, p.z)
 						end
 					end
 )
-					gl.DepthTest(true)
+					glDepthTest(true)
 					glColor(1, 1, 1, 1)
-					gl.LineWidth(1)
+					glLineWidth(1)
 				end
 			end
 		end
