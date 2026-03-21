@@ -19,7 +19,7 @@ local config = {
 	leftClickSelectsSquad = true, -- left-click can be used to select squads
 	cyclingToNextSquad = true, -- when full squad/type is selected, exclude it to cycle to next
 	rightClickSquadCreate = true, -- right-click creates squads; toggle with squad_create_toggle action
-	visualizationMode = "coloredLabel", -- "convexHull" or "coloredLabel"
+	visualizationMode = "circle", -- "circle", "convexHull", or "coloredLabel"
 	convexHullPaddingLand = 50, -- space (in elmos?) between the units and the hull boundary
 	convexHullPaddingNavy = 100,
 	convexHullPaddingAir = 500, -- for idle airplanes this padding is relative to the position they went idle at
@@ -80,6 +80,20 @@ local glDepthTest = gl.DepthTest
 local glBeginEnd = gl.BeginEnd
 local glLineWidth = gl.LineWidth
 local glVertex = gl.Vertex
+
+-- GL4 circle visualization
+local LuaShader = gl.LuaShader
+local InstanceVBOTable = gl.InstanceVBOTable
+local gl4Available = false
+local circleShader = nil
+local circleInstanceVBO = nil
+local circleShaderSource = nil
+local lineScale = 1.0
+
+local CIRCLE_RADIUS = 35
+local CIRCLE_OPACITY = 0.7
+local CIRCLE_SEGMENTS = 24
+local CIRCLE_LINE_WIDTH = 3.0
 
 -------------------------------------------------------------------------------
 -- State
@@ -155,14 +169,22 @@ local SQUAD_ELIGIBLE_EXTRAS = {
 -------------------------------------------------------------------------------
 
 local SQUAD_COLORS = {
-	{1.0, 0.3, 0.3}, -- red
-	{0.3, 1.0, 0.3}, -- green
+	{1.0, 0.2, 0.2}, -- red
+	{0.2, 0.8, 0.2}, -- green
 	{0.3, 0.5, 1.0}, -- blue
-	{1.0, 1.0, 0.3}, -- yellow
-	{1.0, 0.3, 1.0}, -- magenta
-	{0.3, 1.0, 1.0}, -- cyan
-	{1.0, 0.6, 0.2}, -- orange
-	{0.7, 0.3, 1.0} -- purple
+	{1.0, 1.0, 0.2}, -- yellow
+	{1.0, 0.2, 1.0}, -- magenta
+	{0.2, 1.0, 1.0}, -- cyan
+	{1.0, 0.5, 0.1}, -- orange
+	{0.7, 0.3, 1.0}, -- purple
+	{1.0, 0.5, 0.5}, -- salmon
+	{0.5, 1.0, 0.5}, -- light green
+	{0.4, 0.7, 1.0}, -- sky blue
+	{0.8, 0.8, 0.2}, -- olive
+	{1.0, 0.3, 0.6}, -- hot pink
+	{0.2, 0.7, 0.5}, -- teal
+	{1.0, 0.8, 0.3}, -- gold
+	{0.6, 0.4, 0.9}, -- lavender
 }
 
 local SQUAD_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ+#@!$=&"
@@ -249,6 +271,80 @@ end
 
 
 -------------------------------------------------------------------------------
+-- GL4 circle instance management
+-------------------------------------------------------------------------------
+
+local circleInstanceCache = {0, 0, 0, 0, 0, 0, 0, 0}
+
+local function push_circle_instance(unitID)
+	if not gl4Available or not circleInstanceVBO then return end
+	local squad = unit_squad[unitID]
+	if not squad or not squad.color then return end
+	local c = squad.color
+	circleInstanceCache[1] = CIRCLE_RADIUS
+	circleInstanceCache[2] = c[1]
+	circleInstanceCache[3] = c[2]
+	circleInstanceCache[4] = c[3]
+	InstanceVBOTable.pushElementInstance(circleInstanceVBO, circleInstanceCache, unitID, true, false, unitID)
+end
+
+local function pop_circle_instance(unitID)
+	if not gl4Available or not circleInstanceVBO then return end
+	if circleInstanceVBO.instanceIDtoIndex[unitID] then
+		InstanceVBOTable.popElementInstance(circleInstanceVBO, unitID)
+	end
+end
+
+local function refresh_squad_circles(squad)
+	if not gl4Available then return end
+	for j = 1, #squad do
+		push_circle_instance(squad[j])
+	end
+end
+
+local function initgl4()
+	if not gl.CreateShader or not LuaShader or not InstanceVBOTable then
+		return false
+	end
+
+	local vsx, vsy = Spring.GetViewGeometry()
+	lineScale = (vsy + 500) / 1300
+
+	circleShaderSource = {
+		shaderName = 'Squad Circles GL4',
+		vssrcpath = "LuaUI/Shaders/squad_circles.vert.glsl",
+		fssrcpath = "LuaUI/Shaders/squad_circles.frag.glsl",
+		shaderConfig = {
+			CIRCLE_OPACITY = CIRCLE_OPACITY,
+		},
+		uniformInt = {
+			heightmapTex = 0,
+		},
+		silent = true,
+	}
+
+	circleShader = LuaShader.CheckShaderUpdates(circleShaderSource, 0)
+	if not circleShader then
+		spEcho("[Squad] GL4 circle shader failed, falling back to labels")
+		return false
+	end
+
+	local circleVBO, numVertices = InstanceVBOTable.makeCircleVBO(CIRCLE_SEGMENTS, nil, false, "SquadCircles")
+	local instanceLayout = {
+		{ id = 1, name = 'radius_color', size = 4 },
+		{ id = 2, name = 'instData', size = 4, type = GL.UNSIGNED_INT },
+	}
+
+	circleInstanceVBO = InstanceVBOTable.makeInstanceVBOTable(instanceLayout, 128, "squadCircleVBO", 2)
+	circleInstanceVBO.numVertices = numVertices
+	circleInstanceVBO.vertexVBO = circleVBO
+	circleInstanceVBO.VAO = InstanceVBOTable.makeVAOandAttach(circleVBO, circleInstanceVBO.instanceVBO)
+
+	return true
+end
+
+
+-------------------------------------------------------------------------------
 -- Squad operations
 -------------------------------------------------------------------------------
 
@@ -257,6 +353,9 @@ local function add_to_squad(unit_id, squad)
 	squad[slot] = unit_id
 	unit_squad[unit_id] = squad
 	unit_slot[unit_id] = slot
+	if squad.color then
+		push_circle_instance(unit_id)
+	end
 end
 
 
@@ -266,6 +365,8 @@ local function remove_from_squad(unit_id)
 	if not squad then
 		return
 	end
+
+	pop_circle_instance(unit_id)
 
 	local slot = unit_slot[unit_id]
 	local last = squad[#squad]
@@ -307,6 +408,7 @@ local function update_factory_squad_reserve(sq)
 	sq.is_reserve = false
 	sq.from_factory = false
 	assign_squad_tag(sq)
+	refresh_squad_circles(sq)
 end
 
 
@@ -431,6 +533,7 @@ local function create_squad_from_selection()
 	end
 
 	assign_squad_tag(new_squad)
+	refresh_squad_circles(new_squad)
 	squads[#squads + 1] = new_squad
 	prune_empty_squads()
 
@@ -943,6 +1046,7 @@ function widget:Initialize()
 	next_squad_tag = 0
 
 	classify_unitdefs()
+	gl4Available = initgl4()
 
 	for _, domain in ipairs(DOMAINS) do
 		local sq = {}
@@ -1192,52 +1296,47 @@ end
 -- Drawing
 -------------------------------------------------------------------------------
 
+function widget:ViewResize()
+	local _, vsy = Spring.GetViewGeometry()
+	lineScale = (vsy + 500) / 1300
+end
+
 function widget:DrawWorld()
-	if spIsGUIHidden() or config.visualizationMode ~= "coloredLabel" then
+	if spIsGUIHidden() or config.visualizationMode == "convexHull" then
 		return
 	end
 
-	local _, cy, _ = spGetCameraPosition()
-	local s = 0.1 + cy * 0.001
+	-- GL4 circle mode for squad units
+	if gl4Available and circleInstanceVBO and circleInstanceVBO.usedElements > 0 then
+		circleShader:Activate()
+		gl.Texture(0, "$heightmap")
+		gl.DepthTest(true)
+		glLineWidth(CIRCLE_LINE_WIDTH * lineScale)
+		circleInstanceVBO.VAO:DrawArrays(GL.LINE_LOOP, circleInstanceVBO.numVertices, 0, circleInstanceVBO.usedElements)
+		circleShader:Deactivate()
+		gl.Texture(0, false)
+		glLineWidth(1.0)
+	end
 
-	for _, squad in ipairs(squads) do
-		if #squad > 0 and squad.color and squad.letter then
-			local c = squad.color
-			for j = 1, #squad do
-				local _, _, _, x, y, z = spGetUnitPosition(squad[j], true)
-				if x then
-					local defID = defid_of[squad[j]]
-					-- local h = defID and UnitDefs[defID].height or 40
-					glPushMatrix()
-					glTranslate(x, y, z + 50)
-					glBillboard()
-					glScale(s, s, s)
-					glColor(c[1], c[2], c[3], 1)
-					glText(squad.letter, 0, 0, 12, "co")
-					glPopMatrix()
-				end
+	-- Factory building labels (few factories, always fast)
+	if next(factory_squad) then
+		local _, cy = spGetCameraPosition()
+		local s = 0.1 + cy * 0.001
+		for fid, sq in pairs(factory_squad) do
+			local _, _, _, x, y, z = spGetUnitPosition(fid, true)
+			if x then
+				local c = sq.color
+				glPushMatrix()
+				glTranslate(x, y, z + 50)
+				glBillboard()
+				glScale(s, s, s)
+				glColor(c[1], c[2], c[3], 1.0)
+				glText(sq.letter, 0, 0, 16, "co")
+				glPopMatrix()
 			end
 		end
 		glColor(1, 1, 1, 1)
 	end
-
-	-- Draw labels on assigned factory buildings
-	for fid, sq in pairs(factory_squad) do
-		local _, _, _, x, y, z = spGetUnitPosition(fid, true)
-		if x then
-			local defID = defid_of[fid]
-			local c = sq.color
-			glPushMatrix()
-			glTranslate(x, y, z + 50)
-			glBillboard()
-			glScale(s, s, s)
-			glColor(c[1], c[2], c[3], 1.0)
-			glText(sq.letter, 0, 0, 16, "co")
-			glPopMatrix()
-		end
-	end
-
-	glColor(1, 1, 1, 1)
 end
 
 
