@@ -92,7 +92,7 @@ local circleShaderSource = nil
 local lineScale = 1.0
 
 local CIRCLE_RADIUS = 35
-local CIRCLE_OPACITY = 0.7
+local CIRCLE_OPACITY = 0.35
 local CIRCLE_SEGMENTS = 24
 local CIRCLE_LINE_WIDTH = 3.0
 
@@ -282,7 +282,9 @@ local function push_circle_instance(unitID)
 	local squad = unit_squad[unitID]
 	if not squad or not squad.color then return end
 	local c = squad.color
-	circleInstanceCache[1] = CIRCLE_RADIUS
+	local def_id = defid_of[unitID]
+	-- Negative radius signals air unit (no ground projection) to the shader
+	circleInstanceCache[1] = (def_id and unit_domain[def_id] == "air") and -CIRCLE_RADIUS or CIRCLE_RADIUS
 	circleInstanceCache[2] = c[1]
 	circleInstanceCache[3] = c[2]
 	circleInstanceCache[4] = c[3]
@@ -319,7 +321,7 @@ local function initgl4()
 			CIRCLE_OPACITY = CIRCLE_OPACITY,
 		},
 		uniformInt = {},
-		silent = true,
+		-- silent = true,
 	}
 
 	circleShader = LuaShader.CheckShaderUpdates(circleShaderSource, 0)
@@ -328,8 +330,8 @@ local function initgl4()
 		return false
 	end
 
-	-- No center vertex — LINE_LOOP only
-	local circleVBO, numVertices = InstanceVBOTable.makeCircleVBO(CIRCLE_SEGMENTS, nil, false, "SquadCircles")
+	-- Center vertex for TRIANGLE_FAN fill
+	local circleVBO, numVertices = InstanceVBOTable.makeCircleVBO(CIRCLE_SEGMENTS, nil, true, "SquadCircles")
 	local instanceLayout = {
 		{ id = 1, name = 'radius_color', size = 4 },
 		{ id = 2, name = 'instData', size = 4, type = GL.UNSIGNED_INT },
@@ -1315,10 +1317,8 @@ function widget:DrawWorld()
 
 		circleShader:Activate()
 		gl.DepthTest(true)
-		glLineWidth(CIRCLE_LINE_WIDTH * lineScale)
-		circleInstanceVBO.VAO:DrawArrays(GL.LINE_LOOP, circleInstanceVBO.numVertices, 0, circleInstanceVBO.usedElements)
+		circleInstanceVBO.VAO:DrawArrays(GL.TRIANGLE_FAN, circleInstanceVBO.numVertices, 0, circleInstanceVBO.usedElements)
 		circleShader:Deactivate()
-		glLineWidth(1.0)
 
 		gl.StencilTest(false)
 	end

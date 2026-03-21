@@ -6,11 +6,13 @@
 #line 10000
 
 layout (location = 0) in vec4 circlepointposition;
-layout (location = 1) in vec4 radius_color; // x=radius, yzw=rgb
+layout (location = 1) in vec4 radius_color; // x=radius (negative=air), yzw=rgb
 layout (location = 2) in uvec4 instData;
 
 //__ENGINEUNIFORMBUFFERDEFS__
 //__DEFINES__
+
+uniform sampler2D heightmapTex;
 
 struct SUniformsBuffer {
     uint composite;
@@ -38,7 +40,8 @@ out DataVS {
 
 void main() {
     vec4 center = vec4(uni[instData.y].drawPos.xyz, 1.0);
-    float circleRadius = radius_color.x;
+    float circleRadius = abs(radius_color.x);
+    bool isAir = radius_color.x < 0.0;
 
     // Frustum culling
     if (SphereInViewSignedDistance(center.xyz, circleRadius) > 0.0) {
@@ -46,10 +49,18 @@ void main() {
         return;
     }
 
-    // Flat circle at unit draw position — all vertices share the unit's Y
-    center.y = max(0.0, center.y + 6.0);
+    // Expand circle vertices in XZ plane
     vec4 vertex = vec4(center.xyz, 1.0);
     vertex.xz += circlepointposition.xy * circleRadius;
+
+    if (isAir) {
+        // Air units: flat circle at flight altitude
+        vertex.y = max(0.0, center.y + 6.0);
+    } else {
+        // Ground/naval units: project each vertex to heightmap
+        vec2 uvhm = heightmapUVatWorldPos(vertex.xz);
+        vertex.y = textureLod(heightmapTex, uvhm, 0.0).x + 6.0;
+    }
 
     gl_Position = cameraViewProj * vertex;
     v_color = vec4(radius_color.yzw, CIRCLE_OPACITY);
