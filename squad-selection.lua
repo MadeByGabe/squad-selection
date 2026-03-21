@@ -110,7 +110,7 @@ end
 -------------------------------------------------------------------------------
 
 -- more readable way to limit a value at two ends
-function constrain(x, min, max)
+local function constrain(x, min, max)
 	return math.max(min, math.min(max, x))
 end
 
@@ -1152,7 +1152,7 @@ local map_xmax = Game.mapSizeX
 local map_ymax = Game.mapSizeZ
 
 local airplane_floor = {}
-function create_airplane_floor()
+local function create_airplane_floor()
 
 	local curtain_slope = config.convexHullAirFloorCurtainSlope -- shorter name
 
@@ -1196,7 +1196,7 @@ end
 
 
 -- bilinear interpolation of the airplane floor
-function airplane_floor_height(x, y)
+local function airplane_floor_height(x, y)
 	x = constrain(x, 0, map_xmax - delta)
 	y = constrain(y, 0, map_ymax - delta)
 	local left = math.floor(x / delta)
@@ -1230,7 +1230,7 @@ end
 -- 
 -- this is typically just the unit position
 -- but idle aircraft use the position that they went idle at
-function unit_hull_reference_position(u)
+local function unit_hull_reference_position(u)
 	local command_queue_length = Spring.GetUnitCommands(u, 0)
 	local unit_def = get_defid(u)
 	local domain = unit_def and unit_domain[unit_def]
@@ -1249,7 +1249,7 @@ function unit_hull_reference_position(u)
 end
 
 
-function convex_hull(points)
+local function convex_hull(points)
 	local function compare(a, b)
 		return a.x < b.x or (a.x == b.x and a.y < b.y)
 	end
@@ -1348,7 +1348,7 @@ end
 
 
 -- Choose the correct function for the current squad
-function get_padded_hull(worldPoints, radius, arc_segments_angle)
+local function get_padded_hull(worldPoints, radius, arc_segments_angle)
 	if #worldPoints == 1 then
 		return padded_circle(worldPoints[1], radius, arc_segments_angle)
 	elseif #worldPoints >= 2 then
