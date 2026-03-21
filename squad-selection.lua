@@ -91,10 +91,11 @@ local circleInstanceVBO = nil
 local circleShaderSource = nil
 local lineScale = 1.0
 
-local CIRCLE_RADIUS = 35
-local CIRCLE_OPACITY = 0.35
-local CIRCLE_SEGMENTS = 24
-local CIRCLE_LINE_WIDTH = 3.0
+local CIRCLE_RADIUS = 200
+local CIRCLE_OPACITY = 0.5
+local CIRCLE_SEGMENTS = 12
+local GL_MAX = GL.MAX
+local GL_FUNC_ADD = GL.FUNC_ADD
 
 -------------------------------------------------------------------------------
 -- State
@@ -1308,21 +1309,6 @@ function widget:DrawWorld()
 		return
 	end
 
-	-- GL4 circle mode for squad units — hardware stencil prevents overdraw at overlaps
-	if gl4Available and circleInstanceVBO and circleInstanceVBO.usedElements > 0 then
-		gl.StencilTest(true)
-		gl.StencilFunc(GL.NOTEQUAL, 1, 1)
-		gl.StencilOp(GL.KEEP, GL.KEEP, GL.REPLACE)
-		gl.StencilMask(15)
-
-		circleShader:Activate()
-		gl.DepthTest(true)
-		circleInstanceVBO.VAO:DrawArrays(GL.TRIANGLE_FAN, circleInstanceVBO.numVertices, 0, circleInstanceVBO.usedElements)
-		circleShader:Deactivate()
-
-		gl.StencilTest(false)
-	end
-
 	-- Factory building labels (few factories, always fast)
 	if next(factory_squad) then
 		local _, cy = spGetCameraPosition()
@@ -1497,11 +1483,23 @@ local HULL_PARAMETERS_UNSELECTED = {
 }
 
 function widget:DrawWorldPreUnit()
-	if spIsGUIHidden() or config.visualizationMode ~= "convexHull" then
+	if spIsGUIHidden() then
 		return
 	end
 
-	if not squads or #squads == 0 then
+	-- GL4 circle mode — MAX blending so overlapping circles don't accumulate opacity
+	if config.visualizationMode ~= "convexHull" and gl4Available and circleInstanceVBO and circleInstanceVBO.usedElements > 0 then
+		gl.BlendEquation(GL_MAX)
+		gl.Blending(GL.ONE, GL.ONE)
+		circleShader:Activate()
+		gl.DepthTest(false)
+		circleInstanceVBO.VAO:DrawArrays(GL.TRIANGLE_FAN, circleInstanceVBO.numVertices, 0, circleInstanceVBO.usedElements)
+		circleShader:Deactivate()
+		gl.BlendEquation(GL_FUNC_ADD)
+		gl.Blending(false)
+	end
+
+	if config.visualizationMode ~= "convexHull" or not squads or #squads == 0 then
 		return
 	end
 
