@@ -1213,6 +1213,9 @@ end
 
 -- idle detection for less visually distracting aircraft hulls
 function widget:UnitIdle(unitID, unitDefID, unitTeam)
+	if unit_team ~= spGetMyTeamID() then
+		return
+	end
 	local x, y, z = spGetUnitPosition(unitID)
 	local idle_pos = {
 		x = x,
