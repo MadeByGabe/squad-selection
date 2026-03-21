@@ -60,6 +60,7 @@ local spGetGroupUnits = Spring.GetGroupUnits
 local spGetUnitGroup = Spring.GetUnitGroup
 local spGetMouseCursor = Spring.GetMouseCursor
 local spGetCameraPosition = Spring.GetCameraPosition
+local spGetViewGeometry = Spring.GetViewGeometry
 
 local glColor = gl.Color
 local glText = gl.Text
@@ -307,7 +308,7 @@ local function initgl4()
 		return false
 	end
 
-	local vsx, vsy = Spring.GetViewGeometry()
+	local _, vsy = spGetViewGeometry()
 	lineScale = (vsy + 500) / 1300
 
 	circleShaderSource = {
@@ -317,18 +318,17 @@ local function initgl4()
 		shaderConfig = {
 			CIRCLE_OPACITY = CIRCLE_OPACITY,
 		},
-		uniformInt = {
-			heightmapTex = 0,
-		},
+		uniformInt = {},
 		silent = true,
 	}
 
 	circleShader = LuaShader.CheckShaderUpdates(circleShaderSource, 0)
 	if not circleShader then
-		spEcho("[Squad] GL4 circle shader failed, falling back to labels")
+		spEcho("[Squad] GL4 circle shader failed")
 		return false
 	end
 
+	-- No center vertex — LINE_LOOP only
 	local circleVBO, numVertices = InstanceVBOTable.makeCircleVBO(CIRCLE_SEGMENTS, nil, false, "SquadCircles")
 	local instanceLayout = {
 		{ id = 1, name = 'radius_color', size = 4 },
@@ -1297,7 +1297,7 @@ end
 -------------------------------------------------------------------------------
 
 function widget:ViewResize()
-	local _, vsy = Spring.GetViewGeometry()
+	local _, vsy = spGetViewGeometry()
 	lineScale = (vsy + 500) / 1300
 end
 
@@ -1306,16 +1306,21 @@ function widget:DrawWorld()
 		return
 	end
 
-	-- GL4 circle mode for squad units
+	-- GL4 circle mode for squad units — hardware stencil prevents overdraw at overlaps
 	if gl4Available and circleInstanceVBO and circleInstanceVBO.usedElements > 0 then
+		gl.StencilTest(true)
+		gl.StencilFunc(GL.NOTEQUAL, 1, 1)
+		gl.StencilOp(GL.KEEP, GL.KEEP, GL.REPLACE)
+		gl.StencilMask(15)
+
 		circleShader:Activate()
-		gl.Texture(0, "$heightmap")
 		gl.DepthTest(true)
 		glLineWidth(CIRCLE_LINE_WIDTH * lineScale)
 		circleInstanceVBO.VAO:DrawArrays(GL.LINE_LOOP, circleInstanceVBO.numVertices, 0, circleInstanceVBO.usedElements)
 		circleShader:Deactivate()
-		gl.Texture(0, false)
 		glLineWidth(1.0)
+
+		gl.StencilTest(false)
 	end
 
 	-- Factory building labels (few factories, always fast)

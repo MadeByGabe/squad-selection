@@ -32,16 +32,9 @@ layout(std140, binding=1) readonly buffer UniformsBuffer {
     SUniformsBuffer uni[];
 };
 
-uniform sampler2D heightmapTex;
-
 out DataVS {
     flat vec4 v_color;
 };
-
-float heightAtWorldPos(vec2 w) {
-    vec2 uvhm = heightmapUVatWorldPos(w);
-    return textureLod(heightmapTex, uvhm, 0.0).x;
-}
 
 void main() {
     vec4 center = vec4(uni[instData.y].drawPos.xyz, 1.0);
@@ -53,13 +46,10 @@ void main() {
         return;
     }
 
+    // Flat circle at unit draw position — all vertices share the unit's Y
     center.y = max(0.0, center.y + 6.0);
-
     vec4 vertex = vec4(center.xyz, 1.0);
     vertex.xz += circlepointposition.xy * circleRadius;
-
-    float groundHeight = heightAtWorldPos(vertex.xz);
-    vertex.y = max(0.0, groundHeight + 6.0);
 
     gl_Position = cameraViewProj * vertex;
     v_color = vec4(radius_color.yzw, CIRCLE_OPACITY);
