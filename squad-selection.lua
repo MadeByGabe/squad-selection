@@ -1002,7 +1002,8 @@ function widget:MousePress(x, y, button)
 			end
 			local cursor = spGetMouseCursor()
 			local hit_type = spTraceScreenRay(x, y)
-			if cursor == "Move" and hit_type ~= "unit" then
+			local has_selection = spGetSelectedUnits()[1] ~= nil
+			if (not has_selection or cursor == "Move") and hit_type ~= "unit" then
 				if alt and shift then
 					closest_squad_select_filtered(nil, nil, {"append"})
 				elseif alt and ctrl then
