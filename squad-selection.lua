@@ -989,7 +989,9 @@ function widget:Initialize()
 ,
 	}
 
-	create_airplane_floor()
+	if config.visualizationMode == "convexHull" then
+		create_airplane_floor()
+	end
 
 	log("Initialized — " .. count .. " combat units across reserve squads")
 	log_squads()
