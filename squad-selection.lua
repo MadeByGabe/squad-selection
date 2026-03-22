@@ -21,8 +21,8 @@ local config = {
 	rightClickSquadCreate = true, -- right-click creates squads; toggle with squad_create_toggle action
 	visualizationMode = "coloredLabel", -- "convexHull" or "coloredLabel"
 	convexHullPaddingLand = 50, -- space (in elmos?) between the units and the hull boundary
-	convexHullPaddingNavy = 100,
-	convexHullPaddingAir = 500, -- for idle airplanes this padding is relative to the position they went idle at
+	convexHullPaddingNavy = 50,
+	convexHullPaddingAir = 50, -- for idle airplanes this padding is relative to the position they went idle at
 	convexHullArcResolution = math.rad(30), -- angle that each chord of the arc spans
 	convexHullAirHeightBoost = 200,
 	convexHullAirFloorDelta = 200, -- grid size (elmos?)
@@ -1158,6 +1158,62 @@ end
 
 
 -------------------------------------------------------------------------------
+-- Settings action — toggle/set config values from chat
+-- Usage:
+--   /luaui squad_setting toggle rightClickSquadCreate
+--   /luaui squad_setting toggle cyclingToNextSquad
+--   /luaui squad_setting set visualizationMode convexHull
+--   /luaui squad_setting set visualizationMode coloredLabel
+--   /luaui squad_setting get cyclingToNextSquad
+-------------------------------------------------------------------------------
+
+local function squad_setting(_, _, args)
+	if not args or not args[1] then
+		spEcho("[Squad] Usage: squad_setting toggle|set|get <key> [value]")
+		return
+	end
+	local action = args[1]
+	local key = args[2]
+	if not key or config[key] == nil then
+		spEcho("[Squad] Unknown config key: " .. tostring(key))
+		return
+	end
+
+	if action == "toggle" then
+		if type(config[key]) ~= "boolean" then
+			spEcho("[Squad] Cannot toggle non-boolean key: " .. key)
+			return
+		end
+		config[key] = not config[key]
+		spEcho("[Squad] " .. key .. " = " .. tostring(config[key]))
+	elseif action == "set" then
+		local value = args[3]
+		if not value then
+			spEcho("[Squad] Missing value for set")
+			return
+		end
+		-- coerce to number or boolean if appropriate
+		if value == "true" then
+			value = true
+		elseif value == "false" then
+			value = false
+		elseif tonumber(value) then
+			value = tonumber(value)
+		end
+		if key == "visualizationMode" and value == "convexHull" then
+			create_airplane_floor()
+		end
+		config[key] = value
+		spEcho("[Squad] " .. key .. " = " .. tostring(config[key]))
+	elseif action == "get" then
+		spEcho("[Squad] " .. key .. " = " .. tostring(config[key]))
+	else
+		spEcho("[Squad] Unknown action: " .. action .. " (use toggle, set, or get)")
+	end
+end
+
+
+-------------------------------------------------------------------------------
 -- Lifecycle
 -------------------------------------------------------------------------------
 
@@ -1206,6 +1262,7 @@ function widget:Initialize()
 	widgetHandler:AddAction("squad_select_portion", squad_select_portion, nil, "p")
 	widgetHandler:AddAction("squad_select_portion_filtered", squad_select_portion_filtered, nil, "p")
 	widgetHandler:AddAction("squad_select_portion_group", squad_select_portion_group, nil, "p")
+	widgetHandler:AddAction("squad_setting", squad_setting, nil, "t")
 
 	-- WG interface for gui_options.lua integration
 	WG['squadselection'] = {
@@ -1233,6 +1290,17 @@ function widget:Initialize()
 			config.rightClickSquadCreate = v
 		end
 ,
+		getVisualizationMode = function()
+			return config.visualizationMode
+		end
+,
+		setVisualizationMode = function(v)
+			if v == "convexHull" then
+				create_airplane_floor()
+			end
+			config.visualizationMode = v
+		end
+,
 	}
 
 	if config.visualizationMode == "convexHull" then
@@ -1254,6 +1322,7 @@ function widget:Shutdown()
 	widgetHandler:RemoveAction("squad_select_portion")
 	widgetHandler:RemoveAction("squad_select_portion_filtered")
 	widgetHandler:RemoveAction("squad_select_portion_group")
+	widgetHandler:RemoveAction("squad_setting")
 	log("Shutdown")
 end
 

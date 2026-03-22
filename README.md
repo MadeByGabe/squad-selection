@@ -75,13 +75,33 @@ Filtered selection is useful with some playstyles but unnecessary for others. If
 
 ## Configuration
 
-In `data/LuaUi/Config/BYAR.lua` there will be a "Squad Selection" section after you have a game with the widget enabled at least once. You can change the settings there. 
+For now you can change settings in-game via chat commands:
 
-| Setting                 | Default | Description                                     |
-| ----------------------- | ------- | ----------------------------------------------- |
-| `leftClickSelectsSquad` | `true`  | Modifier+click on empty ground selects squads   |
-| `cyclingToNextSquad`    | `true`  | Cycle to next squad when full squad is selected |
-| `rightClickSquadCreate` | `true`  | Right-click squad creation is active            |
+
+```
+/luaui squad_setting toggle rightClickSquadCreate
+/luaui squad_setting toggle cyclingToNextSquad
+/luaui squad_setting set visualizationMode convexHull
+/luaui squad_setting set visualizationMode coloredLabel
+```
+
+These changes persist.
+
+
+| Setting                 | Default          | Description                                     |
+| ----------------------- | ---------------- | ----------------------------------------------- |
+| `leftClickSelectsSquad` | `true`           | Modifier+click on empty ground selects squads   |
+| `cyclingToNextSquad`    | `true`           | Cycle to next squad when full squad is selected |
+| `rightClickSquadCreate` | `true`           | Right-click squad creation is active            |
+| `visualizationMode`     | `"coloredLabel"` | `"coloredLabel"` or `"convexHull"`              |
+
+
+
+| Action                            | What it does                          |
+| --------------------------------- | ------------------------------------- |
+| `squad_setting toggle <key>`      | Toggles a boolean setting             |
+| `squad_setting set <key> <value>` | Sets a setting to a specific value    |
+| `squad_setting get <key>`         | Prints the current value of a setting |
 
 *Note: control groups have a nice feature when we double tap their number key to move the camera to that group. Something similar for squads should be possible but in the meantime you can bind `viewselection` to a hotkey for a similar effect (it centers the camera on your current selection).*
 
@@ -156,7 +176,7 @@ I know the above sounds a bit complicated and honestly it is, so here's a few ex
 
 ## Roadmap
 
-- [ ] **Settings menu**: in-game settings menu integration (WG interface is ready).
+- [ ] **Settings menu**: in-game settings menu integration (WG interface is ready, chat commands available now).
 
 *For possible future features check the issues with the idea tag.*
 
