@@ -10,6 +10,8 @@ Control groups are limited in number and require manual assignment, auto-groups 
 **Squad Selection** fills the gap: it tracks groups of units you're actually using together, then lets you re-select them based on which squad is closest to your mouse cursor.  
 Works alongside all the other selection methods.
 
+Jump straight to [installation](#installation) if you want to get going right away.
+
 ## How it works
 
 Every combat unit (mobile + armed, without build options) starts in a **reserve squad** for its domain (land, air, or naval).  
