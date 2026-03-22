@@ -700,18 +700,9 @@ end
 -- mouse → get its squad → select squad ∩ group.
 -------------------------------------------------------------------------------
 
-local function squad_select_group(_, _, args)
-	if not args or not args[1] then
-		return
-	end
-	local group_num = tonumber(args[1])
-	if not group_num then
-		return
-	end
-	local append = args[2] == "append"
-
-	-- Get units in the control group — try GetGroupUnits first, fall back to
-	-- iterating tracked units with GetUnitGroup.
+--- Build a set of unitIDs belonging to a control group.
+-- Tries GetGroupUnits first, falls back to iterating tracked units.
+local function build_group_set(group_num)
 	local group_units
 	if spGetGroupUnits then
 		group_units = spGetGroupUnits(group_num)
@@ -723,7 +714,6 @@ local function squad_select_group(_, _, args)
 			group_set[group_units[i]] = true
 		end
 	else
-		-- Fallback: iterate all tracked units
 		for _, squad in ipairs(squads) do
 			for j = 1, #squad do
 				local u = squad[j]
@@ -733,6 +723,21 @@ local function squad_select_group(_, _, args)
 			end
 		end
 	end
+	return group_set
+end
+
+
+local function squad_select_group(_, _, args)
+	if not args or not args[1] then
+		return
+	end
+	local group_num = tonumber(args[1])
+	if not group_num then
+		return
+	end
+	local append = args[2] == "append"
+
+	local group_set = build_group_set(group_num)
 
 	-- Cycling: if current selection exactly matches a squad∩group intersection,
 	-- exclude those units so we cycle to the next squad.
@@ -824,6 +829,244 @@ local function squad_select_group(_, _, args)
 		spSelectUnitArray(result, append)
 		log("Group " .. group_num .. " ∩ squad [" .. (squad.letter or "?") .. "]: " .. #result .. " units" .. (append and " +append" or ""))
 	end
+end
+
+
+-------------------------------------------------------------------------------
+-- Portion selection
+--
+-- Progressive, distance-sorted selection within a squad. Each step selects
+-- more units. The current step is determined statelessly from the selection:
+-- count how many pool units are already selected, then pick the first step
+-- whose resolved count exceeds that.
+-------------------------------------------------------------------------------
+
+--- Convert a step value to a unit count.
+-- 0 → 1 unit; 0 < step <= 1 → percentage; step > 1 → fixed count.
+local function step_to_count(step, pool_size)
+	if pool_size <= 0 then
+		return 0
+	end
+	if step <= 0 then
+		return 1
+	end
+	if step <= 1 then
+		return math.max(1, math.ceil(step * pool_size))
+	end
+	return math.min(math.floor(step), pool_size)
+end
+
+
+--- Parse portion action args: optional "append" keyword + step numbers.
+local function parse_portion_args(args)
+	if not args then
+		return false, {}
+	end
+	local append = false
+	local steps = {}
+	for i = 1, #args do
+		if args[i] == "append" then
+			append = true
+		else
+			local n = tonumber(args[i])
+			if n then
+				steps[#steps + 1] = n
+			end
+		end
+	end
+	return append, steps
+end
+
+
+--- Sort a unit array in-place by distance to a world point.
+local function sort_units_by_distance(units, wx, wz)
+	local dist_cache = {}
+	for i = 1, #units do
+		local u = units[i]
+		local x, _, z = spGetUnitPosition(u)
+		if x then
+			dist_cache[u] = (x - wx) * (x - wx) + (z - wz) * (z - wz)
+		else
+			dist_cache[u] = math.huge
+		end
+	end
+	table.sort(units, function(a, b)
+		return dist_cache[a] < dist_cache[b]
+	end
+)
+end
+
+
+--- Filter a squad to units matching optional filter_defs and group_set.
+local function get_portion_pool(squad, filter_defs, group_set)
+	local pool = {}
+	for j = 1, #squad do
+		local u = squad[j]
+		if not group_set or group_set[u] then
+			if not filter_defs or (defid_of[u] and filter_defs[defid_of[u]]) then
+				pool[#pool + 1] = u
+			end
+		end
+	end
+	return pool
+end
+
+
+--- Core portion selection logic (stateless).
+local function do_portion_select(append, steps, filter_defs, group_set)
+	if #steps == 0 then
+		return
+	end
+
+	local wx, wz = get_mouse_world_pos()
+	if not wx then
+		return
+	end
+
+	local sel = analyze_selection()
+
+	-- Find target squad
+	-- Append mode always uses the closest unit's squad so the player can
+	-- target a different squad than what's already selected.
+	local target_squad
+	if sel.single_squad and not append then
+		target_squad = sel.single_squad
+	else
+		-- Find closest matching unit globally (respecting filter + group constraints)
+		local best_unit, best_dist_sq = nil, math.huge
+		for _, squad in ipairs(squads) do
+			for j = 1, #squad do
+				local u = squad[j]
+				if not group_set or group_set[u] then
+					if not filter_defs or (defid_of[u] and filter_defs[defid_of[u]]) then
+						local x, _, z = spGetUnitPosition(u)
+						if x then
+							local dx, dz = x - wx, z - wz
+							local d = dx * dx + dz * dz
+							if d < best_dist_sq then
+								best_dist_sq = d
+								best_unit = u
+							end
+						end
+					end
+				end
+			end
+		end
+		target_squad = best_unit and unit_squad[best_unit]
+	end
+
+	if not target_squad then
+		return
+	end
+
+	-- Build pool
+	local pool = get_portion_pool(target_squad, filter_defs, group_set)
+	if #pool == 0 then
+		return
+	end
+
+	-- Count how many pool units are already selected
+	local current_count = 0
+	for i = 1, #pool do
+		if sel.selected_set[pool[i]] then
+			current_count = current_count + 1
+		end
+	end
+
+	-- Find first step whose resolved count > current_count
+	local target_count = nil
+	for i = 1, #steps do
+		local c = step_to_count(steps[i], #pool)
+		if c > current_count then
+			target_count = c
+			break
+		end
+	end
+
+	-- Past last step: repeat the last step's count in both modes.
+	if not target_count then
+		target_count = step_to_count(steps[#steps], #pool)
+	end
+
+	if append then
+		-- Append mode: select target_count closest *unselected* pool units
+		sort_units_by_distance(pool, wx, wz)
+		local to_select = {}
+		for i = 1, #pool do
+			if not sel.selected_set[pool[i]] then
+				to_select[#to_select + 1] = pool[i]
+				if #to_select >= target_count then
+					break
+				end
+			end
+		end
+		if #to_select == 0 then
+			return
+		end
+		spSelectUnitArray(to_select, true)
+		log("Portion select: +" .. #to_select .. " from squad [" .. (target_squad.letter or "?") .. "] (append)")
+	else
+		-- Replace mode: select target_count closest from full pool
+		sort_units_by_distance(pool, wx, wz)
+		local to_select = {}
+		for i = 1, target_count do
+			to_select[i] = pool[i]
+		end
+		spSelectUnitArray(to_select, false)
+		log("Portion select: " .. target_count .. "/" .. #pool .. " from squad [" .. (target_squad.letter or "?") .. "]")
+	end
+end
+
+
+-------------------------------------------------------------------------------
+-- Portion action handlers
+-------------------------------------------------------------------------------
+
+local function squad_select_portion(_, _, args)
+	local append, steps = parse_portion_args(args)
+	do_portion_select(append, steps, nil, nil)
+end
+
+
+local function squad_select_portion_filtered(_, _, args)
+	local append, steps = parse_portion_args(args)
+	local sel = analyze_selection()
+	local filter_defs
+	if sel.has_tracked_units then
+		filter_defs = sel.selected_type_set
+	else
+		local closest = find_closest_unit(nil, nil)
+		if not closest then
+			return
+		end
+		local def_id = defid_of[closest]
+		if not def_id then
+			return
+		end
+		filter_defs = {
+			[def_id] = true,
+		}
+	end
+	do_portion_select(append, steps, filter_defs, nil)
+end
+
+
+local function squad_select_portion_group(_, _, args)
+	if not args or not args[1] then
+		return
+	end
+	local group_num = tonumber(args[1])
+	if not group_num then
+		return
+	end
+	-- Remaining args (after group number) are append + steps
+	local remaining = {}
+	for i = 2, #args do
+		remaining[#remaining + 1] = args[i]
+	end
+	local append, steps = parse_portion_args(remaining)
+	local group_set = build_group_set(group_num)
+	do_portion_select(append, steps, nil, group_set)
 end
 
 
@@ -960,6 +1203,9 @@ function widget:Initialize()
 	widgetHandler:AddAction("squad_create_toggle", squad_create_toggle, nil, "p")
 	widgetHandler:AddAction("squad_create", squad_create, nil, "p")
 	widgetHandler:AddAction("squad_select_group", squad_select_group, nil, "p")
+	widgetHandler:AddAction("squad_select_portion", squad_select_portion, nil, "p")
+	widgetHandler:AddAction("squad_select_portion_filtered", squad_select_portion_filtered, nil, "p")
+	widgetHandler:AddAction("squad_select_portion_group", squad_select_portion_group, nil, "p")
 
 	-- WG interface for gui_options.lua integration
 	WG['squadselection'] = {
@@ -1005,6 +1251,9 @@ function widget:Shutdown()
 	widgetHandler:RemoveAction("squad_create_toggle")
 	widgetHandler:RemoveAction("squad_create")
 	widgetHandler:RemoveAction("squad_select_group")
+	widgetHandler:RemoveAction("squad_select_portion")
+	widgetHandler:RemoveAction("squad_select_portion_filtered")
+	widgetHandler:RemoveAction("squad_select_portion_group")
 	log("Shutdown")
 end
 

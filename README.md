@@ -125,9 +125,37 @@ Factory reserve squads are shown with a white label decorated with domain symbol
 
 **Example use case:** You have 3 bot labs, 2 producing cheap spam units for distraction, 1 producing expensive units you want to micro. Assign the expensive lab to its own squad, then easily select just those units when you need them.
 
+### Portion selection
+
+Select a portion of a squad, sorted by distance to the mouse cursor. Define step values in the hotkey bind. Each press advances to the 'next step' until max value.
+
+Step values: `0` selects 1 unit, values between 0 and 1 are percentages (e.g. `0.5` = 50%), values above 1 are fixed counts (e.g. `5` = 5 units).
+
+**Replace mode** replaces selection with the closest N units to your cursor. Past the last step, it keeps selecting the last step's count.
+
+**Append mode** appends the closest N *unselected* units to your selection, N is based on the step's value and number of selected units. Append always targets the closest squad, so you can append from a different squad than what's already selected.
+
+In both cases N is based on the step's value and number of selected units in the closest squad.
+
+I know the above sounds a bit complicated and honestly it is, so here's a few examples to clarify:
+
+- If steps is simply `0`, then in replace mode you get the closest unit to your cursor with each press. In append mode you keep the previously selected units and add the next closest unselected unit with each press. That number can be of course 10 or anything.
+- If steps is `0.5`, then that's just 50%. 
+  - In replace mode if the closest squad has 20 units, the first press selects 10, the second press still selects 10 but maybe another 10 depending on proximity. 
+  - In append mode the first press selects 10, the second press adds 10 more unselected units. If you point at another squad which has 30 units, then another press will add 15 from that squad. 
+- If the steps is `5 10`, 
+  - Then in replace mode the first press selects the 5 closest units, the second press replaces that selection with the 10 closest, then each press after that also replaces the selection with the 10 closest.
+  - In append mode the first press selects 5, the second press adds 10 to it. Each press after that adds 10 more unselected units to the selection.
+
+
+| Action                                               | What it does                                 |
+| ---------------------------------------------------- | -------------------------------------------- |
+| `squad_select_portion [append] <steps...>`           | Select a portion of the closest squad        |
+| `squad_select_portion_filtered [append] <steps...>`  | Same, but filtered by unit type              |
+| `squad_select_portion_group <N> [append] <steps...>` | Same, but limited to squad ∩ control group N |
+
 ## Roadmap
 
-- [ ] **Split squad**: select a fraction of the closest squad (or any selection?) sorted by distance to the cursor.
 - [ ] **Settings menu**: in-game settings menu integration (WG interface is ready).
 
 *For possible future features check the issues with the idea tag.*
