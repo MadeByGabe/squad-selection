@@ -5,16 +5,17 @@
 //__ENGINEUNIFORMBUFFERDEFS__
 //__DEFINES__
 
+uniform sampler2D stencilTex;
+
 in DataVS {
     flat vec4 v_color;
-    smooth float v_dist;
 };
 
 out vec4 fragColor;
 
 void main() {
-    float t = 1.0 - v_dist;
-    float alpha = v_color.a * t;
-    // Premultiplied alpha for MAX blending
-    fragColor = vec4(v_color.rgb * alpha, alpha);
+    vec2 stencilUV = gl_FragCoord.xy * vec2(1.0 / VSX, 1.0 / VSY);
+    float stencilValue = texture(stencilTex, stencilUV).r;
+    float visibility = 1.0 - smoothstep(0.49, 0.51, stencilValue);
+    fragColor = vec4(v_color.rgb, v_color.a * visibility);
 }

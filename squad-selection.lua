@@ -65,15 +65,18 @@ local LuaShader = gl.LuaShader
 local InstanceVBOTable = gl.InstanceVBOTable
 local gl4Available = false
 local circleShader = nil
+local stencilShader = nil
 local circleInstanceVBO = nil
 local circleShaderSource = nil
+local stencilShaderSource = nil
+local stencilTexture = nil
 local lineScale = 1.0
+local STENCIL_RESOLUTION = 4
 
-local CIRCLE_RADIUS = 200
-local CIRCLE_OPACITY = 0.5
-local CIRCLE_SEGMENTS = 12
-local GL_MAX = GL.MAX
-local GL_FUNC_ADD = GL.FUNC_ADD
+local CIRCLE_RADIUS = 100
+local CIRCLE_OPACITY = 1.0
+local CIRCLE_SEGMENTS = 48
+local GL_KEEP = 0x1E00
 
 -------------------------------------------------------------------------------
 -- State
@@ -285,25 +288,43 @@ local function refresh_squad_circles(squad)
 end
 
 
+local function createStencilTexture()
+	local vsx, vsy = spGetViewGeometry()
+	if stencilTexture then
+		gl.DeleteTexture(stencilTexture)
+	end
+	stencilTexture = gl.CreateTexture(vsx / STENCIL_RESOLUTION, vsy / STENCIL_RESOLUTION, {
+		fbo = true,
+		min_filter = GL.NEAREST,
+		mag_filter = GL.LINEAR,
+		wrap_s = GL.CLAMP_TO_EDGE,
+		wrap_t = GL.CLAMP_TO_EDGE,
+	})
+	return stencilTexture ~= nil
+end
+
 local function initgl4()
 	if not gl.CreateShader or not LuaShader or not InstanceVBOTable then
 		return false
 	end
 
-	local _, vsy = spGetViewGeometry()
+	local vsx, vsy = spGetViewGeometry()
 	lineScale = (vsy + 500) / 1300
 
+	-- Main circle shader (LINE_LOOP pass)
 	circleShaderSource = {
 		shaderName = 'Squad Circles GL4',
 		vssrcpath = "LuaUI/Shaders/squad_circles.vert.glsl",
 		fssrcpath = "LuaUI/Shaders/squad_circles.frag.glsl",
 		shaderConfig = {
 			CIRCLE_OPACITY = CIRCLE_OPACITY,
+			VSX = vsx,
+			VSY = vsy,
 		},
 		uniformInt = {
 			heightmapTex = 0,
+			stencilTex = 1,
 		},
-		-- silent = true,
 	}
 
 	circleShader = LuaShader.CheckShaderUpdates(circleShaderSource, 0)
@@ -312,7 +333,31 @@ local function initgl4()
 		return false
 	end
 
-	-- Center vertex for TRIANGLE_FAN fill
+	-- Stencil shader (TRIANGLE_FAN pass to offscreen texture)
+	stencilShaderSource = {
+		shaderName = 'Squad Circles Stencil GL4',
+		vssrcpath = "LuaUI/Shaders/squad_circles.vert.glsl",
+		fssrcpath = "LuaUI/Shaders/squad_circles_stencil.frag.glsl",
+		shaderConfig = {
+			CIRCLE_OPACITY = CIRCLE_OPACITY,
+		},
+		uniformInt = {
+			heightmapTex = 0,
+		},
+	}
+
+	stencilShader = LuaShader.CheckShaderUpdates(stencilShaderSource, 0)
+	if not stencilShader then
+		spEcho("[Squad] GL4 stencil shader failed")
+		return false
+	end
+
+	if not createStencilTexture() then
+		spEcho("[Squad] GL4 stencil texture failed")
+		return false
+	end
+
+	-- VBO with center vertex (needed for TRIANGLE_FAN in stencil pass)
 	local circleVBO, numVertices = InstanceVBOTable.makeCircleVBO(CIRCLE_SEGMENTS, nil, true, "SquadCircles")
 	local instanceLayout = {
 		{
@@ -1019,6 +1064,10 @@ function widget:Shutdown()
 	widgetHandler:RemoveAction("squad_create_toggle")
 	widgetHandler:RemoveAction("squad_create")
 	widgetHandler:RemoveAction("squad_select_group")
+	if stencilTexture then
+		gl.DeleteTexture(stencilTexture)
+		stencilTexture = nil
+	end
 	log("Shutdown")
 end
 
@@ -1177,8 +1226,15 @@ end
 -------------------------------------------------------------------------------
 
 function widget:ViewResize()
-	local _, vsy = spGetViewGeometry()
+	local vsx, vsy = spGetViewGeometry()
 	lineScale = (vsy + 500) / 1300
+	if gl4Available then
+		createStencilTexture()
+		circleShaderSource.shaderConfig.VSX = vsx
+		circleShaderSource.shaderConfig.VSY = vsy
+		circleShaderSource.forceupdate = true
+		circleShader = LuaShader.CheckShaderUpdates(circleShaderSource, 0)
+	end
 end
 
 
@@ -1209,23 +1265,51 @@ function widget:DrawWorld()
 end
 
 
+local function DrawStencilPass()
+	gl.Clear(GL.COLOR_BUFFER_BIT, 0, 0, 0, 0)
+	gl.BlendEquation(GL.MAX)
+	gl.Blending(GL.ONE, GL.ONE)
+	gl.Culling(false)
+	gl.Texture(0, "$heightmap")
+	stencilShader:Activate()
+	circleInstanceVBO.VAO:DrawArrays(GL.TRIANGLE_FAN, circleInstanceVBO.numVertices, 0, circleInstanceVBO.usedElements, 0)
+	stencilShader:Deactivate()
+	gl.Blending(GL.SRC_ALPHA, GL.ONE_MINUS_SRC_ALPHA)
+	gl.BlendEquation(GL.FUNC_ADD)
+end
+
+function widget:DrawGenesis()
+	if not gl4Available or not stencilTexture or not circleInstanceVBO then
+		return
+	end
+	if circleInstanceVBO.usedElements > 0 then
+		gl.RenderToTexture(stencilTexture, DrawStencilPass)
+	end
+end
+
 function widget:DrawWorldPreUnit()
 	if spIsGUIHidden() then
 		return
 	end
 
-	-- GL4 circle mode — MAX blending so overlapping circles don't accumulate opacity
 	if gl4Available and circleInstanceVBO and circleInstanceVBO.usedElements > 0 then
-		gl.Texture(0, "$heightmap")
-		gl.BlendEquation(GL_MAX)
-		gl.Blending(GL.ONE, GL.ONE)
+		gl.StencilTest(true)
+		gl.StencilFunc(GL.NOTEQUAL, 1, 1)
+		gl.StencilOp(GL_KEEP, GL_KEEP, GL.REPLACE)
+		gl.StencilMask(15)
+		gl.Blending(GL.SRC_ALPHA, GL.ONE_MINUS_SRC_ALPHA)
 		circleShader:Activate()
-		gl.DepthTest(false)
-		circleInstanceVBO.VAO:DrawArrays(GL.TRIANGLE_FAN, circleInstanceVBO.numVertices, 0, circleInstanceVBO.usedElements)
+		gl.Texture(0, "$heightmap")
+		gl.Texture(1, stencilTexture)
+		gl.DepthTest(true)
+		gl.LineWidth(2.0)
+		circleInstanceVBO.VAO:DrawArrays(GL.LINE_LOOP, circleInstanceVBO.numVertices - 1, 1, circleInstanceVBO.usedElements)
+		gl.LineWidth(1.0)
 		circleShader:Deactivate()
-		gl.BlendEquation(GL_FUNC_ADD)
-		gl.Blending(false)
 		gl.Texture(0, false)
+		gl.Texture(1, false)
+		gl.StencilTest(false)
+		gl.Blending(false)
 	end
 end
 
