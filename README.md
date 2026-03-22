@@ -69,41 +69,9 @@ Mouse squad selections are skipped when clicking directly on a unit or when an a
 
 When you already have a full squad selected (or all matching types for filtered select), the action automatically excludes your current selection and finds the *next* closest squad. This lets you cycle through squads by pressing the same key repeatedly (can be disabled via `cyclingToNextSquad` in data/LuaUi/Config/BYAR.lua -> Squad Selection section).
 
-## Filtered selection
+### Filtered selection
 
 Filtered selection is useful with some playstyles but unnecessary for others. If your main goal is to just create squads based on unit types (thugs, grunts, etc.), then you could just use autogroups or any kind of selection method to select the thugs, then right-click to create a squad for them, same with grunts. Then you can use the normal closest squad select to get the squad of thugs or grunts, or better yet, cycle between them.
-
-## Configuration
-
-For now you can change settings in-game via chat commands:
-
-
-```
-/luaui squad_setting toggle rightClickSquadCreate
-/luaui squad_setting toggle cyclingToNextSquad
-/luaui squad_setting set visualizationMode convexHull
-/luaui squad_setting set visualizationMode coloredLabel
-```
-
-These changes persist.
-
-
-| Setting                 | Default          | Description                                     |
-| ----------------------- | ---------------- | ----------------------------------------------- |
-| `leftClickSelectsSquad` | `true`           | Modifier+click on empty ground selects squads   |
-| `cyclingToNextSquad`    | `true`           | Cycle to next squad when full squad is selected |
-| `rightClickSquadCreate` | `true`           | Right-click squad creation is active            |
-| `visualizationMode`     | `"coloredLabel"` | `"coloredLabel"` or `"convexHull"`              |
-
-
-
-| Action                            | What it does                          |
-| --------------------------------- | ------------------------------------- |
-| `squad_setting toggle <key>`      | Toggles a boolean setting             |
-| `squad_setting set <key> <value>` | Sets a setting to a specific value    |
-| `squad_setting get <key>`         | Prints the current value of a setting |
-
-*Note: control groups have a nice feature when we double tap their number key to move the camera to that group. Something similar for squads should be possible but in the meantime you can bind `viewselection` to a hotkey for a similar effect (it centers the camera on your current selection).*
 
 ### Squad creation toggle + hotkey
 
@@ -174,12 +142,6 @@ I know the above sounds a bit complicated and honestly it is, so here's a few ex
 | `squad_select_portion_filtered [append] <steps...>`  | Same, but filtered by unit type              |
 | `squad_select_portion_group <N> [append] <steps...>` | Same, but limited to squad ∩ control group N |
 
-## Roadmap
-
-- [ ] **Settings menu**: in-game settings menu integration (WG interface is ready, chat commands available now).
-
-*For possible future features check the issues with the idea tag.*
-
 ## Installation
 
 Download and drop [squad-selection.lua](https://raw.githubusercontent.com/MadeByGabe/squad-selection/refs/heads/main/squad-selection.lua) into your `data/LuaUI/Widgets/` directory.  
@@ -189,7 +151,39 @@ Enable it in-game with **F11** (widget list) or just write this into chat:
 /luaui togglewidget Squad Selection
 ```
 
-## Hotkey setup
+### Configuration
+
+For now you can change settings in-game via chat commands:
+
+
+```
+/luaui squad_setting toggle rightClickSquadCreate
+/luaui squad_setting toggle cyclingToNextSquad
+/luaui squad_setting set visualizationMode convexHull
+/luaui squad_setting set visualizationMode coloredLabel
+```
+
+These changes persist.
+
+
+| Setting                 | Default          | Description                                     |
+| ----------------------- | ---------------- | ----------------------------------------------- |
+| `leftClickSelectsSquad` | `true`           | Modifier+click on empty ground selects squads   |
+| `cyclingToNextSquad`    | `true`           | Cycle to next squad when full squad is selected |
+| `rightClickSquadCreate` | `true`           | Right-click squad creation is active            |
+| `visualizationMode`     | `"coloredLabel"` | `"coloredLabel"` or `"convexHull"`              |
+
+
+
+| Action                            | What it does                          |
+| --------------------------------- | ------------------------------------- |
+| `squad_setting toggle <key>`      | Toggles a boolean setting             |
+| `squad_setting set <key> <value>` | Sets a setting to a specific value    |
+| `squad_setting get <key>`         | Prints the current value of a setting |
+
+*Note: control groups have a nice feature when we double tap their number key to move the camera to that group. Something similar for squads should be possible but in the meantime you can bind `viewselection` to a hotkey for a similar effect (it centers the camera on your current selection).*
+
+### Hotkey setup
 
 Settings -> Control -> Change keybind preset to `custom` (from grid)
 
@@ -232,7 +226,7 @@ bind sc_b viewselection
 
 Then in game write `/keyreload` in chat to apply the changes if the game is already running.
 
-### Explanation
+#### Explanation
 
 `x` and `c` are essentially free keys. They are used to start the unit queue in labs but that still can be used with the above rebind. 
 
@@ -247,7 +241,7 @@ I added two bonus hotkeys. Hold `Alt` while you have a unit selected to draw a s
 
 I also bound `viewselection` to `b` for a quick camera centering on your current selection since that's not yet part of this widget. 
 
-## Guide to learn how it works
+### Guide to learn how it works
 
 Set up the hotkeys as described above, then launch a skirmish game against an inactive ai. 
 
