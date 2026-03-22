@@ -23,14 +23,14 @@ void main() {
     fragColor = vec4(val, val, val, 1.0);
 #elif DEBUG_SHADER == 2
     // Visualize border band only (white)
-    float outer = smoothstep(0.05, 0.15, val);
-    float inner = smoothstep(0.5, 0.6, val);
+    float outer = sin(val*31.4);
+    float inner = sin(val*20);
     float border = outer - inner;
     fragColor = vec4(1.0, 1.0, 1.0, border);
 #else
     // Normal: colored border
-    float outer = smoothstep(0.05, 0.15, val);
-    float inner = smoothstep(0.5, 0.6, val);
+    float outer = sin(val*31.4);
+    float inner = sin(val*20);
     float border = outer - inner;
     fragColor = vec4(v_color.rgb, v_color.a * border);
 #endif

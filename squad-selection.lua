@@ -72,11 +72,11 @@ local stencilShaderSource = nil
 local stencilTexture = nil
 local lineScale = 1.0
 
-local STENCIL_RESOLUTION = 4
+local STENCIL_RESOLUTION = 6
 
 local CIRCLE_RADIUS = 100
 local CIRCLE_OPACITY = 0.1
-local CIRCLE_SEGMENTS = 24
+local CIRCLE_SEGMENTS = 32
 
 -------------------------------------------------------------------------------
 -- State

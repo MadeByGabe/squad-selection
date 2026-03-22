@@ -14,6 +14,5 @@ out vec4 fragColor;
 
 void main() {
     float dist = length(v_localPos);
-    float alpha = 1.0 - smoothstep(0.1, 0.8, dist);
-    fragColor = vec4(alpha, 0.0, 0.0, 1.0);
+    fragColor = vec4(1.0 - dist, 0.0, 0.0, 1.0);
 }
