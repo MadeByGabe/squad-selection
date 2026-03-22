@@ -28,9 +28,9 @@ There is also a **filtered select** option that only selects the unit types from
 
 Both selection methods can be used with shift to append to the current selection instead of replacing it.  
 
-*Note: the left mouse selection methods can be disabled if you prefer to use hotkeys exclusively (set `leftClickSelectsSquad` to false in data/LuaUi/Config/BYAR.lua -> Squad Selection section).*
+*Note: the left mouse selection methods can be disabled if you prefer to use hotkeys exclusively (write `/luaui squad_setting toggle leftClickSelectsSquad` in chat).*
 
-Each squad is labeled with a colored letter above its units so you can see which units belong together at a glance.
+Each squad is labeled with a colored letter above its units so you can see which units belong together at a glance. (There's also an experimental convex hull visualization mode and two other modes in the works)
 
 ### Hotkeys
 
@@ -45,12 +45,18 @@ bind Alt+Shift+sc_b  closest_squad_select_filtered append
 *(change `sc_b` to your preferred key)*
 
 
-| Action                                 | What it does                                                                                                          |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `closest_squad_select`                 | Selects the entire squad closest to the cursor                                                                        |
-| `closest_squad_select append`          | Appends the closest squad to the current selection                                                                    |
-| `closest_squad_select_filtered`        | Selects only the unit types (from your current selection or closest unit if nothing is selected) in the closest squad |
-| `closest_squad_select_filtered append` | Same, but appends to selection                                                                                        |
+| Action                                               | What it does                                                                                                                         |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `closest_squad_select`                               | Selects the entire squad closest to the cursor                                                                                       |
+| `closest_squad_select append`                        | Appends the closest squad to the current selection                                                                                   |
+| `closest_squad_select_filtered`                      | Selects only the unit types (from your current selection or closest unit if nothing is selected) in the closest squad                |
+| `closest_squad_select_filtered append`               | Same, but appends to selection                                                                                                       |
+| `squad_create_toggle`                                | Toggles right-click squad creation on/off (see next section)                                                                         |
+| `squad_create`                                       | Creates a squad from the current selection (useful if you disable right-click squad creation) or you want to assign a lab to a squad |
+| `squad_select_group N`                               | Select squad ∩ control group N closest to cursor                                                                                     |
+| `squad_select_portion [append] <steps...>`           | Select a portion of the closest squad                                                                                                |
+| `squad_select_portion_filtered [append] <steps...>`  | Same, but filtered by unit type                                                                                                      |
+| `squad_select_portion_group <N> [append] <steps...>` | Same, but limited to squad ∩ control group N (probably will be removed)                                                              |
 
 ### Mouse controls
 
