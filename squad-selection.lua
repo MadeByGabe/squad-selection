@@ -71,12 +71,12 @@ local circleShaderSource = nil
 local stencilShaderSource = nil
 local stencilTexture = nil
 local lineScale = 1.0
+
 local STENCIL_RESOLUTION = 4
 
 local CIRCLE_RADIUS = 100
-local CIRCLE_OPACITY = 1.0
-local CIRCLE_SEGMENTS = 48
-local GL_KEEP = 0x1E00
+local CIRCLE_OPACITY = 0.1
+local CIRCLE_SEGMENTS = 24
 
 -------------------------------------------------------------------------------
 -- State
@@ -94,6 +94,7 @@ local DOMAINS = {"land", "air", "naval"}
 -------------------------------------------------------------------------------
 
 local DEBUG = true
+local DEBUG_SHADER = 0  -- 0=normal, 1=stencil only, 2=border only
 
 local function log(msg)
 	if DEBUG then
@@ -320,6 +321,7 @@ local function initgl4()
 			CIRCLE_OPACITY = CIRCLE_OPACITY,
 			VSX = vsx,
 			VSY = vsy,
+			DEBUG_SHADER = DEBUG_SHADER,
 		},
 		uniformInt = {
 			heightmapTex = 0,
@@ -1293,22 +1295,15 @@ function widget:DrawWorldPreUnit()
 	end
 
 	if gl4Available and circleInstanceVBO and circleInstanceVBO.usedElements > 0 then
-		gl.StencilTest(true)
-		gl.StencilFunc(GL.NOTEQUAL, 1, 1)
-		gl.StencilOp(GL_KEEP, GL_KEEP, GL.REPLACE)
-		gl.StencilMask(15)
 		gl.Blending(GL.SRC_ALPHA, GL.ONE_MINUS_SRC_ALPHA)
 		circleShader:Activate()
 		gl.Texture(0, "$heightmap")
 		gl.Texture(1, stencilTexture)
 		gl.DepthTest(true)
-		gl.LineWidth(2.0)
-		circleInstanceVBO.VAO:DrawArrays(GL.LINE_LOOP, circleInstanceVBO.numVertices - 1, 1, circleInstanceVBO.usedElements)
-		gl.LineWidth(1.0)
+		circleInstanceVBO.VAO:DrawArrays(GL.TRIANGLE_FAN, circleInstanceVBO.numVertices, 0, circleInstanceVBO.usedElements, 0)
 		circleShader:Deactivate()
 		gl.Texture(0, false)
 		gl.Texture(1, false)
-		gl.StencilTest(false)
 		gl.Blending(false)
 	end
 end

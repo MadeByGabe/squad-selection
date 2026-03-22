@@ -7,10 +7,13 @@
 
 in DataVS {
     flat vec4 v_color;
+    vec2 v_localPos;
 };
 
 out vec4 fragColor;
 
 void main() {
-    fragColor = vec4(1.0, 0.0, 0.0, 1.0);
+    float dist = length(v_localPos);
+    float alpha = 1.0 - smoothstep(0.1, 0.8, dist);
+    fragColor = vec4(alpha, 0.0, 0.0, 1.0);
 }

@@ -36,6 +36,7 @@ layout(std140, binding=1) readonly buffer UniformsBuffer {
 
 out DataVS {
     flat vec4 v_color;
+    vec2 v_localPos;
 };
 
 void main() {
@@ -64,4 +65,5 @@ void main() {
 
     gl_Position = cameraViewProj * vertex;
     v_color = vec4(radius_color.yzw, CIRCLE_OPACITY);
+    v_localPos = circlepointposition.xy;
 }
