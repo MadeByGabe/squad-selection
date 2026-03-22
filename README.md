@@ -189,6 +189,65 @@ Enable it in-game with **F11** (widget list) or just write this into chat:
 /luaui togglewidget Squad Selection
 ```
 
+## Hotkey setup
+
+Settings -> Control -> Change keybind preset to `custom`
+
+This creates an `uikeys.txt` file in the game's data folder. 
+
+Open that file with any text editor and add the following lines to the end of the file:
+
+
+```
+bind Shift+Meta+1 squad_select_group 1 append
+bind Meta+1 squad_select_group 1
+//...
+
+unbind Alt+sc_c blueprint_create
+
+unbind Any+sc_c gridmenu_key 1 3
+bind sc_c gridmenu_key 1 3
+bind Shift+sc_c gridmenu_key 1 3
+
+bind Alt+sc_c squad_create
+bind sc_c closest_squad_select
+bind shift+sc_c closest_squad_select append
+bind Ctrl+sc_c squad_select_portion 0 0.5
+bind Ctrl+shift+sc_c squad_select_portion 3 10 append
+bind Ctrl+Meta+sc_c squad_create_toggle
+
+
+unbind Any+sc_x gridmenu_key 1 2
+bind sc_x gridmenu_key 1 2
+bind Shift+sc_x gridmenu_key 1 2
+
+bind sc_x closest_squad_select_filtered
+bind shift+sc_x closest_squad_select_filtered append
+bind Ctrl+sc_x squad_select_portion_filtered 0 0.25 0.5 0.75 1
+bind Ctrl+shift+sc_x squad_select_portion_filtered 5 10 append
+
+bind Alt selectbox_same
+bind sc_b viewselection
+```
+
+Then in game write `/keyreload` in chat to apply the changes if the game is already running.
+
+### Explanation
+
+`x` and `c` are essentially free keys. They are used to start the unit queue in labs but that still can be used with the above rebind. 
+
+With these changes `c` becomes squad selection, with shift it's append, with ctrl it's squad portion selection. Finally with alt it's squad creation.  
+`squad_create` is needed to assign labs to squads and also useful if you disable the right click squad creation with the ctrl+space+c hotkey.
+
+`x` is pretty much the same except filtered selection.
+
+`Space+1` is the group intersection selection for group 1, feel free to add more lines for more groups, or even rebind to different keys (maybe even replace `group select 1` and bind that to space+1).
+
+I added two bonus hotkeys. Hold `Alt` while you have a unit selected to draw a selectbox. That selectbox will select only the same unit types as the currently selected units. This is very useful together with the squad selection. 
+
+I also bound `viewselection` to `b` for a quick camera centering on your current selection since that's not yet part of this widget. 
+
+
 ## Credits
 
 - **yyyy**: original concept and the [Fassst Selectionssss](https://kk1ff.com/bar/select.lua) prototype
