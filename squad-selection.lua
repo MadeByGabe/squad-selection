@@ -64,18 +64,20 @@ local spIsReplay = Spring.IsReplay
 local LuaShader = gl.LuaShader
 local InstanceVBOTable = gl.InstanceVBOTable
 local gl4Available = false
-local circleShader = nil
 local stencilShader = nil
+local fullscreenShader = nil
 local circleInstanceVBO = nil
-local circleShaderSource = nil
 local stencilShaderSource = nil
+local fullscreenShaderSource = nil
 local stencilTexture = nil
+local fullscreenVAO = nil
+local fullscreenVBO = nil
 local lineScale = 1.0
 
-local STENCIL_RESOLUTION = 6
+local STENCIL_RESOLUTION = 1
 
-local CIRCLE_RADIUS = 100
-local CIRCLE_OPACITY = 0.1
+local CIRCLE_RADIUS = 50
+local CIRCLE_OPACITY = 0.2
 local CIRCLE_SEGMENTS = 32
 
 -------------------------------------------------------------------------------
@@ -312,29 +314,6 @@ local function initgl4()
 	local vsx, vsy = spGetViewGeometry()
 	lineScale = (vsy + 500) / 1300
 
-	-- Main circle shader (LINE_LOOP pass)
-	circleShaderSource = {
-		shaderName = 'Squad Circles GL4',
-		vssrcpath = "LuaUI/Shaders/squad_circles.vert.glsl",
-		fssrcpath = "LuaUI/Shaders/squad_circles.frag.glsl",
-		shaderConfig = {
-			CIRCLE_OPACITY = CIRCLE_OPACITY,
-			VSX = vsx,
-			VSY = vsy,
-			DEBUG_SHADER = DEBUG_SHADER,
-		},
-		uniformInt = {
-			heightmapTex = 0,
-			stencilTex = 1,
-		},
-	}
-
-	circleShader = LuaShader.CheckShaderUpdates(circleShaderSource, 0)
-	if not circleShader then
-		spEcho("[Squad] GL4 circle shader failed")
-		return false
-	end
-
 	-- Stencil shader (TRIANGLE_FAN pass to offscreen texture)
 	stencilShaderSource = {
 		shaderName = 'Squad Circles Stencil GL4',
@@ -351,6 +330,26 @@ local function initgl4()
 	stencilShader = LuaShader.CheckShaderUpdates(stencilShaderSource, 0)
 	if not stencilShader then
 		spEcho("[Squad] GL4 stencil shader failed")
+		return false
+	end
+
+	-- Fullscreen shader (samples stencil texture, reads color from GBA channels)
+	fullscreenShaderSource = {
+		shaderName = 'Squad Fullscreen GL4',
+		vssrcpath = "LuaUI/Shaders/squad_fullscreen.vert.glsl",
+		fssrcpath = "LuaUI/Shaders/squad_fullscreen.frag.glsl",
+		shaderConfig = {
+			CIRCLE_OPACITY = CIRCLE_OPACITY,
+			DEBUG_SHADER = DEBUG_SHADER,
+		},
+		uniformInt = {
+			stencilTex = 0,
+		},
+	}
+
+	fullscreenShader = LuaShader.CheckShaderUpdates(fullscreenShaderSource, 0)
+	if not fullscreenShader then
+		spEcho("[Squad] GL4 fullscreen shader failed")
 		return false
 	end
 
@@ -377,6 +376,13 @@ local function initgl4()
 	circleInstanceVBO.numVertices = numVertices
 	circleInstanceVBO.vertexVBO = circleVBO
 	circleInstanceVBO.VAO = InstanceVBOTable.makeVAOandAttach(circleVBO, circleInstanceVBO.instanceVBO)
+
+	-- Fullscreen triangle (oversized, clipped by viewport)
+	fullscreenVBO = gl.GetVBO(GL.ARRAY_BUFFER, false)
+	fullscreenVBO:Define(3, {{id = 0, name = 'position', size = 2}})
+	fullscreenVBO:Upload({-1, -1,   3, -1,   -1, 3})
+	fullscreenVAO = gl.GetVAO()
+	fullscreenVAO:AttachVertexBuffer(fullscreenVBO)
 
 	return true
 end
@@ -1070,6 +1076,16 @@ function widget:Shutdown()
 		gl.DeleteTexture(stencilTexture)
 		stencilTexture = nil
 	end
+	if fullscreenVBO then
+		fullscreenVBO:Delete()
+		fullscreenVBO = nil
+	end
+	if fullscreenVAO then
+		fullscreenVAO:Delete()
+		fullscreenVAO = nil
+	end
+	fullscreenShader = nil
+	stencilShader = nil
 	log("Shutdown")
 end
 
@@ -1232,10 +1248,6 @@ function widget:ViewResize()
 	lineScale = (vsy + 500) / 1300
 	if gl4Available then
 		createStencilTexture()
-		circleShaderSource.shaderConfig.VSX = vsx
-		circleShaderSource.shaderConfig.VSY = vsy
-		circleShaderSource.forceupdate = true
-		circleShader = LuaShader.CheckShaderUpdates(circleShaderSource, 0)
 	end
 end
 
@@ -1294,17 +1306,18 @@ function widget:DrawWorldPreUnit()
 		return
 	end
 
-	if gl4Available and circleInstanceVBO and circleInstanceVBO.usedElements > 0 then
+	if gl4Available and fullscreenVAO and stencilTexture and circleInstanceVBO and circleInstanceVBO.usedElements > 0 then
+		gl.DepthMask(false)
+		gl.DepthTest(false)
 		gl.Blending(GL.SRC_ALPHA, GL.ONE_MINUS_SRC_ALPHA)
-		circleShader:Activate()
-		gl.Texture(0, "$heightmap")
-		gl.Texture(1, stencilTexture)
-		gl.DepthTest(true)
-		circleInstanceVBO.VAO:DrawArrays(GL.TRIANGLE_FAN, circleInstanceVBO.numVertices, 0, circleInstanceVBO.usedElements, 0)
-		circleShader:Deactivate()
+		fullscreenShader:Activate()
+		gl.Texture(0, stencilTexture)
+		fullscreenVAO:DrawArrays(GL.TRIANGLES, 3)
+		fullscreenShader:Deactivate()
 		gl.Texture(0, false)
-		gl.Texture(1, false)
 		gl.Blending(false)
+		gl.DepthTest(true)
+		gl.DepthMask(true)
 	end
 end
 

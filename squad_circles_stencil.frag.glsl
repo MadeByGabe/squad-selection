@@ -14,5 +14,5 @@ out vec4 fragColor;
 
 void main() {
     float dist = length(v_localPos);
-    fragColor = vec4(1.0 - dist, 0.0, 0.0, 1.0);
+    fragColor = vec4(1.0 - dist, v_color.rgb);
 }
