@@ -28,7 +28,7 @@ There is also a **filtered select** option that only selects the unit types from
 
 Both selection methods can be used with shift to append to the current selection instead of replacing it.  
 
-*Note: the left mouse selection methods can be disabled if you prefer to use hotkeys exclusively (write `/luaui squad_setting toggle leftClickSelectsSquad` in chat).*
+*Note: the left mouse selection methods can be disabled if you prefer to use hotkeys exclusively (write `/luaui squad_setting toggle leftClickSelectsSquad` in chat (saved, you don't need to re-enter it each game)).*
 
 Each squad is labeled with a colored letter above its units so you can see which units belong together at a glance. (There's also an experimental convex hull visualization mode and two other modes in the works)
 
@@ -236,16 +236,16 @@ Then in game write `/keyreload` in chat to apply the changes if the game is alre
 
 #### Explanation
 
-`x` and `c` are essentially free keys. They are used to start the unit queue in labs but that still can be used with the above rebind. 
+`x` and `c` are essentially free keys. They are used to start the unit queue in labs but that still can be used with the above rebind (turn on settings -> control -> Factory build mode hotkeys). 
 
 With these changes `c` becomes squad selection, with shift it's append, with ctrl it's squad portion selection. Finally with alt it's squad creation.  
-`squad_create` is needed to assign labs to squads and also useful if you disable the right click squad creation with the ctrl+space+c hotkey.
+`squad_create` is needed to assign labs to squads and also useful if you disable the right click squad creation with settings or temporarily with the `ctrl+space+c` hotkey.
 
 `x` is pretty much the same except filtered selection.
 
 `Space+1` is the group intersection selection for group 1, feel free to add more lines for more groups, or even rebind to different keys (maybe even replace `group select 1` and bind that to space+1).
 
-I added two bonus hotkeys. Hold `Alt` while you have a unit selected to draw a selectbox. That selectbox will select only the same unit types as the currently selected units. This is very useful together with the squad selection. 
+I added two bonus hotkeys. Hold `Alt` while you have a unit selected to draw a selectbox. That selectbox will select only the same unit types as the currently selected units. This is very useful together with the squad selection though it's less important now that we have portion selection. 
 
 I also bound `viewselection` to `b` for a quick camera centering on your current selection since that's not yet part of this widget. 
 
@@ -275,7 +275,7 @@ Note, you can use the closest unit selection (`ctrl+c` once) and then draw a sel
 Now build two vehicle plants and spam some rascals/rovers. Note that `c` will select the closest squad which if you followed the instructions should be the land domain reserve with the thugs, grunts and rascals.  
 Select the two vehicle plants and press `alt+c` to assign a squad to that. `c` will now select either Thugs and Grunts, or the Rascals since the rascals are now in a factory reserve squad. 
 
-Select some units and right click. Those units are now a squad. Everything above applies. If you don't want this behavior you can disable the right click squad creation and just use the `alt+c` to create squads from selected units when you want to.
+Select some units and right click. Those units are now a squad. Everything above applies. If you don't want this behavior you can disable the right click squad creation and just use the `alt+c` hotkey to create squads from selected units when you want to.
 
 If you don't want to bother with `c` and `x`, you can use `ctrl+leftclick` and `alt+ctrl+leftclick` respectively. Both can be used with shift to append instead of replace.
 
