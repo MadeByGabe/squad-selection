@@ -191,7 +191,7 @@ Enable it in-game with **F11** (widget list) or just write this into chat:
 
 ## Hotkey setup
 
-Settings -> Control -> Change keybind preset to `custom`
+Settings -> Control -> Change keybind preset to `custom` (from grid)
 
 This creates an `uikeys.txt` file in the game's data folder. 
 
@@ -247,6 +247,35 @@ I added two bonus hotkeys. Hold `Alt` while you have a unit selected to draw a s
 
 I also bound `viewselection` to `b` for a quick camera centering on your current selection since that's not yet part of this widget. 
 
+## Guide to learn how it works
+
+Set up the hotkeys as described above, then launch a skirmish game against an inactive ai. 
+
+Build a bot lab and an air lab (you can increase speed with `alt++` and decrease with `alt+-`) to do it very quickly.  
+
+Make some Thugs, Grunts, and Shurikens. Assign all three unit types to autogroup 1 with `alt+1`. 
+
+Now pressing `space+1` will select either the Thugs and Grunts, or the Shurikens, depending on which domain reserve squad is closer to your mouse cursor.  
+If you press it again, you will get the units from the other squad with cycling, you can disable that if you don't want it.
+
+Press `c` to select the closest squad to your cursor, so either all land domain reserve units or the shurikens. Again cycling applies if you press it again.  
+Press `shift+c` to append the other squad to your selection.  
+
+Click on the ground to unselect everything and press `x` to select the closest unit's type from its squad. So for example either Thugs, or Grunts. With shift you could add the same type of units from other squads but you don't have any other that have them (if you followed these instructions).
+
+Click on the ground to unselect everything and press `ctrl+c` to select one unit from the closest squad. Press it again to select half of them from that squad. Press again to reselect the same count but re-sorted by your current cursor position.
+Press `ctrl+shift+c` to append 10 units to your selection from the same squad or to add 3 from other squads. 
+
+Same with `x` but filtered by type and my hotkey example had different step values for `x`. 
+
+Note, you can use the closest unit selection (`ctrl+c` once) and then draw a selectbox with alt to select the same type of unit.
+
+Now build two vehicle plants and spam some rascals/rovers. Note that `c` will select the closest squad which if you followed the instructions should be the land domain reserve with the thugs, grunts and rascals.  
+Select the two vehicle plants and press `alt+c` to assign a squad to that. `c` will now select either Thugs and Grunts, or the Rascals since the rascals are now in a factory reserve squad. 
+
+Select some units and right click. Those units are now a squad. Everything above applies. If you don't want this behavior you can disable the right click squad creation and just use the `alt+c` to create squads from selected units when you want to.
+
+If you don't want to bother with `c` and `x`, you can use `ctrl+leftclick` and `alt+ctrl+leftclick` respectively. Both can be used with shift to append instead of replace.
 
 ## Credits
 
