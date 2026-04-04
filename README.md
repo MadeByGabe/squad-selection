@@ -127,9 +127,11 @@ Select a portion of a squad, sorted by distance to the mouse cursor. Define step
 
 Step values: `0` selects 1 unit, values between 0 and 1 are percentages (e.g. `0.5` = 50%), values above 1 are fixed counts (e.g. `5` = 5 units).
 
+Both modes always target the squad of the closest unit to your cursor, re-evaluating proximity on each press. This means moving your mouse to a different squad and pressing again will select from that squad instead.
+
 **Replace mode** replaces selection with the closest N units to your cursor. Past the last step, it keeps selecting the last step's count.
 
-**Append mode** appends the closest N *unselected* units to your selection, N is based on the step's value and number of selected units. Append always targets the closest squad, so you can append from a different squad than what's already selected.
+**Append mode** appends the closest N *unselected* units to your selection. You can append from a different squad than what's already selected.
 
 In both cases N is based on the step's value and number of selected units in the closest squad.
 
@@ -137,7 +139,7 @@ I know the above sounds a bit complicated and honestly it is, so here's a few ex
 
 - If steps is simply `0`, then in replace mode you get the closest unit to your cursor with each press. In append mode you keep the previously selected units and add the next closest unselected unit with each press. That number can be of course 10 or anything.
 - If steps is `0.5`, then that's just 50%. 
-  - In replace mode if the closest squad has 20 units, the first press selects 10, the second press still selects 10 but maybe another 10 depending on proximity. 
+  - In replace mode if the closest squad has 20 units, the first press selects 10, the second press re-evaluates proximity and selects 10 from whichever squad is now closest. 
   - In append mode the first press selects 10, the second press adds 10 more unselected units. If you point at another squad which has 30 units, then another press will add 15 from that squad. 
 - If the steps is `5 10`, 
   - Then in replace mode the first press selects the 5 closest units, the second press replaces that selection with the 10 closest, then each press after that also replaces the selection with the 10 closest.

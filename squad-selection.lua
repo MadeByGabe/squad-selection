@@ -925,14 +925,10 @@ local function do_portion_select(append, steps, filter_defs, group_set)
 
 	local sel = analyze_selection()
 
-	-- Find target squad
-	-- Append mode always uses the closest unit's squad so the player can
-	-- target a different squad than what's already selected.
+	-- Find target squad: always pick the squad of the closest matching unit
+	-- so repeated presses re-evaluate proximity rather than sticking to one squad.
 	local target_squad
-	if sel.single_squad and not append then
-		target_squad = sel.single_squad
-	else
-		-- Find closest matching unit globally (respecting filter + group constraints)
+	do
 		local best_unit, best_dist_sq = nil, math.huge
 		for _, squad in ipairs(squads) do
 			for j = 1, #squad do
