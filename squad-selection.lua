@@ -215,9 +215,10 @@ local function classify_unitdefs()
 		end
 
 		-- Squad eligibility
+		local is_mobile = def.canMove or (def.speed and def.speed > 0)
 		if SQUAD_ELIGIBLE_EXTRAS[def.name] then
 			is_combat[defID] = true
-		elseif not def.isBuilding and def.weapons and #def.weapons > 0 and not (def.buildOptions and #def.buildOptions > 0) then
+		elseif is_mobile and not def.isBuilding and def.weapons and #def.weapons > 0 and not (def.buildOptions and #def.buildOptions > 0) then
 			is_combat[defID] = true
 		else
 			is_combat[defID] = false
