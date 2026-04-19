@@ -31,6 +31,7 @@ local config = {
 	convexHullFillOpacity = 0.1,
 	convexHullBorderOpacity = 0.2,
 	convexHullBorderThickness = 2,
+	debug = false,
 }
 
 -------------------------------------------------------------------------------
@@ -86,17 +87,15 @@ local DOMAINS = {"land", "air", "naval"}
 -- Debug
 -------------------------------------------------------------------------------
 
-local DEBUG = false
-
 local function log(msg)
-	if DEBUG then
+	if config.debug then
 		spEcho("[Squad] " .. tostring(msg))
 	end
 end
 
 
 local function log_squads()
-	if not DEBUG then
+	if not config.debug then
 		return
 	end
 	log("  " .. #squads .. " squad(s):")
@@ -900,8 +899,8 @@ end
 
 -- map dimensions for determining grid size
 -- and for limiting lookups to be inside the floor
-local map_xmax = Game.mapSizeX
-local map_ymax = Game.mapSizeZ
+local map_xmax = 0
+local map_ymax = 0
 
 local airplane_floor = {}
 local function create_airplane_floor()
@@ -1038,6 +1037,11 @@ function widget:Initialize()
 	unit_squad = {}
 	unit_slot = {}
 	next_squad_tag = 0
+
+	map_xmax = Game.mapSizeX
+	map_ymax = Game.mapSizeZ
+	local tr, tg, tb = spGetTeamColor(spGetMyTeamID())
+	team_color[1], team_color[2], team_color[3] = tr or 1, tg or 1, tb or 1
 
 	classify_unitdefs()
 
@@ -1486,17 +1490,8 @@ local function get_padded_hull(worldPoints, radius, arc_segments_angle)
 end
 
 
-local team_r, team_g, team_b, team_a = spGetTeamColor(spGetMyTeamID())
-local HULL_PARAMETERS_FULLY_SELECTED = {
-	fillColor = {1, 1, 1, config.convexHullFillOpacity},
-	borderColor = {1, 1, 1, config.convexHullBorderOpacity},
-	borderThickness = config.convexHullBorderThickness,
-}
-local HULL_PARAMETERS_UNSELECTED = {
-	fillColor = {team_r, team_g, team_b, config.convexHullFillOpacity},
-	borderColor = {team_r, team_g, team_b, config.convexHullBorderOpacity},
-	borderThickness = config.convexHullBorderThickness,
-}
+-- Team color for unselected-squad hulls. Populated in widget:Initialize.
+local team_color = {1, 1, 1}
 
 function widget:DrawWorldPreUnit()
 	if spIsGUIHidden() or config.visualizationMode ~= "convexHull" then
@@ -1514,6 +1509,12 @@ function widget:DrawWorldPreUnit()
 		selectedUnits[id] = true
 	end
 
+	-- re-read styling each frame so squad_setting changes take effect live
+	local fill_opacity = config.convexHullFillOpacity
+	local border_opacity = config.convexHullBorderOpacity
+	local border_thickness = config.convexHullBorderThickness
+	local tr, tg, tb = team_color[1], team_color[2], team_color[3]
+
 	for _, squad in ipairs(squads) do
 
 		if not squad.is_reserve then
@@ -1527,7 +1528,12 @@ function widget:DrawWorldPreUnit()
 					break
 				end
 			end
-			local params = allSelected and HULL_PARAMETERS_FULLY_SELECTED or HULL_PARAMETERS_UNSELECTED
+			local cr, cg, cb
+			if allSelected then
+				cr, cg, cb = 1, 1, 1
+			else
+				cr, cg, cb = tr, tg, tb
+			end
 
 			-- collect unit positions (in world coordinates?)
 			local worldPoints = {}
@@ -1596,15 +1602,15 @@ function widget:DrawWorldPreUnit()
 
 				-- draw the hull
 				glDepthTest(false)
-				glColor(params.fillColor)
+				glColor(cr, cg, cb, fill_opacity)
 				glBeginEnd(GL.POLYGON, function()
 					for _, p in ipairs(screenHull) do
 						glVertex(p.x, p.y, p.z)
 					end
 				end
 )
-				glColor(params.borderColor)
-				glLineWidth(params.borderThickness)
+				glColor(cr, cg, cb, border_opacity)
+				glLineWidth(border_thickness)
 				glBeginEnd(GL.LINE_LOOP, function()
 					for _, p in ipairs(screenHull) do
 						glVertex(p.x, p.y, p.z)
