@@ -181,7 +181,7 @@ These changes persist.
 | `leftClickSelectsSquad` | `true`           | Modifier+click on empty ground selects squads                   |
 | `cyclingToNextSquad`    | `true`           | Cycle to next squad when full squad is selected                 |
 | `rightClickSquadCreate` | `true`           | Right-click squad creation is active                            |
-| `visualizationMode`     | `"coloredLabel"` | `"coloredLabel"` or `"convexHull"`                              |
+| `visualizationMode`     | `"convexHull"` | `"coloredLabel"` or `"convexHull"`                              |
 | `showReserveSquads`     | `false`          | Visualize per-factory and uncategorized reserves as real squads |
 
 
