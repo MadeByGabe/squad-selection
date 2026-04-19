@@ -19,6 +19,7 @@ local config = {
 	leftClickSelectsSquad = true, -- left-click can be used to select squads
 	cyclingToNextSquad = true, -- when full squad/type is selected, exclude it to cycle to next
 	rightClickSquadCreate = true, -- right-click creates squads; toggle with squad_create_toggle action
+	showReserveSquads = false, -- when true, auto per-factory reserves + uncategorized reserve are visualized
 	visualizationMode = "coloredLabel", -- "convexHull" or "coloredLabel"
 	convexHullPaddingLand = 50, -- space (in elmos?) between the units and the hull boundary
 	convexHullPaddingNavy = 50,
@@ -76,12 +77,11 @@ local glVertex = gl.Vertex
 -- State
 -------------------------------------------------------------------------------
 
-local squads = {} -- ordered list of squad arrays; reserve squads are always first
+local squads = {} -- ordered list of squad arrays
 local unit_squad = {} -- unitID -> the squad array it belongs to
 local unit_slot = {} -- unitID -> index within that squad (for O(1) removal)
-local reserve_squads = {} -- domain string -> reserve squad for that domain
-local factory_squad = {} -- factoryUnitID -> squad
-local DOMAINS = {"land", "air", "naval"}
+local factory_squad = {} -- factoryUnitID -> squad (every factory gets an auto-created squad)
+local uncategorized_reserve = nil -- catch-all reserve for units with no factory origin (gifted, resurrected, etc.)
 
 -------------------------------------------------------------------------------
 -- Debug
@@ -101,8 +101,10 @@ local function log_squads()
 	log("  " .. #squads .. " squad(s):")
 	for _, squad in ipairs(squads) do
 		local label = squad.letter or "?"
-		if squad.domain then
-			label = label .. ":" .. squad.domain
+		if squad == uncategorized_reserve then
+			label = label .. ":uncat"
+		elseif squad.from_factory then
+			label = label .. ":fac"
 		end
 		log("    [" .. label .. "] " .. #squad .. " units")
 	end
@@ -159,12 +161,6 @@ local next_squad_tag = 0
 
 local FACTORY_RESERVE_COLOR = {1, 1, 1}
 
-local DOMAIN_SYMBOL = {
-	land = "-",
-	air = "^",
-	naval = "~",
-}
-
 local function assign_squad_tag(squad)
 	next_squad_tag = next_squad_tag + 1
 	local ci = (next_squad_tag - 1) % #SQUAD_COLORS + 1
@@ -187,7 +183,6 @@ local defid_of = {} -- unitID -> defID  (false when lookup fails)
 local is_combat = {} -- defID  -> bool
 local unit_domain = {} -- defID -> "land" | "air" | "naval"
 local is_factory = {} -- defID  -> bool (immobile with buildOptions)
-local factory_domain = {} -- defID -> "land" | "air" | "naval" (from buildOptions)
 
 local function get_defid(unit_id)
 	local v = defid_of[unit_id]
@@ -228,13 +223,6 @@ local function classify_unitdefs()
 			is_factory[defID] = true
 		end
 	end
-
-	-- Second pass: determine factory domains from their buildOptions
-	for defID, def in pairs(UnitDefs) do
-		if is_factory[defID] then
-			factory_domain[defID] = unit_domain[def.buildOptions[1]] or "land"
-		end
-	end
 end
 
 
@@ -271,32 +259,36 @@ local function remove_from_squad(unit_id)
 end
 
 
--- Remove squads that have become empty (never removes reserve squads).
+-- A squad is prunable when empty, except:
+--   - the uncategorized reserve is permanent
+--   - factory reserves are kept while any factory still references them
+local function is_prunable(sq)
+	if #sq ~= 0 then
+		return false
+	end
+	if sq == uncategorized_reserve then
+		return false
+	end
+	if sq.from_factory then
+		for _, fsq in pairs(factory_squad) do
+			if fsq == sq then
+				return false
+			end
+		end
+		return true
+	end
+	return not sq.is_reserve
+end
+
+
 local function prune_empty_squads()
 	for i = #squads, 1, -1 do
 		local sq = squads[i]
-		if not sq.is_reserve and #sq == 0 then
+		if is_prunable(sq) then
 			log("Squad [" .. (sq.letter or "?") .. "] emptied and removed")
 			table.remove(squads, i)
 		end
 	end
-end
-
-
--- Check whether any factory still references the given squad.
--- If none do, clear is_reserve so the squad becomes prunable.
-local function update_factory_squad_reserve(sq)
-	if not sq or not sq.from_factory then
-		return
-	end
-	for _, fsq in pairs(factory_squad) do
-		if fsq == sq then
-			return
-		end
-	end
-	sq.is_reserve = false
-	sq.from_factory = false
-	assign_squad_tag(sq)
 end
 
 
@@ -329,6 +321,34 @@ local function selection_is_existing_squad(selected)
 end
 
 
+--- Create a new hidden reserve squad and register it in `squads`.
+-- Used for per-factory auto-squads and the uncategorized reserve.
+local function make_reserve_squad(from_factory)
+	local sq = {}
+	assign_squad_tag(sq)
+	sq.color = FACTORY_RESERVE_COLOR
+	sq.is_reserve = true
+	sq.from_factory = from_factory or false
+	squads[#squads + 1] = sq
+	return sq
+end
+
+
+--- Auto-create a reserve squad for a newly built/received factory.
+local function create_factory_squad(factory_id)
+	local sq = make_reserve_squad(true)
+	factory_squad[factory_id] = sq
+	log("Factory " .. factory_id .. " → auto squad [" .. sq.letter .. "]")
+	return sq
+end
+
+
+--- "This selection becomes one squad" — merges or splits depending on state.
+--  - If the selection already exactly occupies one squad (no other factories
+--    reference it) → no-op.
+--  - Otherwise → reassign all selected factories to a fresh shared squad.
+--    Units already built stay in their old squads; those squads become
+--    hidden orphaned reserves that prune when their last unit dies.
 local function assign_factory_squad()
 	local selected = spGetSelectedUnits()
 	local factories = {}
@@ -343,53 +363,39 @@ local function assign_factory_squad()
 		return
 	end
 
-	-- Count how many factories already have an assignment
-	local assigned_count = 0
+	-- Detect the "already exactly one squad" case.
+	local selection_set = {}
 	for i = 1, #factories do
-		if factory_squad[factories[i]] then
-			assigned_count = assigned_count + 1
+		selection_set[factories[i]] = true
+	end
+	local shared = factory_squad[factories[1]]
+	local all_share = shared ~= nil
+	for i = 2, #factories do
+		if factory_squad[factories[i]] ~= shared then
+			all_share = false
+			break
 		end
 	end
-
-	-- Clear existing assignments if any
-	if assigned_count > 0 then
-		local affected = {}
-		for i = 1, #factories do
-			local sq = factory_squad[factories[i]]
-			if sq then
-				affected[sq] = true
+	if all_share then
+		local extra = false
+		for fid, sq in pairs(factory_squad) do
+			if sq == shared and not selection_set[fid] then
+				extra = true
+				break
 			end
-			factory_squad[factories[i]] = nil
 		end
-		for sq in pairs(affected) do
-			update_factory_squad_reserve(sq)
-		end
-		prune_empty_squads()
-		log("Removed factory squad assignments from " .. assigned_count .. " factory(s)")
-		-- If ALL were assigned, just toggle off
-		if assigned_count == #factories then
+		if not extra then
 			return
 		end
 	end
 
-	-- Create a new factory reserve squad
-	local new_squad = {}
-	assign_squad_tag(new_squad)
-	new_squad.color = FACTORY_RESERVE_COLOR
-	new_squad.is_reserve = true
-	new_squad.from_factory = true
-
-	local first_def = get_defid(factories[1])
-	local domain = factory_domain[first_def] or "land"
-	new_squad.domain = domain
-
-	local sym = DOMAIN_SYMBOL[domain] or "-"
-	new_squad.letter = sym .. new_squad.letter .. sym
-
+	-- Reassign all selected factories to a fresh shared squad.
+	local new_squad = make_reserve_squad(true)
 	for i = 1, #factories do
 		factory_squad[factories[i]] = new_squad
 	end
-	squads[#squads + 1] = new_squad
+
+	prune_empty_squads()
 
 	log("Factory squad [" .. new_squad.letter .. "] assigned to " .. #factories .. " factory(s)")
 	log_squads()
@@ -1032,7 +1038,6 @@ function widget:Initialize()
 	end
 
 	squads = {}
-	reserve_squads = {}
 	factory_squad = {}
 	unit_squad = {}
 	unit_slot = {}
@@ -1045,23 +1050,28 @@ function widget:Initialize()
 
 	classify_unitdefs()
 
-	for _, domain in ipairs(DOMAINS) do
-		local sq = {}
-		sq.is_reserve = true
-		sq.domain = domain
-		reserve_squads[domain] = sq
-		squads[#squads + 1] = sq
-	end
+	uncategorized_reserve = make_reserve_squad(false)
 
 	local team_id = spGetMyTeamID()
 	local all = spGetTeamUnits(team_id)
 	local count = 0
 
+	-- Factories first, so their auto-squads exist before we route anything.
+	for i = 1, #all do
+		local u = all[i]
+		local def_id = get_defid(u)
+		if def_id and is_factory[def_id] then
+			create_factory_squad(u)
+		end
+	end
+
+	-- Combat units: at init we have no builder info, so everything goes to
+	-- the uncategorized reserve. Future builds will route via UnitCreated.
 	for i = 1, #all do
 		local u = all[i]
 		local def_id = get_defid(u)
 		if def_id and is_combat[def_id] then
-			add_to_squad(u, reserve_squads[unit_domain[def_id]])
+			add_to_squad(u, uncategorized_reserve)
 			count = count + 1
 		end
 	end
@@ -1113,13 +1123,21 @@ function widget:Initialize()
 			config.visualizationMode = v
 		end
 ,
+		getShowReserveSquads = function()
+			return config.showReserveSquads
+		end
+,
+		setShowReserveSquads = function(v)
+			config.showReserveSquads = v
+		end
+,
 	}
 
 	if config.visualizationMode == "convexHull" then
 		create_airplane_floor()
 	end
 
-	log("Initialized — " .. count .. " combat units across reserve squads")
+	log("Initialized — " .. count .. " combat units in uncategorized reserve")
 	log_squads()
 end
 
@@ -1161,39 +1179,43 @@ function widget:UnitCreated(unit_id, unit_def_id, unit_team, builder_id)
 	end
 	defid_of[unit_id] = unit_def_id or false
 
+	if unit_def_id and is_factory[unit_def_id] then
+		create_factory_squad(unit_id)
+	end
+
 	if unit_def_id and is_combat[unit_def_id] then
-		if builder_id and factory_squad[builder_id] then
-			local sq = factory_squad[builder_id]
-			add_to_squad(unit_id, sq)
-			log("Unit " .. unit_id .. " created → factory squad [" .. (sq.letter or "?") .. "] (" .. #sq .. " units)")
-		else
-			local domain = unit_domain[unit_def_id]
-			local sq = reserve_squads[domain]
-			add_to_squad(unit_id, sq)
-			log("Unit " .. unit_id .. " created → reserve:" .. domain .. " (" .. #sq .. " units)")
-		end
+		local sq = (builder_id and factory_squad[builder_id]) or uncategorized_reserve
+		add_to_squad(unit_id, sq)
+		log("Unit " .. unit_id .. " created → squad [" .. (sq.letter or "?") .. "] (" .. #sq .. " units)")
 	end
 end
 
 
 local last_idle_locations = {}
-function widget:UnitDestroyed(unit_id, unit_def_id, unit_team, attacker_id)
+
+
+--- Remove a unit's tracking state (combat unit AND/OR factory).
+-- Returns true if anything was cleared.
+local function stop_tracking(unit_id)
 	local tracked = unit_squad[unit_id] ~= nil
-	local fq = factory_squad[unit_id]
+	local was_factory = factory_squad[unit_id] ~= nil
 
 	remove_from_squad(unit_id)
 	defid_of[unit_id] = nil
 	factory_squad[unit_id] = nil
 
-	if fq then
-		update_factory_squad_reserve(fq)
-	end
-
-	if tracked or fq then
+	if tracked or was_factory then
 		prune_empty_squads()
+		return true
+	end
+	return false
+end
+
+
+function widget:UnitDestroyed(unit_id, unit_def_id, unit_team, attacker_id)
+	if stop_tracking(unit_id) then
 		log("Unit " .. unit_id .. " destroyed — " .. #squads .. " squad(s) remain")
 	end
-
 	-- location where a unit became idle is useful
 	-- for constructing less visually obnoxious aircraft convex hulls
 	last_idle_locations[unit_id] = nil
@@ -1204,20 +1226,7 @@ function widget:UnitTaken(unit_id, unit_def_id, unit_team, new_team)
 	if unit_team ~= spGetMyTeamID() then
 		return
 	end
-
-	local tracked = unit_squad[unit_id] ~= nil
-	local fq = factory_squad[unit_id]
-
-	remove_from_squad(unit_id)
-	defid_of[unit_id] = nil
-	factory_squad[unit_id] = nil
-
-	if fq then
-		update_factory_squad_reserve(fq)
-	end
-
-	if tracked or fq then
-		prune_empty_squads()
+	if stop_tracking(unit_id) then
 		log("Unit " .. unit_id .. " taken by team " .. new_team)
 	end
 end
@@ -1229,11 +1238,13 @@ function widget:UnitGiven(unit_id, unit_def_id, unit_team, old_team)
 	end
 	defid_of[unit_id] = unit_def_id or false
 
+	if unit_def_id and is_factory[unit_def_id] then
+		create_factory_squad(unit_id)
+	end
+
 	if unit_def_id and is_combat[unit_def_id] then
-		local domain = unit_domain[unit_def_id]
-		local sq = reserve_squads[domain]
-		add_to_squad(unit_id, sq)
-		log("Unit " .. unit_id .. " given to us → reserve:" .. domain .. " (" .. #sq .. " units)")
+		add_to_squad(unit_id, uncategorized_reserve)
+		log("Unit " .. unit_id .. " given to us → uncategorized reserve (" .. #uncategorized_reserve .. " units)")
 	end
 end
 
@@ -1317,8 +1328,10 @@ function widget:DrawScreenEffects()
 		return
 	end
 
+	local show_reserves = config.showReserveSquads
+
 	for _, squad in ipairs(squads) do
-		if #squad > 0 and squad.color and squad.letter then
+		if #squad > 0 and squad.color and squad.letter and (not squad.is_reserve or show_reserves) then
 			local c = squad.color
 			glColor(c[1], c[2], c[3], 0.75)
 			for j = 1, #squad do
@@ -1334,15 +1347,17 @@ function widget:DrawScreenEffects()
 		glColor(1, 1, 1, 1)
 	end
 
-	-- Draw labels on assigned factory buildings
-	for fid, sq in pairs(factory_squad) do
-		local c = sq.color
-		glColor(c[1], c[2], c[3], 0.75)
-		local _, _, _, x, y, z = spGetUnitPosition(fid, true)
-		if x then
-			local sx, sy = spWorldToScreenCoords(x, y, z)
-			if sx then
-				glText(sq.letter, sx, sy + 14, 16, "co")
+	-- Draw labels on factory buildings (all factories are reserves now).
+	if show_reserves then
+		for fid, sq in pairs(factory_squad) do
+			local c = sq.color
+			glColor(c[1], c[2], c[3], 0.75)
+			local _, _, _, x, y, z = spGetUnitPosition(fid, true)
+			if x then
+				local sx, sy = spWorldToScreenCoords(x, y, z)
+				if sx then
+					glText(sq.letter, sx, sy + 14, 16, "co")
+				end
 			end
 		end
 	end
@@ -1515,9 +1530,11 @@ function widget:DrawWorldPreUnit()
 	local border_thickness = config.convexHullBorderThickness
 	local tr, tg, tb = team_color[1], team_color[2], team_color[3]
 
+	local show_reserves = config.showReserveSquads
+
 	for _, squad in ipairs(squads) do
 
-		if not squad.is_reserve then
+		if not squad.is_reserve or show_reserves then
 
 			-- determine color styling
 			-- based on whether all units in the squad are selected
