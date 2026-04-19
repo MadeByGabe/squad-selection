@@ -447,21 +447,18 @@ local function get_mouse_world_pos()
 end
 
 
--- Returns the unitID closest to the mouse cursor, or nil if none found.
--- Optional filter_defs (defID set) and exclude (unitID set) narrow the search.
-local function find_closest_unit(filter_defs, exclude)
-	local wx, wz = get_mouse_world_pos()
-	if not wx then
-		return nil
-	end
-
+-- Returns the squad containing the unit closest to (wx, wz), or nil if none.
+-- Optional filter_defs (defID set), group_set (unitID set), and exclude
+-- (unitID set) narrow the search. A unit is a candidate only if it passes all
+-- three filters.
+local function find_closest_squad(filter_defs, group_set, exclude, wx, wz)
 	local best_unit = nil
 	local best_dist_sq = math.huge
 
 	for _, squad in ipairs(squads) do
 		for j = 1, #squad do
 			local u = squad[j]
-			if not (exclude and exclude[u]) then
+			if not (exclude and exclude[u]) and not (group_set and not group_set[u]) then
 				if not filter_defs or (defid_of[u] and filter_defs[defid_of[u]]) then
 					local x, _, z = spGetUnitPosition(u)
 					if x then
@@ -478,28 +475,17 @@ local function find_closest_unit(filter_defs, exclude)
 		end
 	end
 
-	return best_unit
+	return best_unit and unit_squad[best_unit] or nil, best_unit
 end
 
 
 -------------------------------------------------------------------------------
 -- Selection analysis
---
--- Classifies the current selection into one of four states:
---   no filter       — no tracked units selected (builders/empty)
---   single-squad    — all tracked units belong to one squad
---   multi-squad     — tracked units span multiple squads
---   full squad      — single-squad AND every unit in that squad is selected
---   full type match — single-squad AND every unit matching the filter types
---                     in that squad is selected (full squad implies this)
---
--- Returns a table with all the information both actions need.
 -------------------------------------------------------------------------------
 
 --- Inspect the current selection and return a summary used by squad-select actions.
 --
 -- Returns a table with:
---   selected          — array of currently selected unitIDs (from engine)
 --   selected_set      — set (unitID → true) for O(1) membership tests
 --   selected_type_set — set of defIDs present in the selection (only from
 --                        tracked squad units). Used to filter squads by unit
@@ -507,339 +493,43 @@ end
 --   has_tracked_units — true when at least one selected unit is a tracked
 --                        squad unit with a known type. When false, callers
 --                        fall back to type-agnostic behavior.
---   single_squad      — the squad table if every tracked unit belongs to the
---                        same squad, nil otherwise (mixed-squad or no squads).
---   is_full_squad     — true when the entire single_squad is selected.
---   is_full_type_match — true when every unit in single_squad whose type
---                        appears in selected_type_set is already selected.
---                        A full squad trivially satisfies this. Used by
---                        filtered-select to decide whether to cycle.
 local function analyze_selection()
 	local selected = spGetSelectedUnits()
 	local selected_set = {}
 	local selected_type_set = {}
 	local has_tracked_units = false
-	local single_squad = nil
-	local from_multiple_squads = false
-	local tracked_count = 0
 
 	for i = 1, #selected do
 		local u = selected[i]
 		selected_set[u] = true
-		local sq = unit_squad[u]
-		if sq then
-			tracked_count = tracked_count + 1
+		if unit_squad[u] then
 			local def_id = defid_of[u]
 			if def_id then
 				selected_type_set[def_id] = true
 				has_tracked_units = true
 			end
-			if single_squad == nil then
-				single_squad = sq
-			elseif sq ~= single_squad then
-				from_multiple_squads = true
-			end
 		end
-	end
-
-	if from_multiple_squads then
-		single_squad = nil
-	end
-
-	local is_full_squad = single_squad ~= nil and tracked_count == #single_squad
-
-	-- Check if all units of matching types in the single squad are selected.
-	-- A full squad trivially satisfies this (every type is fully selected).
-	local is_full_type_match = is_full_squad
-	if single_squad and has_tracked_units and not is_full_squad then
-		local matching_total = 0
-		local matching_selected = 0
-		for j = 1, #single_squad do
-			local u = single_squad[j]
-			local def_id = defid_of[u]
-			if def_id and selected_type_set[def_id] then
-				matching_total = matching_total + 1
-				if selected_set[u] then
-					matching_selected = matching_selected + 1
-				end
-			end
-		end
-		is_full_type_match = matching_total > 0 and matching_selected == matching_total
 	end
 
 	return {
-		selected = selected,
 		selected_set = selected_set,
 		selected_type_set = selected_type_set,
 		has_tracked_units = has_tracked_units,
-		single_squad = single_squad,
-		is_full_squad = is_full_squad,
-		is_full_type_match = is_full_type_match,
 	}
 end
 
 
---- Filter a squad down to units whose defID is in the given set.
-local function filter_squad_by_defs(squad, defs)
-	local result = {}
-	for j = 1, #squad do
-		local u = squad[j]
-		local def_id = defid_of[u]
-		if def_id and defs[def_id] then
-			result[#result + 1] = u
-		end
-	end
-	return result
-end
-
-
 -------------------------------------------------------------------------------
--- Closest squad selection action
+-- Selection primitives
 --
--- See development.md "Selection action decision matrix" for the full table.
--- Only excludes selected units from the closest-unit search when the entire
--- squad is already selected (to cycle to the next squad).
--------------------------------------------------------------------------------
-
-local function closest_squad_select(_, _, args)
-	local sel = analyze_selection()
-	local append = args and args[1] == "append"
-
-	-- Full squad: cycle to next squad (exclude selected) or fall through as multi-squad
-	local exclude = nil
-	if sel.is_full_squad and config.cyclingToNextSquad then
-		exclude = sel.selected_set
-	end
-
-	local unit = find_closest_unit(nil, exclude)
-	if not unit then
-		return
-	end
-
-	local squad = unit_squad[unit]
-	if not squad then
-		return
-	end
-
-	spSelectUnitArray(squad, append)
-	log("Selected squad [" .. (squad.letter or "?") .. "] (" .. #squad .. " units)" .. (append and " +append" or ""))
-end
-
-
--------------------------------------------------------------------------------
--- Squad creation toggle + on-demand creation
--------------------------------------------------------------------------------
-
-local function squad_create_toggle()
-	config.rightClickSquadCreate = not config.rightClickSquadCreate
-	spEcho("[Squad] Squad creation " .. (config.rightClickSquadCreate and "enabled" or "disabled"))
-end
-
-
-local function squad_create()
-	assign_factory_squad()
-	create_squad_from_selection()
-end
-
-
--------------------------------------------------------------------------------
--- Filtered squad selection
+-- All six selection actions share one core, do_squad_select. The per-action
+-- wrappers only differ in which opts they pass:
 --
--- See development.md "Selection action decision matrix" for the full table.
--- Three paths:
---   1. Single-squad, not all matching types selected → complete the type
---      selection within that squad (no closest-unit search needed).
---   2. Full type match → exclude selected and search for the next squad.
---   3. No filter / multi-squad → search for closest matching unit.
--------------------------------------------------------------------------------
-
-local function closest_squad_select_filtered(_, _, args)
-	local sel = analyze_selection()
-	local append = args and args[1] == "append"
-
-	-- Full type match: cycle to next squad (exclude selected) or fall through as multi-squad
-	local exclude = nil
-	if sel.is_full_type_match and config.cyclingToNextSquad then
-		exclude = sel.selected_set
-	end
-
-	local search_defs = sel.has_tracked_units and sel.selected_type_set or nil
-	local closest = find_closest_unit(search_defs, exclude)
-	if not closest then
-		return
-	end
-
-	local squad = unit_squad[closest]
-	if not squad then
-		return
-	end
-
-	-- If no filter types from selection, use the closest unit's type
-	local defs = sel.selected_type_set
-	if not sel.has_tracked_units then
-		local def_id = defid_of[closest]
-		if not def_id then
-			spSelectUnitArray({closest}, append)
-			return
-		end
-		defs = {
-			[def_id] = true,
-		}
-	end
-
-	local result = filter_squad_by_defs(squad, defs)
-	spSelectUnitArray(result, append)
-	log("Filtered select from squad [" .. (squad.letter or "?") .. "]: " .. #result .. "/" .. #squad .. " units" .. (append and " +append" or ""))
-end
-
-
--------------------------------------------------------------------------------
--- Control group intersection
+--   whole-squad / filtered / group    → steps={1}, cycle_when_full=true
+--   portion / portion-filtered /group → steps=<parsed>, cycle_when_full=false
 --
--- Selects the intersection of a control group and the closest squad.
--- Algorithm: get units in group N → filter to tracked → find closest to
--- mouse → get its squad → select squad ∩ group.
--------------------------------------------------------------------------------
-
---- Build a set of unitIDs belonging to a control group.
--- Tries GetGroupUnits first, falls back to iterating tracked units.
-local function build_group_set(group_num)
-	local group_units
-	if spGetGroupUnits then
-		group_units = spGetGroupUnits(group_num)
-	end
-
-	local group_set = {}
-	if group_units and #group_units > 0 then
-		for i = 1, #group_units do
-			group_set[group_units[i]] = true
-		end
-	else
-		for _, squad in ipairs(squads) do
-			for j = 1, #squad do
-				local u = squad[j]
-				if spGetUnitGroup(u) == group_num then
-					group_set[u] = true
-				end
-			end
-		end
-	end
-	return group_set
-end
-
-
-local function squad_select_group(_, _, args)
-	if not args or not args[1] then
-		return
-	end
-	local group_num = tonumber(args[1])
-	if not group_num then
-		return
-	end
-	local append = args[2] == "append"
-
-	local group_set = build_group_set(group_num)
-
-	-- Cycling: if current selection exactly matches a squad∩group intersection,
-	-- exclude those units so we cycle to the next squad.
-	local exclude = nil
-	if config.cyclingToNextSquad then
-		local selected = spGetSelectedUnits()
-		if #selected > 0 then
-			local selected_set = {}
-			for i = 1, #selected do
-				selected_set[selected[i]] = true
-			end
-			-- Check if selection is a single squad's intersection with this group
-			local sel_squad = nil
-			local all_match = true
-			for i = 1, #selected do
-				local u = selected[i]
-				local sq = unit_squad[u]
-				if not sq or not group_set[u] then
-					all_match = false
-					break
-				end
-				if sel_squad == nil then
-					sel_squad = sq
-				elseif sq ~= sel_squad then
-					all_match = false
-					break
-				end
-			end
-			if all_match and sel_squad then
-				-- Check that the full intersection is selected (no unselected group members in that squad)
-				local full_intersection = true
-				for j = 1, #sel_squad do
-					local u = sel_squad[j]
-					if group_set[u] and not selected_set[u] then
-						full_intersection = false
-						break
-					end
-				end
-				if full_intersection then
-					exclude = selected_set
-				end
-			end
-		end
-	end
-
-	-- Filter to tracked units only and find closest to mouse
-	local wx, wz = get_mouse_world_pos()
-	if not wx then
-		return
-	end
-
-	local best_unit = nil
-	local best_dist_sq = math.huge
-
-	for uid, _ in pairs(group_set) do
-		if unit_squad[uid] and not (exclude and exclude[uid]) then
-			local x, _, z = spGetUnitPosition(uid)
-			if x then
-				local dx = x - wx
-				local dz = z - wz
-				local dist_sq = dx * dx + dz * dz
-				if dist_sq < best_dist_sq then
-					best_dist_sq = dist_sq
-					best_unit = uid
-				end
-			end
-		end
-	end
-
-	if not best_unit then
-		return
-	end
-
-	local squad = unit_squad[best_unit]
-	if not squad then
-		return
-	end
-
-	-- Select intersection of squad and control group
-	local result = {}
-	for j = 1, #squad do
-		local u = squad[j]
-		if group_set[u] then
-			result[#result + 1] = u
-		end
-	end
-
-	if #result > 0 then
-		spSelectUnitArray(result, append)
-		log("Group " .. group_num .. " ∩ squad [" .. (squad.letter or "?") .. "]: " .. #result .. " units" .. (append and " +append" or ""))
-	end
-end
-
-
--------------------------------------------------------------------------------
--- Portion selection
---
--- Progressive, distance-sorted selection within a squad. Each step selects
--- more units. The current step is determined statelessly from the selection:
--- count how many pool units are already selected, then pick the first step
--- whose resolved count exceeds that.
+-- Filtering by unit type and by control group is expressed uniformly via the
+-- filter_defs / group_set options.
 -------------------------------------------------------------------------------
 
 --- Convert a step value to a unit count.
@@ -898,8 +588,8 @@ local function sort_units_by_distance(units, wx, wz)
 end
 
 
---- Filter a squad to units matching optional filter_defs and group_set.
-local function get_portion_pool(squad, filter_defs, group_set)
+--- Build a squad's pool: the units in the squad matching the optional filters.
+local function build_pool(squad, filter_defs, group_set)
 	local pool = {}
 	for j = 1, #squad do
 		local u = squad[j]
@@ -913,8 +603,130 @@ local function get_portion_pool(squad, filter_defs, group_set)
 end
 
 
---- Core portion selection logic (stateless).
-local function do_portion_select(append, steps, filter_defs, group_set)
+--- Count how many pool units are already selected.
+local function count_selected_in(pool, selected_set)
+	local n = 0
+	for i = 1, #pool do
+		if selected_set[pool[i]] then
+			n = n + 1
+		end
+	end
+	return n
+end
+
+
+--- True when every unit in pool is in selected_set. 
+local function pool_fully_selected(pool, selected_set)
+	for i = 1, #pool do
+		if not selected_set[pool[i]] then
+			return false
+		end
+	end
+	return true
+end
+
+
+--- Walk the step progression: return the first resolved count greater than
+-- `current_in_pool`, or the last step's count once we're past the end
+-- (no-op repeat).
+local function resolve_target_count(steps, pool_size, current_in_pool)
+	for i = 1, #steps do
+		local c = step_to_count(steps[i], pool_size)
+		if c > current_in_pool then
+			return c
+		end
+	end
+	return step_to_count(steps[#steps], pool_size)
+end
+
+
+--- Given a distance-sorted pool, pick which units go to SelectUnitArray.
+-- Replace mode: first `target_count` pool units.
+-- Append mode: up to `target_count` closest pool units that aren't already
+-- selected (so repeated presses accumulate).
+local function pick_units(pool, target_count, selected_set, append)
+	local to_select = {}
+	if append then
+		for i = 1, #pool do
+			if not selected_set[pool[i]] then
+				to_select[#to_select + 1] = pool[i]
+				if #to_select >= target_count then
+					break
+				end
+			end
+		end
+	else
+		for i = 1, target_count do
+			to_select[i] = pool[i]
+		end
+	end
+	return to_select
+end
+
+
+--- Determine the defID set for filtered actions. Uses the selection's types
+-- if any tracked units are selected; otherwise falls back to the closest
+-- unit's type. Returns nil when nothing suitable is found (caller bails).
+local function resolve_filter_defs(sel, wx, wz)
+	if sel.has_tracked_units then
+		return sel.selected_type_set
+	end
+	local _, closest = find_closest_squad(nil, nil, nil, wx, wz)
+	if not closest then
+		return nil
+	end
+	local def_id = defid_of[closest]
+	if not def_id then
+		return nil
+	end
+	return {
+		[def_id] = true,
+	}
+end
+
+
+--- Build a set of unitIDs belonging to a control group.
+-- Tries GetGroupUnits first, falls back to iterating tracked units.
+local function build_group_set(group_num)
+	local group_units
+	if spGetGroupUnits then
+		group_units = spGetGroupUnits(group_num)
+	end
+
+	local group_set = {}
+	if group_units and #group_units > 0 then
+		for i = 1, #group_units do
+			group_set[group_units[i]] = true
+		end
+	else
+		for _, squad in ipairs(squads) do
+			for j = 1, #squad do
+				local u = squad[j]
+				if spGetUnitGroup(u) == group_num then
+					group_set[u] = true
+				end
+			end
+		end
+	end
+	return group_set
+end
+
+
+-------------------------------------------------------------------------------
+-- Unified squad selection core
+--
+-- opts = {
+--   append           bool,
+--   steps            array of step values; nil → {1} (whole pool),
+--   filter_defs      nil or defID set (narrow pool to matching types),
+--   group_set        nil or unitID set (narrow pool to group members),
+--   cycle_when_full  bool — when the closest squad's pool is already fully
+--                    selected, re-pick a squad with those units excluded
+-- }
+-------------------------------------------------------------------------------
+
+local function do_squad_select(opts)
+	local steps = opts.steps or {1}
 	if #steps == 0 then
 		return
 	end
@@ -925,126 +737,123 @@ local function do_portion_select(append, steps, filter_defs, group_set)
 	end
 
 	local sel = analyze_selection()
+	local filter_defs = opts.filter_defs
+	local group_set = opts.group_set
 
-	-- Find target squad: always pick the squad of the closest matching unit
-	-- so repeated presses re-evaluate proximity rather than sticking to one squad.
-	local target_squad
-	do
-		local best_unit, best_dist_sq = nil, math.huge
-		for _, squad in ipairs(squads) do
-			for j = 1, #squad do
-				local u = squad[j]
-				if not group_set or group_set[u] then
-					if not filter_defs or (defid_of[u] and filter_defs[defid_of[u]]) then
-						local x, _, z = spGetUnitPosition(u)
-						if x then
-							local dx, dz = x - wx, z - wz
-							local d = dx * dx + dz * dz
-							if d < best_dist_sq then
-								best_dist_sq = d
-								best_unit = u
-							end
-						end
-					end
-				end
-			end
-		end
-		target_squad = best_unit and unit_squad[best_unit]
-	end
-
+	local target_squad = find_closest_squad(filter_defs, group_set, nil, wx, wz)
 	if not target_squad then
 		return
 	end
+	local pool = build_pool(target_squad, filter_defs, group_set)
 
-	-- Build pool
-	local pool = get_portion_pool(target_squad, filter_defs, group_set)
+	if opts.cycle_when_full and #pool > 0 and pool_fully_selected(pool, sel.selected_set) then
+		target_squad = find_closest_squad(filter_defs, group_set, sel.selected_set, wx, wz)
+		if not target_squad then
+			return
+		end
+		pool = build_pool(target_squad, filter_defs, group_set)
+	end
+
 	if #pool == 0 then
 		return
 	end
 
-	-- Count how many pool units are already selected
-	local current_count = 0
-	for i = 1, #pool do
-		if sel.selected_set[pool[i]] then
-			current_count = current_count + 1
-		end
-	end
+	local current_in_pool = count_selected_in(pool, sel.selected_set)
+	local target_count = resolve_target_count(steps, #pool, current_in_pool)
 
-	-- Find first step whose resolved count > current_count
-	local target_count = nil
-	for i = 1, #steps do
-		local c = step_to_count(steps[i], #pool)
-		if c > current_count then
-			target_count = c
-			break
-		end
-	end
-
-	-- Past last step: repeat the last step's count in both modes.
-	if not target_count then
-		target_count = step_to_count(steps[#steps], #pool)
-	end
-
-	if append then
-		-- Append mode: select target_count closest *unselected* pool units
+	if target_count < #pool then
 		sort_units_by_distance(pool, wx, wz)
-		local to_select = {}
-		for i = 1, #pool do
-			if not sel.selected_set[pool[i]] then
-				to_select[#to_select + 1] = pool[i]
-				if #to_select >= target_count then
-					break
-				end
-			end
-		end
-		if #to_select == 0 then
-			return
-		end
-		spSelectUnitArray(to_select, true)
-		log("Portion select: +" .. #to_select .. " from squad [" .. (target_squad.letter or "?") .. "] (append)")
-	else
-		-- Replace mode: select target_count closest from full pool
-		sort_units_by_distance(pool, wx, wz)
-		local to_select = {}
-		for i = 1, target_count do
-			to_select[i] = pool[i]
-		end
-		spSelectUnitArray(to_select, false)
-		log("Portion select: " .. target_count .. "/" .. #pool .. " from squad [" .. (target_squad.letter or "?") .. "]")
 	end
+	local to_select = pick_units(pool, target_count, sel.selected_set, opts.append)
+	if #to_select == 0 then
+		return
+	end
+	spSelectUnitArray(to_select, opts.append)
+	log("Squad select [" .. (target_squad.letter or "?") .. "]: " .. #to_select .. "/" .. #pool .. (opts.append and " +append" or ""))
 end
 
 
 -------------------------------------------------------------------------------
--- Portion action handlers
+-- Action handlers (thin wrappers over do_squad_select)
 -------------------------------------------------------------------------------
+
+local function closest_squad_select(_, _, args)
+	do_squad_select({
+		append = args and args[1] == "append",
+		cycle_when_full = config.cyclingToNextSquad,
+	})
+end
+
+
+local function squad_create_toggle()
+	config.rightClickSquadCreate = not config.rightClickSquadCreate
+	spEcho("[Squad] Squad creation " .. (config.rightClickSquadCreate and "enabled" or "disabled"))
+end
+
+
+local function squad_create()
+	assign_factory_squad()
+	create_squad_from_selection()
+end
+
+
+local function closest_squad_select_filtered(_, _, args)
+	local wx, wz = get_mouse_world_pos()
+	if not wx then
+		return
+	end
+	local filter_defs = resolve_filter_defs(analyze_selection(), wx, wz)
+	if not filter_defs then
+		return
+	end
+	do_squad_select({
+		append = args and args[1] == "append",
+		filter_defs = filter_defs,
+		cycle_when_full = config.cyclingToNextSquad,
+	})
+end
+
+
+local function squad_select_group(_, _, args)
+	if not args or not args[1] then
+		return
+	end
+	local group_num = tonumber(args[1])
+	if not group_num then
+		return
+	end
+	do_squad_select({
+		append = args[2] == "append",
+		group_set = build_group_set(group_num),
+		cycle_when_full = config.cyclingToNextSquad,
+	})
+end
+
 
 local function squad_select_portion(_, _, args)
 	local append, steps = parse_portion_args(args)
-	do_portion_select(append, steps, nil, nil)
+	do_squad_select({
+		append = append,
+		steps = steps,
+	})
 end
 
 
 local function squad_select_portion_filtered(_, _, args)
 	local append, steps = parse_portion_args(args)
-	local sel = analyze_selection()
-	local filter_defs
-	if sel.has_tracked_units then
-		filter_defs = sel.selected_type_set
-	else
-		local closest = find_closest_unit(nil, nil)
-		if not closest then
-			return
-		end
-		local def_id = defid_of[closest]
-		if not def_id then
-			return
-		end
-		filter_defs = {
-			[def_id] = true,
-		}
+	local wx, wz = get_mouse_world_pos()
+	if not wx then
+		return
 	end
-	do_portion_select(append, steps, filter_defs, nil)
+	local filter_defs = resolve_filter_defs(analyze_selection(), wx, wz)
+	if not filter_defs then
+		return
+	end
+	do_squad_select({
+		append = append,
+		steps = steps,
+		filter_defs = filter_defs,
+	})
 end
 
 
@@ -1056,14 +865,16 @@ local function squad_select_portion_group(_, _, args)
 	if not group_num then
 		return
 	end
-	-- Remaining args (after group number) are append + steps
 	local remaining = {}
 	for i = 2, #args do
 		remaining[#remaining + 1] = args[i]
 	end
 	local append, steps = parse_portion_args(remaining)
-	local group_set = build_group_set(group_num)
-	do_portion_select(append, steps, nil, group_set)
+	do_squad_select({
+		append = append,
+		steps = steps,
+		group_set = build_group_set(group_num),
+	})
 end
 
 
