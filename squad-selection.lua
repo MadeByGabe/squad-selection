@@ -23,7 +23,7 @@ local config = {
 	visualizationMode = "convexHull", -- "convexHull" or "coloredLabel"
 	convexHullPaddingLand = 50, -- space (in elmos?) between the units and the hull boundary
 	convexHullPaddingNavy = 50,
-	convexHullPaddingAir = 50, -- for idle airplanes this padding is relative to the position they went idle at
+	convexHullPaddingAir = 200, -- for idle airplanes this padding is relative to the position they went idle at
 	convexHullArcResolution = math.rad(30), -- angle that each chord of the arc spans
 	convexHullAirHeightBoost = 200,
 	convexHullAirFloorDelta = 200, -- grid size (elmos?)
@@ -840,6 +840,7 @@ local function squad_select_portion(_, _, args)
 	do_squad_select({
 		append = append,
 		steps = steps,
+		cycle_when_full = append,
 	})
 end
 
@@ -858,6 +859,7 @@ local function squad_select_portion_filtered(_, _, args)
 		append = append,
 		steps = steps,
 		filter_defs = filter_defs,
+		cycle_when_full = append,
 	})
 end
 
@@ -879,6 +881,7 @@ local function squad_select_portion_group(_, _, args)
 		append = append,
 		steps = steps,
 		group_set = build_group_set(group_num),
+		cycle_when_full = append,
 	})
 end
 
