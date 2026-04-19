@@ -35,6 +35,12 @@ local config = {
 	debug = false,
 }
 
+-- Snapshot of the defaults defined above, used by `squad_setting reload`.
+local config_defaults = {}
+for k, v in pairs(config) do
+	config_defaults[k] = v
+end
+
 -------------------------------------------------------------------------------
 -- Localized Spring API
 --
@@ -981,14 +987,27 @@ end
 --   /luaui squad_setting set visualizationMode convexHull
 --   /luaui squad_setting set visualizationMode coloredLabel
 --   /luaui squad_setting get cyclingToNextSquad
+--   /luaui squad_setting reload
 -------------------------------------------------------------------------------
 
 local function squad_setting(_, _, args)
 	if not args or not args[1] then
-		spEcho("[Squad] Usage: squad_setting toggle|set|get <key> [value]")
+		spEcho("[Squad] Usage: squad_setting toggle|set|get|reload <key> [value]")
 		return
 	end
 	local action = args[1]
+
+	if action == "reload" then
+		for k, v in pairs(config_defaults) do
+			config[k] = v
+		end
+		if config.visualizationMode == "convexHull" then
+			create_airplane_floor()
+		end
+		spEcho("[Squad] Config reset to defaults from squad-selection.lua")
+		return
+	end
+
 	local key = args[2]
 	if not key or config[key] == nil then
 		spEcho("[Squad] Unknown config key: " .. tostring(key))
@@ -1024,7 +1043,7 @@ local function squad_setting(_, _, args)
 	elseif action == "get" then
 		spEcho("[Squad] " .. key .. " = " .. tostring(config[key]))
 	else
-		spEcho("[Squad] Unknown action: " .. action .. " (use toggle, set, or get)")
+		spEcho("[Squad] Unknown action: " .. action .. " (use toggle, set, get, or reload)")
 	end
 end
 

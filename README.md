@@ -186,11 +186,12 @@ These changes persist.
 
 
 
-| Action                            | What it does                          |
-| --------------------------------- | ------------------------------------- |
-| `squad_setting toggle <key>`      | Toggles a boolean setting             |
-| `squad_setting set <key> <value>` | Sets a setting to a specific value    |
-| `squad_setting get <key>`         | Prints the current value of a setting |
+| Action                            | What it does                                          |
+| --------------------------------- | ----------------------------------------------------- |
+| `squad_setting toggle <key>`      | Toggles a boolean setting                             |
+| `squad_setting set <key> <value>` | Sets a setting to a specific value                    |
+| `squad_setting get <key>`         | Prints the current value of a setting                 |
+| `squad_setting reload`            | Resets all settings to the defaults defined in the Lua file |
 
 *Note: control groups have a nice feature when we double tap their number key to move the camera to that group. Something similar for squads should be possible but in the meantime you can bind `viewselection` to a hotkey for a similar effect (it centers the camera on your current selection).*
 
