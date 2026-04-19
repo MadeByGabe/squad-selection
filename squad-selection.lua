@@ -1030,6 +1030,9 @@ end
 -- Lifecycle
 -------------------------------------------------------------------------------
 
+-- Team color for unselected-squad hulls. Populated in widget:Initialize.
+local team_color = {1, 1, 1}
+
 function widget:Initialize()
 	if spGetSpectatingState() or spIsReplay() then
 		log("Spectating or replay mode detected, not initializing")
@@ -1504,9 +1507,6 @@ local function get_padded_hull(worldPoints, radius, arc_segments_angle)
 	end
 end
 
-
--- Team color for unselected-squad hulls. Populated in widget:Initialize.
-local team_color = {1, 1, 1}
 
 function widget:DrawWorldPreUnit()
 	if spIsGUIHidden() or config.visualizationMode ~= "convexHull" then
