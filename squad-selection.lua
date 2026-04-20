@@ -22,14 +22,8 @@ local config = {
 	modifierRightClickCreatesSquad = false, -- Ctrl+Alt+right-click creates a squad (consumes the click)
 	showReserveSquads = false, -- when true, auto per-factory reserves + uncategorized reserve are visualized
 	visualizationMode = "convexHull", -- "convexHull" or "coloredLabel"
-	convexHullPaddingLand = 50, -- space (in elmos?) between the units and the hull boundary
-	convexHullPaddingNavy = 50,
-	convexHullPaddingAir = 200, -- for idle airplanes this padding is relative to the position they went idle at
+	convexHullPadding = 50, -- space (in elmos) between the units and the hull boundary
 	convexHullArcResolution = math.rad(30), -- angle that each chord of the arc spans
-	convexHullAirHeightBoost = 200,
-	convexHullAirFloorDelta = 200, -- grid size (elmos?)
-	convexHullAirFloorCurtainSlope = 0.2,
-	convexHullAirFloorSearchDistance = 1000,
 	convexHullFillOpacity = 0.1,
 	convexHullBorderOpacity = 0.2,
 	convexHullBorderThickness = 2,
@@ -74,13 +68,19 @@ local spGetUnitCommands = Spring.GetUnitCommands
 local spGetTeamColor = Spring.GetTeamColor
 local spSendCommands = Spring.SendCommands
 local spGetMiniMapGeometry = Spring.GetMiniMapGeometry
+local spIsSphereInView = Spring.IsSphereInView
 
 local glColor = gl.Color
 local glText = gl.Text
 local glDepthTest = gl.DepthTest
-local glBeginEnd = gl.BeginEnd
 local glLineWidth = gl.LineWidth
-local glVertex = gl.Vertex
+local glCreateShader = gl.CreateShader
+local glDeleteShader = gl.DeleteShader
+local glUseShader = gl.UseShader
+local glGetUniformLocation = gl.GetUniformLocation
+local glUniform = gl.Uniform
+local glGetVBO = gl.GetVBO
+local glGetVAO = gl.GetVAO
 
 -------------------------------------------------------------------------------
 -- State
@@ -171,14 +171,12 @@ end
 -- Unit classification
 --
 -- is_combat[defID] — true if the unit type is squad-eligible.
--- unit_domain[defID] — "land", "air", or "naval".
--- Both tables are fully populated once by classify_unitdefs() in Initialize,
--- so runtime lookups are a single table index with no branching.
+-- Populated once by classify_unitdefs() in Initialize, so runtime lookups are
+-- a single table index with no branching.
 -------------------------------------------------------------------------------
 
 local defid_of = {} -- unitID -> defID  (false when lookup fails)
 local is_combat = {} -- defID  -> bool
-local unit_domain = {} -- defID -> "land" | "air" | "naval"
 local is_factory = {} -- defID  -> bool (immobile with buildOptions)
 
 local function get_defid(unit_id)
@@ -193,18 +191,9 @@ local function get_defid(unit_id)
 end
 
 
---- Pre-compute is_combat and unit_domain for every defID in one pass.
+--- Pre-compute is_combat for every defID in one pass.
 local function classify_unitdefs()
 	for defID, def in pairs(UnitDefs) do
-		-- Domain
-		if def.canFly then
-			unit_domain[defID] = "air"
-		elseif def.minWaterDepth and def.minWaterDepth > 0 then
-			unit_domain[defID] = "naval"
-		else
-			unit_domain[defID] = "land"
-		end
-
 		-- Squad eligibility
 		if def.canMove and def.speed and def.speed > 0 and not (def.buildOptions and #def.buildOptions > 0) then
 			is_combat[defID] = true
@@ -1058,90 +1047,102 @@ local function squad_select_portion_group(_, _, args)
 end
 
 
--- compute a nicer surface to project the aircraft convex hulls onto
--- airplane_floor is a 2d array containing
--- sampled map heights, with cliffs turn into hills
--- like draping a stiff blanket over the map
--- for example, it turns this
---                 ___                                                         
---                |   |                                                       
---                |   |                                                       
---  ______________|   |___________________________                            
---                                                                            
---                                                                            
--- into this                                                                  
---                 ___                                                        
---             _ -     - _                                                   
---          _ -           - _                                                 
---  ______-                   -__________________                          
---                                                                                     
---                                                                            
---                          
+-------------------------------------------------------------------------------
+-- GL4 hull rendering
+--
+-- One shared VBO (2D world x,z + ground-sampled y) is re-uploaded per squad
+-- per frame, then drawn as TRIANGLE_FAN (fill) and LINE_LOOP (border).
+-- The 2D hull geometry is convex, so a fan starting from vertex 0 covers it.
+-------------------------------------------------------------------------------
 
--- map dimensions for determining grid size
--- and for limiting lookups to be inside the floor
-local map_xmax = 0
-local map_ymax = 0
+local HULL_MAX_VERTICES = 512 -- per squad; padded hull rarely approaches this
+local hull_shader = nil
+local hull_color_loc = nil
+local hull_vbo = nil
+local hull_vao = nil
+local hull_ready = false
+local hull_init_failed = false -- so we don't spam retries after a failure
 
-local airplane_floor = {}
-local function create_airplane_floor()
+local hull_vs_src = [[
+#version 330 compatibility
 
-	local curtain_slope = config.convexHullAirFloorCurtainSlope -- shorter name
+layout(location = 0) in vec3 position;
 
-	-- number of boxes in the grid. each box has 4 lookup points
-	local n_box_x = math.floor(map_xmax / config.convexHullAirFloorDelta)
-	local n_box_y = math.floor(map_ymax / config.convexHullAirFloorDelta)
+void main() {
+	gl_Position = gl_ModelViewProjectionMatrix * vec4(position, 1.0);
+}
+]]
 
-	-- pass 1 - sample random map points in the area
-	-- from the actual map
-	for i = 0, n_box_x do
-		airplane_floor[i] = {}
-		for j = 0, n_box_y do
-			local map_height = spGetGroundHeight(i * config.convexHullAirFloorDelta, j * config.convexHullAirFloorDelta)
-			local floor_height = map_height
-			for r = 0, config.convexHullAirFloorSearchDistance, 200 do
-				for theta = 0, 6 do
-					local sample_height = spGetGroundHeight(i * config.convexHullAirFloorDelta + r * math.cos(theta), j * config.convexHullAirFloorDelta + r * math.sin(theta))
-					floor_height = math.max(floor_height, sample_height - r * curtain_slope)
-				end
-			end
-			airplane_floor[i][j] = floor_height
-		end
+local hull_fs_src = [[
+#version 330 compatibility
+
+uniform vec4 color;
+
+out vec4 fragColor;
+
+void main() {
+	fragColor = color;
+}
+]]
+
+local function init_gl_hull()
+	if hull_ready or hull_init_failed then
+		return hull_ready
+	end
+	if not glCreateShader or not glGetVBO or not glGetVAO then
+		log("GL4 unavailable — convex hull drawing disabled")
+		hull_init_failed = true
+		return false
 	end
 
-	-- pass 2 - sample every point in the vicinity
-	-- taken from the floor computed in pass 1
-	for i = 0, n_box_x do
-		for j = 0, n_box_y do
-			local floor_height = 0
-			local curtain_block_length = math.ceil(config.convexHullAirFloorSearchDistance / config.convexHullAirFloorDelta)
-			for ii = math.max(0, i - curtain_block_length), math.min(n_box_x, i + curtain_block_length) do
-				for jj = math.max(0, j - curtain_block_length), math.min(n_box_y, j + curtain_block_length) do
-					local distance = ((i - ii) ^ 2 + (j - jj) ^ 2) ^ 0.5 * config.convexHullAirFloorDelta
-					floor_height = math.max(floor_height, airplane_floor[ii][jj] - distance * curtain_slope)
-				end
-			end
-			airplane_floor[i][j] = floor_height
-		end
+	hull_shader = glCreateShader({
+		vertex = hull_vs_src,
+		fragment = hull_fs_src,
+	})
+	if not hull_shader then
+		local shaderLog = gl.GetShaderLog and gl.GetShaderLog() or "(no log)"
+		log("Failed to compile hull shader: " .. shaderLog)
+		hull_init_failed = true
+		return false
 	end
+	hull_color_loc = glGetUniformLocation(hull_shader, "color")
+
+	hull_vbo = glGetVBO(GL.ARRAY_BUFFER, false)
+	if not hull_vbo then
+		glDeleteShader(hull_shader)
+		hull_shader = nil
+		log("Failed to create hull VBO")
+		hull_init_failed = true
+		return false
+	end
+	hull_vbo:Define(HULL_MAX_VERTICES, {{id = 0, name = 'position', size = 3}})
+
+	hull_vao = glGetVAO()
+	if not hull_vao then
+		hull_vbo:Delete()
+		hull_vbo = nil
+		glDeleteShader(hull_shader)
+		hull_shader = nil
+		log("Failed to create hull VAO")
+		hull_init_failed = true
+		return false
+	end
+	hull_vao:AttachVertexBuffer(hull_vbo)
+
+	hull_ready = true
+	return true
 end
 
-
--- bilinear interpolation of the airplane floor
-local function airplane_floor_height(x, y)
-	x = constrain(x, 0, map_xmax - config.convexHullAirFloorDelta)
-	y = constrain(y, 0, map_ymax - config.convexHullAirFloorDelta)
-	local left = math.floor(x / config.convexHullAirFloorDelta)
-	local bottom = math.floor(y / config.convexHullAirFloorDelta)
-	local right = left + 1
-	local top = bottom + 1
-	local box_x = (x - left * config.convexHullAirFloorDelta) / config.convexHullAirFloorDelta
-	local box_y = (y - bottom * config.convexHullAirFloorDelta) / config.convexHullAirFloorDelta
-	local weight_bottomleft = (1 - box_x) * (1 - box_y)
-	local weight_bottomright = (box_x) * (1 - box_y)
-	local weight_topleft = (1 - box_x) * (box_y)
-	local weight_topright = (box_x) * (box_y)
-	return airplane_floor[left][bottom] * weight_bottomleft + airplane_floor[right][bottom] * weight_bottomright + airplane_floor[left][top] * weight_topleft + airplane_floor[right][top] * weight_topright
+local function cleanup_gl_hull()
+	if hull_vao then hull_vao:Delete() end
+	if hull_vbo then hull_vbo:Delete() end
+	if hull_shader then glDeleteShader(hull_shader) end
+	hull_vao = nil
+	hull_vbo = nil
+	hull_shader = nil
+	hull_color_loc = nil
+	hull_ready = false
+	hull_init_failed = false
 end
 
 
@@ -1167,9 +1168,6 @@ local function squad_setting(_, _, args)
 	if action == "reload" then
 		for k, v in pairs(config_defaults) do
 			config[k] = v
-		end
-		if config.visualizationMode == "convexHull" then
-			create_airplane_floor()
 		end
 		spEcho("[Squad] Config reset to defaults from squad-selection.lua")
 		return
@@ -1202,9 +1200,6 @@ local function squad_setting(_, _, args)
 		elseif tonumber(value) then
 			value = tonumber(value)
 		end
-		if key == "visualizationMode" and value == "convexHull" then
-			create_airplane_floor()
-		end
 		config[key] = value
 		spEcho("[Squad] " .. key .. " = " .. tostring(config[key]))
 	elseif action == "get" then
@@ -1235,8 +1230,6 @@ function widget:Initialize()
 	unit_slot = {}
 	next_squad_tag = 0
 
-	map_xmax = Game.mapSizeX
-	map_ymax = Game.mapSizeZ
 	local tr, tg, tb = spGetTeamColor(spGetMyTeamID())
 	team_color[1], team_color[2], team_color[3] = tr or 1, tg or 1, tb or 1
 
@@ -1311,9 +1304,6 @@ function widget:Initialize()
 		end
 ,
 		setVisualizationMode = function(v)
-			if v == "convexHull" then
-				create_airplane_floor()
-			end
 			config.visualizationMode = v
 		end
 ,
@@ -1326,10 +1316,6 @@ function widget:Initialize()
 		end
 ,
 	}
-
-	if config.visualizationMode == "convexHull" then
-		create_airplane_floor()
-	end
 
 	log("Initialized — " .. count .. " combat units in uncategorized reserve")
 	log_squads()
@@ -1349,6 +1335,7 @@ function widget:Shutdown()
 	widgetHandler:RemoveAction("squad_setting")
 	widgetHandler:RemoveAction("squad_cycle_recent")
 	widgetHandler:RemoveAction("squad_cycle_idle")
+	cleanup_gl_hull()
 	log("Shutdown")
 end
 
@@ -1387,9 +1374,6 @@ function widget:UnitCreated(unit_id, unit_def_id, unit_team, builder_id)
 end
 
 
-local last_idle_locations = {}
-
-
 --- Remove a unit's tracking state (combat unit AND/OR factory).
 -- Returns true if anything was cleared.
 local function stop_tracking(unit_id)
@@ -1412,9 +1396,6 @@ function widget:UnitDestroyed(unit_id, unit_def_id, unit_team, attacker_id)
 	if stop_tracking(unit_id) then
 		log("Unit " .. unit_id .. " destroyed — " .. #squads .. " squad(s) remain")
 	end
-	-- location where a unit became idle is useful
-	-- for constructing less visually obnoxious aircraft convex hulls
-	last_idle_locations[unit_id] = nil
 end
 
 
@@ -1442,21 +1423,6 @@ function widget:UnitGiven(unit_id, unit_def_id, unit_team, old_team)
 		add_to_squad(unit_id, uncategorized_reserve)
 		log("Unit " .. unit_id .. " given to us → uncategorized reserve (" .. #uncategorized_reserve .. " units)")
 	end
-end
-
-
--- idle detection for convex hull visualization: for less visually distracting aircraft hulls
-function widget:UnitIdle(unitID, unitDefID, unitTeam)
-	if unitTeam ~= spGetMyTeamID() then
-		return
-	end
-	local x, y, z = spGetUnitPosition(unitID)
-	local idle_pos = {
-		x = x,
-		y = y,
-		z = z,
-	}
-	last_idle_locations[unitID] = idle_pos
 end
 
 
@@ -1569,137 +1535,135 @@ end
 -- Convex hull
 -------------------------------------------------------------------------------
 
--- the position for a unit that is used to create the convex hull
--- for a squad the unit is in
--- 
--- this is typically just the unit position
--- but idle aircraft use the position that they went idle at
-local function unit_hull_reference_position(u)
-	local command_queue_length = spGetUnitCommands(u, 0)
-	local unit_def = get_defid(u)
-	local domain = unit_def and unit_domain[unit_def]
-	local x, y, z = spGetUnitPosition(u)
-	if not command_queue_length or not x or not y or not z or not unit_def then
-		return nil, nil, nil
-	end -- return nil if unit got detroyed mid-function
-	if command_queue_length > 0 then
-		return x, y, z
-	end
-	local idle_pos = last_idle_locations[u]
-	if idle_pos and domain == "air" then
-		return idle_pos.x, idle_pos.y, idle_pos.z
-	end
-	return x, y, z
+-- Persistent scratch buffers. Tables inside (scratch_world / scratch_padded
+-- entries) are reused across frames. scratch_hull / scratch_upper hold refs
+-- *into* scratch_world, not independent tables.
+local scratch_world = {} -- {x=world_x, y=world_z} per unit
+local scratch_hull = {} -- refs into scratch_world
+local scratch_upper = {} -- internal to convex_hull
+local scratch_padded = {} -- {x, y} per padded-hull vertex
+local scratch_flat = {} -- flat {x, y, z, x, y, z, ...} for VBO upload
+local scratch_selected = {} -- unitID -> true for currently-selected units
+
+local function compare_points(a, b)
+	return a.x < b.x or (a.x == b.x and a.y < b.y)
 end
 
+local function cross(o, a, b)
+	return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x)
+end
 
-local function convex_hull(points)
-	local function compare(a, b)
-		return a.x < b.x or (a.x == b.x and a.y < b.y)
+local function truncate(buf, new_len)
+	for i = #buf, new_len + 1, -1 do
+		buf[i] = nil
 	end
+end
 
+-- Writes refs-into-world into out. Sorts `world` in place. Expects #world == n.
+local function convex_hull(world, n, out)
+	table.sort(world, compare_points)
 
-	table.sort(points, compare)
-	local function cross(o, a, b)
-		return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x)
-	end
-
-
-	local hull = {}
-	for _, p in ipairs(points) do
-		while #hull >= 2 and cross(hull[#hull - 1], hull[#hull], p) <= 0 do
-			table.remove(hull)
+	local h = 0
+	for i = 1, n do
+		local p = world[i]
+		while h >= 2 and cross(out[h - 1], out[h], p) <= 0 do
+			out[h] = nil
+			h = h - 1
 		end
-		hull[#hull + 1] = p
+		h = h + 1
+		out[h] = p
 	end
-	local upper = {}
-	for i = #points, 1, -1 do
-		local p = points[i]
-		while #upper >= 2 and cross(upper[#upper - 1], upper[#upper], p) <= 0 do
-			table.remove(upper)
+
+	local u = 0
+	for i = n, 1, -1 do
+		local p = world[i]
+		while u >= 2 and cross(scratch_upper[u - 1], scratch_upper[u], p) <= 0 do
+			scratch_upper[u] = nil
+			u = u - 1
 		end
-		upper[#upper + 1] = p
+		u = u + 1
+		scratch_upper[u] = p
 	end
-	for i = 2, #upper - 1 do
-		hull[#hull + 1] = upper[i]
+
+	for i = 2, u - 1 do
+		h = h + 1
+		out[h] = scratch_upper[i]
 	end
-	return hull
+
+	truncate(scratch_upper, 0)
+	truncate(out, h)
+	return h
 end
 
 
--- Compute right normal for CCW edge
-local function edge_normal(dx, dy)
-	return dy, -dx
-end
-
-
--- circle for squads with only one unit
-local function padded_circle(center, radius, arc_segments_angle)
-	local arc_angle = 2 * math.pi
-	local segments = math.ceil(arc_angle / arc_segments_angle)
-	segments = math.max(segments, 3)
-	local points = {}
+-- circle for squads with only one unit. Writes into out, reuses its tables.
+local function padded_circle(cx, cy, radius, arc_segments_angle, out)
+	local segments = math.max(math.ceil(2 * math.pi / arc_segments_angle), 3)
 	for i = 0, segments - 1 do
 		local angle = 2 * math.pi * i / segments
-		points[#points + 1] = {
-			x = center.x + radius * math.cos(angle),
-			y = center.y + radius * math.sin(angle),
-		}
+		local p = out[i + 1]
+		if not p then
+			p = {}
+			out[i + 1] = p
+		end
+		p.x = cx + radius * math.cos(angle)
+		p.y = cy + radius * math.sin(angle)
 	end
-	return points
+	truncate(out, segments)
+	return segments
 end
 
 
--- rounded padded convex hull for 2+ units
-local function padded_more_than_one_unit(hull, radius, arc_segments_angle)
-	local n = #hull
-	local points = {}
-	for i = 1, n do
-
-		-- neighbors
-		local prev = hull[i == 1 and n or i - 1]
+-- rounded padded convex hull for 2+ units. Writes into out, reuses its tables.
+local function padded_more_than_one_unit(hull, n_hull, radius, arc_segments_angle, out)
+	local n = 0
+	for i = 1, n_hull do
+		local prev = hull[i == 1 and n_hull or i - 1]
 		local curr = hull[i]
-		local next = hull[i == n and 1 or i + 1]
+		local nxt = hull[i == n_hull and 1 or i + 1]
 
-		-- Edge directions
-		local dx_prev, dy_prev = curr.x - prev.x, curr.y - prev.y
-		local dx_next, dy_next = next.x - curr.x, next.y - curr.y
+		local dx_prev = curr.x - prev.x
+		local dy_prev = curr.y - prev.y
+		local dx_next = nxt.x - curr.x
+		local dy_next = nxt.y - curr.y
 
-		-- Right normals (outward for CCW)
-		local nx_prev, ny_prev = edge_normal(dx_prev, dy_prev)
-		local nx_next, ny_next = edge_normal(dx_next, dy_next)
-
-		-- Arc at corner from prev normal to next normal
-		local angle_prev = math.atan2(ny_prev, nx_prev)
-		local angle_next = math.atan2(ny_next, nx_next)
+		-- right normals (outward for CCW): (dy, -dx)
+		local angle_prev = math.atan2(-dx_prev, dy_prev)
+		local angle_next = math.atan2(-dx_next, dy_next)
 		local angle_diff = angle_next - angle_prev
 		while angle_diff < 0 do
 			angle_diff = angle_diff + 2 * math.pi
 		end
-		local arc_segments = math.ceil(angle_diff / arc_segments_angle)
-		arc_segments = math.max(arc_segments, 1)
+		local arc_segments = math.max(math.ceil(angle_diff / arc_segments_angle), 1)
 		for j = 0, arc_segments do
 			local t = j / arc_segments
 			local theta = angle_prev + t * angle_diff
-			points[#points + 1] = {
-				x = curr.x + radius * math.cos(theta),
-				y = curr.y + radius * math.sin(theta),
-			}
+			n = n + 1
+			local p = out[n]
+			if not p then
+				p = {}
+				out[n] = p
+			end
+			p.x = curr.x + radius * math.cos(theta)
+			p.y = curr.y + radius * math.sin(theta)
 		end
 	end
-	return points
+	truncate(out, n)
+	return n
 end
 
 
--- Choose the correct function for the current squad
-local function get_padded_hull(worldPoints, radius, arc_segments_angle)
-	if #worldPoints == 1 then
-		return padded_circle(worldPoints[1], radius, arc_segments_angle)
-	elseif #worldPoints >= 2 then
-		local hull = convex_hull(worldPoints)
-		return padded_more_than_one_unit(hull, radius, arc_segments_angle)
+-- Fill scratch_padded from scratch_world[1..n_world]. Returns padded count.
+local function get_padded_hull(n_world, radius, arc_segments_angle)
+	if n_world == 1 then
+		local p = scratch_world[1]
+		return padded_circle(p.x, p.y, radius, arc_segments_angle, scratch_padded)
+	elseif n_world >= 2 then
+		local n_hull = convex_hull(scratch_world, n_world, scratch_hull)
+		return padded_more_than_one_unit(scratch_hull, n_hull, radius, arc_segments_angle, scratch_padded)
 	else
-		return {}
+		truncate(scratch_padded, 0)
+		return 0
 	end
 end
 
@@ -1708,134 +1672,118 @@ function widget:DrawWorldPreUnit()
 	if spIsGUIHidden() or config.visualizationMode ~= "convexHull" then
 		return
 	end
-
 	if not squads or #squads == 0 then
 		return
 	end
+	if not hull_ready and not init_gl_hull() then
+		return
+	end
 
-	-- build list of selected units, for later use
+	-- refresh the selected-unit set in place
+	for k in pairs(scratch_selected) do
+		scratch_selected[k] = nil
+	end
 	local selectedUnitList = spGetSelectedUnits()
-	local selectedUnits = {}
-	for _, id in ipairs(selectedUnitList) do
-		selectedUnits[id] = true
+	for i = 1, #selectedUnitList do
+		scratch_selected[selectedUnitList[i]] = true
 	end
 
 	-- re-read styling each frame so squad_setting changes take effect live
 	local fill_opacity = config.convexHullFillOpacity
 	local border_opacity = config.convexHullBorderOpacity
 	local border_thickness = config.convexHullBorderThickness
+	local padding = config.convexHullPadding
+	local arc_res = config.convexHullArcResolution
 	local tr, tg, tb = team_color[1], team_color[2], team_color[3]
-
 	local show_reserves = config.showReserveSquads
 
+	glDepthTest(false)
+	glUseShader(hull_shader)
+	glLineWidth(border_thickness)
+
 	for _, squad in ipairs(squads) do
-
 		if not squad.is_reserve or show_reserves then
-
-			-- determine color styling
-			-- based on whether all units in the squad are selected
-			local allSelected = true
-			for _, unitID in ipairs(squad) do
-				if not selectedUnits[unitID] then
-					allSelected = false
-					break
-				end
-			end
-			local cr, cg, cb
-			if allSelected then
-				cr, cg, cb = 1, 1, 1
-			else
-				cr, cg, cb = tr, tg, tb
-			end
-
-			-- collect unit positions (in world coordinates?)
-			local worldPoints = {}
-			for _, unitID in ipairs(squad) do
-				local x, y, z = unit_hull_reference_position(unitID)
-				if x and y and z then
-					worldPoints[#worldPoints + 1] = {
-						x = x,
-						y = z,
-					}
-				end
-			end
-
-			-- determine domains present in the squad
-			local air_present = false
-			local land_present = false
-			local navy_present = false
-			for _, unitID in ipairs(squad) do
-				local unit_def = get_defid(unitID)
-				if unit_def then
-					if unit_domain[unit_def] == "naval" then
-						navy_present = true
-					end
-					if unit_domain[unit_def] == "land" then
-						land_present = true
-					end
-					if unit_domain[unit_def] == "air" then
-						air_present = true
+			local size = #squad
+			if size > 0 then
+				local allSelected = true
+				for i = 1, size do
+					if not scratch_selected[squad[i]] then
+						allSelected = false
+						break
 					end
 				end
-			end
-
-			-- calculate and draw hull
-			if #worldPoints > 0 then
-
-				local radius = config.convexHullPaddingLand
-				if navy_present then
-					radius = config.convexHullPaddingNavy
-				end
-				if air_present then
-					radius = config.convexHullPaddingAir
+				local cr, cg, cb
+				if allSelected then
+					cr, cg, cb = 1, 1, 1
+				else
+					cr, cg, cb = tr, tg, tb
 				end
 
-				-- calculate the 2d hull
-				local paddedHull = get_padded_hull(worldPoints, radius, config.convexHullArcResolution)
+				-- fill scratch_world in place (reuse {x,y} tables) and track
+				-- the bbox in the same pass, so we can frustum-cull without a
+				-- second iteration.
+				local n_world = 0
+				local min_x, max_x, min_z, max_z = math.huge, -math.huge, math.huge, -math.huge
+				for i = 1, size do
+					local x, _, z = spGetUnitPosition(squad[i])
+					if x and z then
+						n_world = n_world + 1
+						local p = scratch_world[n_world]
+						if not p then
+							p = {}
+							scratch_world[n_world] = p
+						end
+						p.x = x
+						p.y = z
+						if x < min_x then min_x = x end
+						if x > max_x then max_x = x end
+						if z < min_z then min_z = z end
+						if z > max_z then max_z = z end
+					end
+				end
+				truncate(scratch_world, n_world)
 
-				-- calculate the 3d projection of this hull
-				local screenHull = {}
-				for _, p in ipairs(paddedHull) do
-					local h = 0
-					if air_present then
-						h = airplane_floor_height(p.x, p.y) + config.convexHullAirHeightBoost
-					end
-					if navy_present then
-						h = 0
-					end
-					if land_present then
-						h = spGetGroundHeight(p.x, p.y)
-					end
-					screenHull[#screenHull + 1] = {
-						x = p.x,
-						y = h,
-						z = p.y,
-					}
-				end
+				if n_world > 0 then
+					-- Frustum cull: enclose the squad + padding in one sphere
+					-- around the bbox centre. Vertical slop (256) covers
+					-- terrain variation under the ground-projected hull.
+					local cx = (min_x + max_x) * 0.5
+					local cz = (min_z + max_z) * 0.5
+					local hx = (max_x - min_x) * 0.5
+					local hz = (max_z - min_z) * 0.5
+					local cy = spGetGroundHeight(cx, cz)
+					local radius = math.sqrt(hx * hx + hz * hz) + padding + 256
+					local visible = (not spIsSphereInView) or spIsSphereInView(cx, cy, cz, radius)
 
-				-- draw the hull
-				glDepthTest(false)
-				glColor(cr, cg, cb, fill_opacity)
-				glBeginEnd(GL.POLYGON, function()
-					for _, p in ipairs(screenHull) do
-						glVertex(p.x, p.y, p.z)
+					if visible then
+						local n = get_padded_hull(n_world, padding, arc_res)
+						if n >= 3 and n <= HULL_MAX_VERTICES then
+							local fi = 0
+							for i = 1, n do
+								local p = scratch_padded[i]
+								scratch_flat[fi + 1] = p.x
+								scratch_flat[fi + 2] = spGetGroundHeight(p.x, p.y)
+								scratch_flat[fi + 3] = p.y
+								fi = fi + 3
+							end
+							truncate(scratch_flat, fi)
+
+							hull_vbo:Upload(scratch_flat)
+							glUniform(hull_color_loc, cr, cg, cb, fill_opacity)
+							hull_vao:DrawArrays(GL.TRIANGLE_FAN, n)
+							glUniform(hull_color_loc, cr, cg, cb, border_opacity)
+							hull_vao:DrawArrays(GL.LINE_LOOP, n)
+						end
 					end
 				end
-)
-				glColor(cr, cg, cb, border_opacity)
-				glLineWidth(border_thickness)
-				glBeginEnd(GL.LINE_LOOP, function()
-					for _, p in ipairs(screenHull) do
-						glVertex(p.x, p.y, p.z)
-					end
-				end
-)
-				glDepthTest(true)
-				glColor(1, 1, 1, 1)
-				glLineWidth(1)
 			end
 		end
 	end
+
+	glUseShader(0)
+	glLineWidth(1)
+	glDepthTest(true)
+	glColor(1, 1, 1, 1)
 end
 
 
