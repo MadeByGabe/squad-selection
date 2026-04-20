@@ -889,6 +889,59 @@ local function squad_cycle_recent()
 end
 
 
+local function squad_cycle_idle()
+	if #squads == 0 then
+		return
+	end
+
+	local current_squad = selection_is_existing_squad(spGetSelectedUnits())
+	local start_index = 0
+	if current_squad then
+		for i = 1, #squads do
+			if squads[i] == current_squad then
+				start_index = i
+				break
+			end
+		end
+	end
+
+	local n = #squads
+	for offset = 1, n do
+		local sq = squads[((start_index - 1 + offset) % n) + 1]
+		local size = #sq
+		if size > 0 and (not sq.is_reserve or size > 10) then
+			local threshold = math.ceil(size * 0.5)
+			local idle = 0
+			local accepted = false
+			for j = 1, size do
+				if spGetUnitCommands(sq[j], 0) == 0 then
+					idle = idle + 1
+					if idle >= threshold then
+						accepted = true
+						break
+					end
+				end
+				if idle + (size - j) < threshold then
+					break
+				end
+			end
+			if accepted then
+				local units = {}
+				for j = 1, size do
+					units[j] = sq[j]
+				end
+				spSelectUnitArray(units)
+				spSendCommands("viewselection")
+				log("Idle squad [" .. (sq.letter or "?") .. "]: " .. idle .. "+ idle of " .. size)
+				return
+			end
+		end
+	end
+
+	spEcho("[Squad] No idle squads found")
+end
+
+
 local function closest_squad_select_filtered(_, _, args)
 	local wx, wz = get_mouse_world_pos()
 	if not wx then
@@ -1192,6 +1245,7 @@ function widget:Initialize()
 	widgetHandler:AddAction("squad_select_portion_group", squad_select_portion_group, nil, "p")
 	widgetHandler:AddAction("squad_setting", squad_setting, nil, "t")
 	widgetHandler:AddAction("squad_cycle_recent", squad_cycle_recent, nil, "p")
+	widgetHandler:AddAction("squad_cycle_idle", squad_cycle_idle, nil, "p")
 
 	-- WG interface for gui_options.lua integration
 	WG['squadselection'] = {
@@ -1261,6 +1315,7 @@ function widget:Shutdown()
 	widgetHandler:RemoveAction("squad_select_portion_group")
 	widgetHandler:RemoveAction("squad_setting")
 	widgetHandler:RemoveAction("squad_cycle_recent")
+	widgetHandler:RemoveAction("squad_cycle_idle")
 	log("Shutdown")
 end
 

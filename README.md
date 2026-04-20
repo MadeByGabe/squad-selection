@@ -58,6 +58,7 @@ bind Alt+Shift+sc_b  closest_squad_select_filtered append
 | `squad_select_portion_filtered [append] <steps...>`  | Same, but filtered by unit type                                                                                                      |
 | `squad_select_portion_group <N> [append] <steps...>` | Same, but limited to squad ∩ control group N (probably will be removed)                                                              |
 | `squad_cycle_recent`                                 | Select + focus camera on the most recently used squad; each press steps further back; wraps around                                   |
+| `squad_cycle_idle`                                   | Select + focus camera on the next squad that's mostly idle; each press moves on to the next one                                      |
 
 <!-- TODO: I need to find a suggested hotkey -->
 
@@ -166,6 +167,17 @@ A squad is pushed onto the MRU whenever you create a squad (right-click or `squa
 Suggested keybind:
 ```
 bind sc_v squad_cycle_recent
+```
+
+### Finding idle squads
+
+Squads you left behind (e.g. defenders you parked during an attack and forgot) are easy to lose track of. `squad_cycle_idle` walks your squads in order and selects the next one that's mostly idle, centering the camera on it. Press again to step to the next idle squad.
+
+A squad counts as idle when at least 50% of its units have no commands queued. Reserve squads (per-factory and uncategorized) are skipped unless they contain more than 10 units — otherwise a single idle newly-built unit would hijack the action.
+
+Suggested keybind:
+```
+bind sc_i squad_cycle_idle
 ```
 
 ## Installation
