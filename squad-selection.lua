@@ -495,7 +495,22 @@ local function create_squad_from_selection()
 		return
 	end
 
-	assign_squad_tag(new_squad)
+	-- A non-reserve source squad fully consumed by the selection is now
+	-- empty; inherit its identity so the player's "real" squad carries on
+	-- under the same color/letter instead of getting a fresh one.
+	local donor
+	for _, sq in ipairs(squads) do
+		if #sq == 0 and not sq.is_reserve then
+			donor = sq
+			break
+		end
+	end
+
+	if donor then
+		new_squad.color, new_squad.letter = donor.color, donor.letter
+	else
+		assign_squad_tag(new_squad)
+	end
 	squads[#squads + 1] = new_squad
 	prune_empty_squads()
 	push_to_mru(new_squad)
