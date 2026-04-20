@@ -14,7 +14,9 @@ Jump straight to [installation](#installation) if you want to get going right aw
 
 ## How it works
 
-Every factory (lab) gets its own hidden **reserve squad**, and the combat units it builds start there. Units that don't come from a factory you built (gifted, resurrected, alive at widget load, etc.) go into a single catch-all **uncategorized reserve**. Reserve squads are invisible by default so you don't see labels for stuff you haven't explicitly grouped — flip `showReserveSquads` on if you want to see them.
+Every factory (lab) gets its own hidden **reserve squad**, and the squad-eligible units it builds start there. Units that don't come from a factory you built (gifted, resurrected, alive at widget load, etc.) go into a single catch-all **uncategorized reserve**. Reserve squads are invisible by default so you don't see labels for stuff you haven't explicitly grouped — flip `showReserveSquads` on if you want to see them.
+
+Squad-eligible means: unit can move, has speed, and has no build options.
 
 **Creating squads:** Select some units and **right-click** (with no modifier keys held). Those units are pulled out of their current reserve squad into a new one.  
 
@@ -75,7 +77,7 @@ With `leftClickSelectsSquad` enabled (default), clicking on empty ground trigger
 
 Mouse squad selections are skipped when clicking directly on a unit or when an active command is pending (fight, patrol, build placement, etc.).
 
-**Right-click** (no modifiers) with a selection creates a squad from selected combat units.
+**Right-click** (no modifiers) with a selection creates a squad from selected squad-eligible units.
 
 **Ctrl+Alt+right-click** (opt-in via `/luaui squad_setting toggle modifierRightClickCreatesSquad`) also creates a squad. Useful if you disabled plain right-click squad creation but still want a mouse shortcut. Note: the click is not consumed, so a stationary click still fires the engine's "line formation with keep slowest unit's speed" command (a niche default); only dragged Ctrl+Alt+right-clicks cleanly create a squad without also issuing that command. Since players typically drag that combo to draw a line-move, this overlap is usually harmless.
 
@@ -308,7 +310,7 @@ Note, you can use the closest unit selection (`ctrl+c` once) and then draw a sel
 
 Now build two vehicle plants and spam some rascals/rovers. Each vehicle plant has its own squad, so `c` will pick whichever squad is closest to your cursor. If you'd rather have both vehicle plants share one squad, select them and press `alt+c`.
 
-Select some units and right click. Those units are now a squad of their own, pulled out of whichever reserve they were in. Everything above applies. If you don't want this behavior you can disable the right click squad creation and just use the `alt+c` hotkey to create squads from selected units when you want to.
+Select some units and right click. Selected squad-eligible units are now a squad of their own, pulled out of whichever reserve they were in. Everything above applies. If you don't want this behavior you can disable the right click squad creation and just use the `alt+c` hotkey to create squads from selected units when you want to.
 
 If you're curious what the reserves look like, toggle them on with `/luaui squad_setting toggle showReserveSquads` — you'll see labels on every lab and its units. Turn it off again for the clean default experience.
 

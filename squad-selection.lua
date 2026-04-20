@@ -133,21 +133,6 @@ end
 
 
 -------------------------------------------------------------------------------
--- Squad-eligible exceptions
---
--- Units listed here are treated as squad-eligible even if they don't pass the
--- normal combat-unit filter (mobile + armed + no build options). Use the
--- internal unit name (UnitDefs[defID].name), NOT the human-readable name.
--------------------------------------------------------------------------------
-
-local SQUAD_ELIGIBLE_EXTRAS = {
-	corfink = true, -- Cortex T1 air scout
-	corawac = true, -- Cortex T2 air scout
-	armpeep = true, -- Arm T1 air scout
-	armawac = true, -- Arm T2 air scout
-}
-
--------------------------------------------------------------------------------
 -- Squad appearance
 --
 -- Each squad gets a color and a letter, assigned on
@@ -220,10 +205,7 @@ local function classify_unitdefs()
 		end
 
 		-- Squad eligibility
-		local is_mobile = def.canMove or (def.speed and def.speed > 0)
-		if SQUAD_ELIGIBLE_EXTRAS[def.name] then
-			is_combat[defID] = true
-		elseif is_mobile and not def.isBuilding and def.weapons and #def.weapons > 0 and not (def.buildOptions and #def.buildOptions > 0) then
+		if def.canMove and def.speed and def.speed > 0 and not (def.buildOptions and #def.buildOptions > 0) then
 			is_combat[defID] = true
 		else
 			is_combat[defID] = false
