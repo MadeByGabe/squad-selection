@@ -77,6 +77,8 @@ Mouse squad selections are skipped when clicking directly on a unit or when an a
 
 **Right-click** (no modifiers) with a selection creates a squad from selected combat units.
 
+**Ctrl+Alt+right-click** (opt-in via `/luaui squad_setting toggle modifierRightClickCreatesSquad`) also creates a squad. Useful if you disabled plain right-click squad creation but still want a mouse shortcut. Note: the click is not consumed, so a stationary click still fires the engine's "line formation with keep slowest unit's speed" command (a niche default); only dragged Ctrl+Alt+right-clicks cleanly create a squad without also issuing that command. Since players typically drag that combo to draw a line-move, this overlap is usually harmless.
+
 ### Cycling
 
 When you already have a full squad selected (or all matching types for filtered select), the action automatically excludes your current selection and finds the *next* closest squad. This lets you cycle through squads by pressing the same key repeatedly (can be disabled via `cyclingToNextSquad` in data/LuaUi/Config/BYAR.lua -> Squad Selection section).
@@ -209,6 +211,7 @@ These changes persist.
 | `leftClickSelectsSquad` | `true`           | Modifier+click on empty ground selects squads                   |
 | `cyclingToNextSquad`    | `true`           | Cycle to next squad when full squad is selected                 |
 | `rightClickSquadCreate` | `true`           | Right-click squad creation is active                            |
+| `modifierRightClickCreatesSquad` | `false` | Ctrl+Alt+right-click also creates a squad (click passes through) |
 | `visualizationMode`     | `"convexHull"` | `"coloredLabel"` or `"convexHull"`                              |
 | `showReserveSquads`     | `false`          | Visualize per-factory and uncategorized reserves as real squads |
 

@@ -19,6 +19,7 @@ local config = {
 	leftClickSelectsSquad = true, -- left-click can be used to select squads
 	cyclingToNextSquad = true, -- when full squad/type is selected, exclude it to cycle to next
 	rightClickSquadCreate = true, -- right-click creates squads; toggle with squad_create_toggle action
+	modifierRightClickCreatesSquad = false, -- Ctrl+Alt+right-click creates a squad (consumes the click)
 	showReserveSquads = false, -- when true, auto per-factory reserves + uncategorized reserve are visualized
 	visualizationMode = "convexHull", -- "convexHull" or "coloredLabel"
 	convexHullPaddingLand = 50, -- space (in elmos?) between the units and the hull boundary
@@ -1117,6 +1118,7 @@ end
 -- Settings action — toggle/set config values from chat
 -- Usage:
 --   /luaui squad_setting toggle rightClickSquadCreate
+--   /luaui squad_setting toggle modifierRightClickCreatesSquad
 --   /luaui squad_setting toggle cyclingToNextSquad
 --   /luaui squad_setting set visualizationMode convexHull
 --   /luaui squad_setting set visualizationMode coloredLabel
@@ -1431,9 +1433,12 @@ end
 -- Input
 -------------------------------------------------------------------------------
 function widget:MousePress(x, y, button)
-	if button == 3 and config.rightClickSquadCreate then
+	if button == 3 then
 		local alt, ctrl, meta, shift = spGetModKeyState()
-		if not (alt or ctrl or meta or shift) then
+		if config.modifierRightClickCreatesSquad and ctrl and alt and not meta and not shift then
+			create_squad_from_selection()
+		end
+		if config.rightClickSquadCreate and not (alt or ctrl or meta or shift) then
 			create_squad_from_selection()
 		end
 	elseif button == 1 and config.leftClickSelectsSquad then
