@@ -184,6 +184,12 @@ Suggested keybind:
 bind sc_i squad_cycle_idle
 ```
 
+### Minimap support
+
+All squad selection actions work when your cursor is on the minimap. Both the standard engine minimap and the PIP-style minimap are supported.
+
+**Note on left-click selection with the PIP minimap:** For `leftClickSelectsSquad` (Ctrl+click) to work on the PIP minimap, you need to have the PIP's "left click moves the camera" setting enabled. Without it, the PIP minimap clears the selection immediately after the squad widget creates it.
+
 ## Installation
 
 Download and drop [squad-selection.lua](https://raw.githubusercontent.com/MadeByGabe/squad-selection/refs/heads/main/squad-selection.lua) into your `data/LuaUI/Widgets/` directory.  

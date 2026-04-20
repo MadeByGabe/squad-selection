@@ -73,6 +73,7 @@ local spGetGroundHeight = Spring.GetGroundHeight
 local spGetUnitCommands = Spring.GetUnitCommands
 local spGetTeamColor = Spring.GetTeamColor
 local spSendCommands = Spring.SendCommands
+local spGetMiniMapGeometry = Spring.GetMiniMapGeometry
 
 local glColor = gl.Color
 local glText = gl.Text
@@ -511,6 +512,39 @@ end
 
 local function get_mouse_world_pos()
 	local mx, my = spGetMouseState()
+
+	-- PIP minimap: when active, the engine minimap is hidden/minimized so
+	-- spGetMiniMapGeometry() returns stale data. Use the WG API instead.
+	local wg_minimap = WG and WG['minimap']
+	local wg_pip0 = WG and WG['pip0']
+	local pip_minimized = wg_pip0 and wg_pip0.IsMinimized and wg_pip0.IsMinimized()
+	if wg_minimap and wg_minimap.isPipMinimapActive and wg_minimap.isPipMinimapActive() and not pip_minimized then
+		local getBounds = wg_minimap.getScreenBounds
+		if getBounds then
+			local l, b, r, t = getBounds()
+			if l and r > l and t > b and mx >= l and mx <= r and my >= b and my <= t then
+				local rx = (mx - l) / (r - l)
+				local ry = (my - b) / (t - b)
+				local wx = Game.mapSizeX * rx
+				local wz = Game.mapSizeZ - Game.mapSizeZ * ry
+				return wx, wz
+			end
+		end
+	end
+
+	-- Standard minimap (engine geometry).
+	local mmX, mmY, mmW, mmH, minimized, maximized = spGetMiniMapGeometry()
+	if mmX and mmW > 0 and mmH > 0 and not minimized and not maximized then
+		local rx = (mx - mmX) / mmW
+		local ry = (my - mmY) / mmH
+		if rx >= 0 and rx <= 1 and ry >= 0 and ry <= 1 then
+			local wx = Game.mapSizeX * rx
+			local wz = Game.mapSizeZ - Game.mapSizeZ * ry
+			return wx, wz
+		end
+	end
+
+	-- Normal path: trace screen ray into the 3D world.
 	local _, coords = spTraceScreenRay(mx, my, true)
 	if not coords then
 		return nil
