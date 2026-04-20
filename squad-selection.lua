@@ -1427,6 +1427,28 @@ end
 
 
 -------------------------------------------------------------------------------
+-- Selection-change tracking (for cached allSelected per squad)
+-------------------------------------------------------------------------------
+local squad_sel_count = {} -- squad table -> number of selected units in it
+local selection_dirty = true -- forces a full recount on the first draw frame
+
+function widget:SelectionChanged(sel)
+	-- Reset all counts
+	for sq, _ in pairs(squad_sel_count) do
+		squad_sel_count[sq] = 0
+	end
+	-- Tally from the new selection
+	for i = 1, #sel do
+		local sq = unit_squad[sel[i]]
+		if sq then
+			squad_sel_count[sq] = (squad_sel_count[sq] or 0) + 1
+		end
+	end
+	selection_dirty = false
+end
+
+
+-------------------------------------------------------------------------------
 -- Input
 -------------------------------------------------------------------------------
 function widget:MousePress(x, y, button)
@@ -1543,7 +1565,6 @@ local scratch_hull = {} -- refs into scratch_world
 local scratch_upper = {} -- internal to convex_hull
 local scratch_padded = {} -- {x, y} per padded-hull vertex
 local scratch_flat = {} -- flat {x, y, z, x, y, z, ...} for VBO upload
-local scratch_selected = {} -- unitID -> true for currently-selected units
 
 local function compare_points(a, b)
 	return a.x < b.x or (a.x == b.x and a.y < b.y)
@@ -1560,7 +1581,7 @@ local function truncate(buf, new_len)
 end
 
 -- Writes refs-into-world into out. Sorts `world` in place. Expects #world == n.
-local function convex_hull(world, n, out)
+local function convex_hull(world, n, out, upper)
 	table.sort(world, compare_points)
 
 	local h = 0
@@ -1577,20 +1598,20 @@ local function convex_hull(world, n, out)
 	local u = 0
 	for i = n, 1, -1 do
 		local p = world[i]
-		while u >= 2 and cross(scratch_upper[u - 1], scratch_upper[u], p) <= 0 do
-			scratch_upper[u] = nil
+		while u >= 2 and cross(upper[u - 1], upper[u], p) <= 0 do
+			upper[u] = nil
 			u = u - 1
 		end
 		u = u + 1
-		scratch_upper[u] = p
+		upper[u] = p
 	end
 
 	for i = 2, u - 1 do
 		h = h + 1
-		out[h] = scratch_upper[i]
+		out[h] = upper[i]
 	end
 
-	truncate(scratch_upper, 0)
+	truncate(upper, 0)
 	truncate(out, h)
 	return h
 end
@@ -1659,7 +1680,7 @@ local function get_padded_hull(n_world, radius, arc_segments_angle)
 		local p = scratch_world[1]
 		return padded_circle(p.x, p.y, radius, arc_segments_angle, scratch_padded)
 	elseif n_world >= 2 then
-		local n_hull = convex_hull(scratch_world, n_world, scratch_hull)
+		local n_hull = convex_hull(scratch_world, n_world, scratch_hull, scratch_upper)
 		return padded_more_than_one_unit(scratch_hull, n_hull, radius, arc_segments_angle, scratch_padded)
 	else
 		truncate(scratch_padded, 0)
@@ -1679,13 +1700,19 @@ function widget:DrawWorldPreUnit()
 		return
 	end
 
-	-- refresh the selected-unit set in place
-	for k in pairs(scratch_selected) do
-		scratch_selected[k] = nil
-	end
-	local selectedUnitList = spGetSelectedUnits()
-	for i = 1, #selectedUnitList do
-		scratch_selected[selectedUnitList[i]] = true
+	-- Lazy recount if SelectionChanged hasn't fired yet (e.g. first frame)
+	if selection_dirty then
+		local sel = spGetSelectedUnits()
+		for sq, _ in pairs(squad_sel_count) do
+			squad_sel_count[sq] = 0
+		end
+		for i = 1, #sel do
+			local sq = unit_squad[sel[i]]
+			if sq then
+				squad_sel_count[sq] = (squad_sel_count[sq] or 0) + 1
+			end
+		end
+		selection_dirty = false
 	end
 
 	-- re-read styling each frame so squad_setting changes take effect live
@@ -1705,15 +1732,8 @@ function widget:DrawWorldPreUnit()
 		if not squad.is_reserve or show_reserves then
 			local size = #squad
 			if size > 0 then
-				local allSelected = true
-				for i = 1, size do
-					if not scratch_selected[squad[i]] then
-						allSelected = false
-						break
-					end
-				end
 				local cr, cg, cb
-				if allSelected then
+				if (squad_sel_count[squad] or 0) >= size then
 					cr, cg, cb = 1, 1, 1
 				else
 					cr, cg, cb = tr, tg, tb
@@ -1766,9 +1786,8 @@ function widget:DrawWorldPreUnit()
 								scratch_flat[fi + 3] = p.y
 								fi = fi + 3
 							end
-							truncate(scratch_flat, fi)
 
-							hull_vbo:Upload(scratch_flat)
+							hull_vbo:Upload(scratch_flat, nil, nil, 1, fi)
 							glUniform(hull_color_loc, cr, cg, cb, fill_opacity)
 							hull_vao:DrawArrays(GL.TRIANGLE_FAN, n)
 							glUniform(hull_color_loc, cr, cg, cb, border_opacity)
