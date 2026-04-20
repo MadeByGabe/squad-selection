@@ -57,6 +57,9 @@ bind Alt+Shift+sc_b  closest_squad_select_filtered append
 | `squad_select_portion [append] <steps...>`           | Select a portion of the closest squad                                                                                                |
 | `squad_select_portion_filtered [append] <steps...>`  | Same, but filtered by unit type                                                                                                      |
 | `squad_select_portion_group <N> [append] <steps...>` | Same, but limited to squad ∩ control group N (probably will be removed)                                                              |
+| `squad_cycle_recent`                                 | Select + focus camera on the most recently used squad; each press steps further back; wraps around                                   |
+
+<!-- TODO: I need to find a suggested hotkey -->
 
 ### Mouse controls
 
@@ -152,6 +155,19 @@ I know the above sounds a bit complicated and honestly it is, so here's a few ex
 | `squad_select_portion_filtered [append] <steps...>`  | Same, but filtered by unit type              |
 | `squad_select_portion_group <N> [append] <steps...>` | Same, but limited to squad ∩ control group N |
 
+### Recent-squad cycling (MRU)
+
+Control groups have a nice double-tap trick that moves the camera to the group. Squads don't have a number key, but the widget tracks the squads you most recently worked with so you can jump back and forth between them. The MRU holds up to 3 entries.
+
+A squad is pushed onto the MRU whenever you create a squad (right-click or `squad_create`) or run one of the squad-selection actions (`closest_squad_select`, the filtered and group variants, and the portion actions). Plain click/box selection does not push. Reserves (per-factory and uncategorized) are never pushed, even when a squad-selection action targets them.
+
+`squad_cycle_recent` selects the most recently pushed squad and centers the camera on it (via `viewselection`). Each press steps to the next entry in the MRU, wrapping around at the end. The step position is derived from the current selection rather than a stored cursor — if you change selection between presses, cycling rebases from wherever you are now.
+
+Suggested keybind:
+```
+bind sc_v squad_cycle_recent
+```
+
 ## Installation
 
 Download and drop [squad-selection.lua](https://raw.githubusercontent.com/MadeByGabe/squad-selection/refs/heads/main/squad-selection.lua) into your `data/LuaUI/Widgets/` directory.  
@@ -193,7 +209,7 @@ These changes persist.
 | `squad_setting get <key>`         | Prints the current value of a setting                 |
 | `squad_setting reload`            | Resets all settings to the defaults defined in the Lua file |
 
-*Note: control groups have a nice feature when we double tap their number key to move the camera to that group. Something similar for squads should be possible but in the meantime you can bind `viewselection` to a hotkey for a similar effect (it centers the camera on your current selection).*
+*Note: for quickly centering the camera on the current selection (the equivalent of double-tapping a control group's number key), bind `viewselection` to a hotkey. See also the [recent-squad cycling](#recent-squad-cycling-mru) feature, which selects a recently-used squad and focuses the camera on it in one press.*
 
 ### Hotkey setup
 

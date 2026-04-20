@@ -71,6 +71,7 @@ local spIsReplay = Spring.IsReplay
 local spGetGroundHeight = Spring.GetGroundHeight
 local spGetUnitCommands = Spring.GetUnitCommands
 local spGetTeamColor = Spring.GetTeamColor
+local spSendCommands = Spring.SendCommands
 
 local glColor = gl.Color
 local glText = gl.Text
@@ -88,6 +89,9 @@ local unit_squad = {} -- unitID -> the squad array it belongs to
 local unit_slot = {} -- unitID -> index within that squad (for O(1) removal)
 local factory_squad = {} -- factoryUnitID -> squad (every factory gets an auto-created squad)
 local uncategorized_reserve = nil -- catch-all reserve for units with no factory origin (gifted, resurrected, etc.)
+
+local MRU_MAX = 3
+local mru = {} -- most-recently-used squads, newest at index 1
 
 -------------------------------------------------------------------------------
 -- Debug
@@ -265,6 +269,60 @@ local function remove_from_squad(unit_id)
 end
 
 
+-------------------------------------------------------------------------------
+-- MRU (most-recently-used squads)
+--
+-- Push points are both inside create_squad_from_selection: successful squad
+-- creation, and right-click on a selection that already matches an existing
+-- non-reserve squad. Plain selection changes and command issuance do NOT push.
+-- Players who disable rightClickSquadCreate still populate the MRU via the
+-- squad_create action, which routes through the same function.
+-------------------------------------------------------------------------------
+
+local function push_to_mru(sq)
+	if not sq or sq.is_reserve then
+		return
+	end
+	for i = 1, #mru do
+		if mru[i] == sq then
+			table.remove(mru, i)
+			break
+		end
+	end
+	table.insert(mru, 1, sq)
+	while #mru > MRU_MAX do
+		mru[#mru] = nil
+	end
+end
+
+
+local function sweep_mru()
+	local present = {}
+	for _, sq in ipairs(squads) do
+		present[sq] = true
+	end
+	for i = #mru, 1, -1 do
+		if not present[mru[i]] then
+			table.remove(mru, i)
+		end
+	end
+end
+
+
+local function recall_mru(i)
+	local sq = mru[i]
+	if not sq then
+		return
+	end
+	local units = {}
+	for j = 1, #sq do
+		units[j] = sq[j]
+	end
+	spSelectUnitArray(units)
+	spSendCommands("viewselection")
+end
+
+
 -- A squad is prunable when empty, except:
 --   - the uncategorized reserve is permanent
 --   - factory reserves are kept while any factory still references them
@@ -295,6 +353,7 @@ local function prune_empty_squads()
 			table.remove(squads, i)
 		end
 	end
+	sweep_mru()
 end
 
 
@@ -302,8 +361,9 @@ end
 -- Squad creation from selection
 -------------------------------------------------------------------------------
 
--- Returns true when the selection and the squad are exactly the same set. 
--- In that case right-clicking is a no-op. This preserves the squad label and color.
+-- Returns the squad if the selection's combat units exactly match one squad
+-- (including reserves), nil otherwise. Callers that want to exclude reserves
+-- should check `.is_reserve` on the result.
 local function selection_is_existing_squad(selected)
 	local squad = nil
 	local combat_count = 0
@@ -313,17 +373,17 @@ local function selection_is_existing_squad(selected)
 		if def_id and is_combat[def_id] then
 			combat_count = combat_count + 1
 			local s = unit_squad[u]
-			if s and s.is_reserve then
-				return false
-			end
 			if squad == nil then
 				squad = s
 			elseif s ~= squad then
-				return false
+				return nil
 			end
 		end
 	end
-	return squad ~= nil and #squad == combat_count
+	if squad == nil or #squad ~= combat_count then
+		return nil
+	end
+	return squad
 end
 
 
@@ -414,7 +474,9 @@ local function create_squad_from_selection()
 		return
 	end
 
-	if selection_is_existing_squad(selected) then
+	local existing = selection_is_existing_squad(selected)
+	if existing and not existing.is_reserve then
+		push_to_mru(existing)
 		return
 	end
 
@@ -435,6 +497,7 @@ local function create_squad_from_selection()
 	assign_squad_tag(new_squad)
 	squads[#squads + 1] = new_squad
 	prune_empty_squads()
+	push_to_mru(new_squad)
 
 	log("New squad [" .. new_squad.letter .. "]: " .. #new_squad .. " units")
 	log_squads()
@@ -780,6 +843,7 @@ local function do_squad_select(opts)
 		return
 	end
 	spSelectUnitArray(to_select, opts.append)
+	push_to_mru(target_squad)
 	log("Squad select [" .. (target_squad.letter or "?") .. "]: " .. #to_select .. "/" .. #pool .. (opts.append and " +append" or ""))
 end
 
@@ -805,6 +869,23 @@ end
 local function squad_create()
 	assign_factory_squad()
 	create_squad_from_selection()
+end
+
+
+local function squad_cycle_recent()
+	if #mru == 0 then
+		spEcho("[Squad] MRU is empty")
+		return
+	end
+	local current_squad = selection_is_existing_squad(spGetSelectedUnits())
+	local current_index = 0
+	for k = 1, #mru do
+		if mru[k] == current_squad then
+			current_index = k
+			break
+		end
+	end
+	recall_mru((current_index % #mru) + 1)
 end
 
 
@@ -1110,6 +1191,7 @@ function widget:Initialize()
 	widgetHandler:AddAction("squad_select_portion_filtered", squad_select_portion_filtered, nil, "p")
 	widgetHandler:AddAction("squad_select_portion_group", squad_select_portion_group, nil, "p")
 	widgetHandler:AddAction("squad_setting", squad_setting, nil, "t")
+	widgetHandler:AddAction("squad_cycle_recent", squad_cycle_recent, nil, "p")
 
 	-- WG interface for gui_options.lua integration
 	WG['squadselection'] = {
@@ -1178,6 +1260,7 @@ function widget:Shutdown()
 	widgetHandler:RemoveAction("squad_select_portion_filtered")
 	widgetHandler:RemoveAction("squad_select_portion_group")
 	widgetHandler:RemoveAction("squad_setting")
+	widgetHandler:RemoveAction("squad_cycle_recent")
 	log("Shutdown")
 end
 
