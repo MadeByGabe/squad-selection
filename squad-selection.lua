@@ -19,8 +19,10 @@ local config = {
 	leftClickSelectsSquad = true, -- left-click can be used to select squads
 	cyclingToNextSquad = true, -- when full squad/type is selected, exclude it to cycle to next
 	rightClickSquadCreate = true, -- right-click creates squads; toggle with squad_create_toggle action
-	modifierRightClickCreatesSquad = false, -- Ctrl+Alt+right-click creates a squad (consumes the click)
-	showReserveSquads = false, -- when true, auto per-factory reserves + uncategorized reserve are visualized
+	modifierRightClickCreatesSquad = false, -- Ctrl+right-click also creates a squad (click still passes through, so the engine's move-in-formation runs too)
+	doubleClickMs = 200, -- double right-click window (ms) — triggers squad_reassign instead of create
+	doubleClickPx = 5, -- max screen-pixel distance between the two clicks of a double
+	showReserveSquads = true, -- when true, auto per-factory reserves + uncategorized reserve are visualized
 	visualizationMode = "convexHull", -- "convexHull" or "coloredLabel"
 	convexHullPadding = 50, -- space (in elmos) between the units and the hull boundary
 	convexHullArcResolution = math.rad(30), -- angle that each chord of the arc spans
@@ -69,6 +71,8 @@ local spGetTeamColor = Spring.GetTeamColor
 local spSendCommands = Spring.SendCommands
 local spGetMiniMapGeometry = Spring.GetMiniMapGeometry
 local spIsSphereInView = Spring.IsSphereInView
+local spGetTimer = Spring.GetTimer
+local spDiffTimers = Spring.DiffTimers
 
 local glColor = gl.Color
 local glText = gl.Text
@@ -94,6 +98,11 @@ local uncategorized_reserve = nil -- catch-all reserve for units with no factory
 
 local MRU_MAX = 3
 local mru = {} -- most-recently-used squads, newest at index 1
+
+local squad_sel_count = {} -- squad table -> number of selected units in it
+local selection_dirty = true -- forces a full recount on the first draw frame
+
+local last_rmb_create = nil -- { t = Spring timer, x = screen_x, y = screen_y } of most recent RMB that called create_squad_from_selection
 
 -------------------------------------------------------------------------------
 -- Debug
@@ -1047,6 +1056,54 @@ local function squad_select_portion_group(_, _, args)
 end
 
 
+-- Move all currently selected combat units into the squad closest to the cursor
+-- (measured by nearest unit). When the cursor is already on the selected squad,
+-- every move becomes a self-move — naturally a no-op.
+local function squad_reassign()
+	local selected = spGetSelectedUnits()
+	if #selected == 0 then
+		return
+	end
+
+	local wx, wz = get_mouse_world_pos()
+	if not wx then
+		return
+	end
+
+	local target_squad = find_closest_squad(nil, nil, nil, wx, wz)
+	if not target_squad then
+		return
+	end
+
+	local moved = 0
+	for i = 1, #selected do
+		local u = selected[i]
+		local def_id = get_defid(u)
+		if def_id and is_combat[def_id] and unit_squad[u] ~= target_squad then
+			remove_from_squad(u)
+			add_to_squad(u, target_squad)
+			moved = moved + 1
+		end
+	end
+
+	if moved > 0 then
+		prune_empty_squads()
+		push_to_mru(target_squad)
+
+		-- Select the whole combined squad so the player can immediately act on it.
+		-- SelectionChanged will refresh squad_sel_count, so no dirty flag needed.
+		local units = {}
+		for i = 1, #target_squad do
+			units[i] = target_squad[i]
+		end
+		spSelectUnitArray(units)
+
+		log("Reassigned " .. moved .. " unit(s) → squad [" .. (target_squad.letter or "?") .. "]")
+		log_squads()
+	end
+end
+
+
 -------------------------------------------------------------------------------
 -- GL4 hull rendering
 --
@@ -1269,6 +1326,7 @@ function widget:Initialize()
 	widgetHandler:AddAction("squad_select_portion", squad_select_portion, nil, "p")
 	widgetHandler:AddAction("squad_select_portion_filtered", squad_select_portion_filtered, nil, "p")
 	widgetHandler:AddAction("squad_select_portion_group", squad_select_portion_group, nil, "p")
+	widgetHandler:AddAction("squad_reassign", squad_reassign, nil, "p")
 	widgetHandler:AddAction("squad_setting", squad_setting, nil, "t")
 	widgetHandler:AddAction("squad_cycle_recent", squad_cycle_recent, nil, "p")
 	widgetHandler:AddAction("squad_cycle_idle", squad_cycle_idle, nil, "p")
@@ -1332,6 +1390,7 @@ function widget:Shutdown()
 	widgetHandler:RemoveAction("squad_select_portion")
 	widgetHandler:RemoveAction("squad_select_portion_filtered")
 	widgetHandler:RemoveAction("squad_select_portion_group")
+	widgetHandler:RemoveAction("squad_reassign")
 	widgetHandler:RemoveAction("squad_setting")
 	widgetHandler:RemoveAction("squad_cycle_recent")
 	widgetHandler:RemoveAction("squad_cycle_idle")
@@ -1429,8 +1488,6 @@ end
 -------------------------------------------------------------------------------
 -- Selection-change tracking (for cached allSelected per squad)
 -------------------------------------------------------------------------------
-local squad_sel_count = {} -- squad table -> number of selected units in it
-local selection_dirty = true -- forces a full recount on the first draw frame
 
 function widget:SelectionChanged(sel)
 	-- Reset all counts
@@ -1454,11 +1511,29 @@ end
 function widget:MousePress(x, y, button)
 	if button == 3 then
 		local alt, ctrl, meta, shift = spGetModKeyState()
-		if config.modifierRightClickCreatesSquad and ctrl and alt and not meta and not shift then
+		local plain = not (alt or ctrl or meta or shift)
+		local mod_combo = ctrl and not alt and not meta and not shift
+		local will_create = (config.rightClickSquadCreate and plain) or (config.modifierRightClickCreatesSquad and mod_combo)
+
+		if will_create then
+			-- Double right-click within a small time/distance window becomes a
+			-- squad_reassign instead of a second create. The first click's
+			-- create still ran, but when the selection already matched an
+			-- existing squad it was a no-op; otherwise the transient squad
+			-- gets dissolved by the reassign.
+			if last_rmb_create then
+				local dt_ms = spDiffTimers(spGetTimer(), last_rmb_create.t, true)
+				local dx = x - last_rmb_create.x
+				local dy = y - last_rmb_create.y
+				local px = config.doubleClickPx
+				if dt_ms < config.doubleClickMs and (dx * dx + dy * dy) < (px * px) then
+					squad_reassign()
+					last_rmb_create = nil
+					return
+				end
+			end
 			create_squad_from_selection()
-		end
-		if config.rightClickSquadCreate and not (alt or ctrl or meta or shift) then
-			create_squad_from_selection()
+			last_rmb_create = { t = spGetTimer(), x = x, y = y }
 		end
 	elseif button == 1 and config.leftClickSelectsSquad then
 		local alt, ctrl, _, shift = spGetModKeyState()

@@ -14,7 +14,7 @@ Jump straight to [installation](#installation) if you want to get going right aw
 
 ## How it works
 
-Every factory (lab) gets its own hidden **reserve squad**, and the squad-eligible units it builds start there. Units that don't come from a factory you built (gifted, resurrected, alive at widget load, etc.) go into a single catch-all **uncategorized reserve**. Reserve squads are invisible by default so you don't see labels for stuff you haven't explicitly grouped — flip `showReserveSquads` on if you want to see them.
+Every factory (lab) gets its own **reserve squad**, and the squad-eligible units it builds start there. Units that don't come from a factory you built (gifted, resurrected, alive at widget load, etc.) go into a single catch-all **uncategorized reserve**. Reserve squads are visible by default — turn them off with `/luaui squad_setting set showReserveSquads false` if you'd rather only see squads you created explicitly.
 
 Squad-eligible means: unit can move, has speed, and has no build options.
 
@@ -61,6 +61,7 @@ bind Alt+Shift+sc_b  closest_squad_select_filtered append
 | `squad_select_portion_group <N> [append] <steps...>` | Same, but limited to squad ∩ control group N (probably will be removed)                                                              |
 | `squad_cycle_recent`                                 | Select + focus camera on the most recently used squad; each press steps further back; wraps around                                   |
 | `squad_cycle_idle`                                   | Select + focus camera on the next squad that's mostly idle; each press moves on to the next one                                      |
+| `squad_reassign`                                     | Moves the selected units into the squad closest to the cursor and selects the full combined squad                                    |
 
 <!-- TODO: I need to find a suggested hotkey -->
 
@@ -77,9 +78,11 @@ With `leftClickSelectsSquad` enabled (default), clicking on empty ground trigger
 
 Mouse squad selections are skipped when clicking directly on a unit or when an active command is pending (fight, patrol, build placement, etc.).
 
-**Right-click** (no modifiers) with a selection creates a squad from selected squad-eligible units.
+**Right-click** (no modifiers) with a selection creates a squad from the selected squad-eligible units. The click still passes through to the engine, so the normal move command issues alongside the grouping.
 
-**Ctrl+Alt+right-click** (opt-in via `/luaui squad_setting toggle modifierRightClickCreatesSquad`) also creates a squad. Useful if you disabled plain right-click squad creation but still want a mouse shortcut. Note: the click is not consumed, so a stationary click still fires the engine's "line formation with keep slowest unit's speed" command (a niche default); only dragged Ctrl+Alt+right-clicks cleanly create a squad without also issuing that command. Since players typically drag that combo to draw a line-move, this overlap is usually harmless.
+**Ctrl+right-click** (opt-in via `/luaui squad_setting toggle modifierRightClickCreatesSquad`) also creates a squad. Useful if you disabled plain right-click squad creation but still want a mouse shortcut. The click passes through to the engine, so it also issues Ctrl+RMB's move-in-formation command.
+
+**Double right-click** (either variant above) triggers `squad_reassign` instead of a second create — see the [Reassigning units](#reassigning-units-to-another-squad) section.
 
 ### Cycling
 
@@ -128,6 +131,23 @@ Previously built units stay in their old squads — those become orphaned hidden
 Pressing `squad_create` on a single factory that's already alone in its own squad is a no-op.
 
 **Example use case:** You have 3 bot labs, 2 producing cheap spam units for distraction, 1 producing expensive units you want to micro. By default all three are separate, so selecting the expensive lab's units already works. If you'd rather the two spam labs share one squad, select them and press `squad_create`.
+
+### Reassigning units to another squad
+
+Sends the currently selected units into the squad closest to your cursor, then selects the full combined squad. Typical use: dissolve a manual squad back into a factory reserve — select the squad, point at the factory (or any of its units), trigger the action. Every squad is a valid target, reserves included. Empty source squads are pruned as usual.
+
+If the cursor is closest to a unit in the selection's own squad, every move is a self-move and the action is a no-op (selection left alone).
+
+**Two ways to trigger:**
+
+- Hotkey: bind `squad_reassign` to any key.
+- **Double right-click** at (roughly) the same screen position: the second right-click runs `squad_reassign` instead of a second create. Tolerances are `doubleClickMs` (default 200ms) and `doubleClickPx` (default 5px) — tune them via `/luaui squad_setting set …` if the window feels too tight or too loose.
+
+The double-click gesture works with either plain right-click or Ctrl+right-click creation, whichever you have enabled.
+
+| Action            | What it does                                                                                           |
+| ----------------- | ------------------------------------------------------------------------------------------------------ |
+| `squad_reassign`  | Move selected units into the squad closest to the cursor and select the full combined squad           |
 
 ### Portion selection
 
@@ -214,14 +234,16 @@ For now you can change settings in-game via chat commands:
 These changes persist.
 
 
-| Setting                 | Default          | Description                                                     |
-| ----------------------- | ---------------- | --------------------------------------------------------------- |
-| `leftClickSelectsSquad` | `true`           | Modifier+click on empty ground selects squads                   |
-| `cyclingToNextSquad`    | `true`           | Cycle to next squad when full squad is selected                 |
-| `rightClickSquadCreate` | `true`           | Right-click squad creation is active                            |
-| `modifierRightClickCreatesSquad` | `false` | Ctrl+Alt+right-click also creates a squad (click passes through) |
-| `visualizationMode`     | `"convexHull"` | `"coloredLabel"` or `"convexHull"`                              |
-| `showReserveSquads`     | `false`          | Visualize per-factory and uncategorized reserves as real squads |
+| Setting                          | Default        | Description                                                                                    |
+| -------------------------------- | -------------- | ---------------------------------------------------------------------------------------------- |
+| `leftClickSelectsSquad`          | `true`         | Modifier+click on empty ground selects squads                                                  |
+| `cyclingToNextSquad`             | `true`         | Cycle to next squad when full squad is selected                                                |
+| `rightClickSquadCreate`          | `true`         | Right-click squad creation is active                                                           |
+| `modifierRightClickCreatesSquad` | `false`        | Ctrl+right-click also creates a squad (click passes through)                                   |
+| `doubleClickMs`                  | `200`          | Max ms between two right-clicks for the double-click gesture (→ `squad_reassign`)              |
+| `doubleClickPx`                  | `5`            | Max screen-pixel distance between the two right-clicks of a double-click                       |
+| `visualizationMode`              | `"convexHull"` | `"coloredLabel"` or `"convexHull"`                                                             |
+| `showReserveSquads`              | `true`         | Visualize per-factory and uncategorized reserves as real squads                                |
 
 
 
@@ -318,7 +340,7 @@ Now build two vehicle plants and spam some rascals/rovers. Each vehicle plant ha
 
 Select some units and right click. Selected squad-eligible units are now a squad of their own, pulled out of whichever reserve they were in. Everything above applies. If you don't want this behavior you can disable the right click squad creation and just use the `alt+c` hotkey to create squads from selected units when you want to.
 
-If you're curious what the reserves look like, toggle them on with `/luaui squad_setting toggle showReserveSquads` — you'll see labels on every lab and its units. Turn it off again for the clean default experience.
+Reserves are visualized by default so you can see which labs own which units at a glance. If the extra labels are noisy, turn them off with `/luaui squad_setting toggle showReserveSquads` and only your explicitly created squads will be shown.
 
 If you don't want to bother with `c` and `x`, you can use `ctrl+leftclick` and `alt+ctrl+leftclick` respectively. Both can be used with shift to append instead of replace.
 
