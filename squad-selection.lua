@@ -20,12 +20,12 @@ local config = {
 	leftClickSteps = {1}, -- step values for left-click selection; {1} = whole squad, {0.5, 1} = 50% then 100%, etc.
 	cyclingToNextSquad = true, -- when full squad/type is selected, exclude it to cycle to next
 	rightClickSquadCreate = true, -- right-click creates squads; toggle with squad_create_toggle action
-	modifierRightClickCreatesSquad = false, -- Ctrl+right-click also creates a squad (click still passes through, so the engine's move-in-formation runs too)
+	modifierRightClickCreatesSquad = false, -- Ctrl+right-click creates a squad (click still passes through, so the engine's move-in-formation runs too which can cause issues)
 	doubleClickMs = 200, -- double right-click window (ms) — triggers squad_reassign instead of create
 	doubleClickPx = 5, -- max screen-pixel distance between the two clicks of a double
 	showReserveSquads = true, -- when true, auto per-factory reserves + uncategorized reserve are visualized
 	visualizationMode = "convexHull", -- "convexHull" or "coloredLabel"
-	convexHullPadding = 50, -- space (in elmos) between the units and the hull boundary
+	convexHullPadding = 60, -- space (in elmos) between the units and the hull boundary
 	convexHullArcResolution = math.rad(30), -- angle that each chord of the arc spans
 	convexHullFillOpacity = 0.1,
 	convexHullBorderOpacity = 0.2,
@@ -97,7 +97,7 @@ local unit_slot = {} -- unitID -> index within that squad (for O(1) removal)
 local factory_squad = {} -- factoryUnitID -> squad (every factory gets an auto-created squad)
 local uncategorized_reserve = nil -- catch-all reserve for units with no factory origin (gifted, resurrected, etc.)
 
-local MRU_MAX = 3
+local MRU_MAX = 3 -- should probably make it a config
 local mru = {} -- most-recently-used squads, newest at index 1
 
 local squad_sel_count = {} -- squad table -> number of selected units in it
@@ -152,7 +152,7 @@ end
 -- keyed unit list or #squad.
 -------------------------------------------------------------------------------
 
-local SQUAD_COLORS = {
+local SQUAD_COLORS = { -- should be removed, use hue rotation instead with one sat/val combo
 	{1.0, 0.3, 0.3}, -- red
 	{0.3, 1.0, 0.3}, -- green
 	{0.3, 0.5, 1.0}, -- blue
@@ -181,8 +181,6 @@ end
 -- Unit classification
 --
 -- is_combat[defID] — true if the unit type is squad-eligible.
--- Populated once by classify_unitdefs() in Initialize, so runtime lookups are
--- a single table index with no branching.
 -------------------------------------------------------------------------------
 
 local defid_of = {} -- unitID -> defID  (false when lookup fails)
@@ -204,14 +202,13 @@ end
 --- Pre-compute is_combat for every defID in one pass.
 local function classify_unitdefs()
 	for defID, def in pairs(UnitDefs) do
-		-- Squad eligibility
+		-- Squad eligibility, speed is needed because of mines
 		if def.canMove and def.speed and def.speed > 0 and not (def.buildOptions and #def.buildOptions > 0) then
 			is_combat[defID] = true
 		else
 			is_combat[defID] = false
 		end
 
-		-- Factory detection
 		if def.isFactory then
 			is_factory[defID] = true
 		end
@@ -345,8 +342,7 @@ end
 -------------------------------------------------------------------------------
 
 -- Returns the squad if the selection's combat units exactly match one squad
--- (including reserves), nil otherwise. Callers that want to exclude reserves
--- should check `.is_reserve` on the result.
+-- (including reserves), nil otherwise. 
 local function selection_is_existing_squad(selected)
 	local squad = nil
 	local combat_count = 0
@@ -396,8 +392,7 @@ end
 --  - If the selection already exactly occupies one squad (no other factories
 --    reference it) → no-op.
 --  - Otherwise → reassign all selected factories to a fresh shared squad.
---    Units already built stay in their old squads; those squads become
---    hidden orphaned reserves that prune when their last unit dies.
+--    Units already built stay in their old squads
 local function assign_factory_squad()
 	local selected = spGetSelectedUnits()
 	local factories = {}
@@ -791,7 +786,7 @@ end
 
 
 --- Build a set of unitIDs belonging to a control group.
--- Tries GetGroupUnits first, falls back to iterating tracked units.
+-- Tries GetGroupUnits first, falls back to iterating tracked units. (I copied this from another widget, I'm not sure how necessary it is)
 local function build_group_set(group_num)
 	local group_units
 	if spGetGroupUnits then
@@ -1095,7 +1090,6 @@ local function squad_reassign()
 		push_to_mru(target_squad)
 
 		-- Select the whole combined squad so the player can immediately act on it.
-		-- SelectionChanged will refresh squad_sel_count, so no dirty flag needed.
 		local units = {}
 		for i = 1, #target_squad do
 			units[i] = target_squad[i]
@@ -1176,7 +1170,12 @@ local function init_gl_hull()
 		hull_init_failed = true
 		return false
 	end
-	hull_vbo:Define(HULL_MAX_VERTICES, {{id = 0, name = 'position', size = 3}})
+	hull_vbo:Define(HULL_MAX_VERTICES, {
+		{
+			id = 0,
+			name = 'position',
+			size = 3,
+		}})
 
 	hull_vao = glGetVAO()
 	if not hull_vao then
@@ -1194,10 +1193,17 @@ local function init_gl_hull()
 	return true
 end
 
+
 local function cleanup_gl_hull()
-	if hull_vao then hull_vao:Delete() end
-	if hull_vbo then hull_vbo:Delete() end
-	if hull_shader then glDeleteShader(hull_shader) end
+	if hull_vao then
+		hull_vao:Delete()
+	end
+	if hull_vbo then
+		hull_vbo:Delete()
+	end
+	if hull_shader then
+		glDeleteShader(hull_shader)
+	end
 	hull_vao = nil
 	hull_vbo = nil
 	hull_shader = nil
@@ -1246,6 +1252,7 @@ local function squad_setting(_, _, args)
 		end
 		return tostring(v)
 	end
+
 
 	if action == "toggle" then
 		if type(config[key]) ~= "boolean" then
@@ -1296,7 +1303,7 @@ end
 -- Lifecycle
 -------------------------------------------------------------------------------
 
--- Team color for unselected-squad hulls. Populated in widget:Initialize.
+-- Team color for unselected-squad hulls. Populated in widget:Initialize. 
 local team_color = {1, 1, 1}
 
 function widget:Initialize()
@@ -1534,8 +1541,8 @@ end
 -- Input
 -------------------------------------------------------------------------------
 function widget:MousePress(x, y, button)
+	local alt, ctrl, meta, shift = spGetModKeyState()
 	if button == 3 then
-		local alt, ctrl, meta, shift = spGetModKeyState()
 		local plain = not (alt or ctrl or meta or shift)
 		local mod_combo = ctrl and not alt and not meta and not shift
 		local will_create = (config.rightClickSquadCreate and plain) or (config.modifierRightClickCreatesSquad and mod_combo)
@@ -1558,17 +1565,20 @@ function widget:MousePress(x, y, button)
 				end
 			end
 			create_squad_from_selection()
-			last_rmb_create = { t = spGetTimer(), x = x, y = y }
+			last_rmb_create = {
+				t = spGetTimer(),
+				x = x,
+				y = y,
+			}
 		end
 	elseif button == 1 and config.leftClickSelectsSquad then
-		local alt, ctrl, _, shift = spGetModKeyState()
-		-- Ctrl or Shift is required to trigger; Alt alone is not enough.
+		-- Ctrl or Shift is required to trigger; Alt alone is not enough because then the ground click deselects the units.
 		-- Shift → append, Ctrl → replace, Alt → filtered (orthogonal).
 		if not (ctrl or shift) then
 			return
 		end
 
-		-- Skip when an active command is pending (fight, patrol, build, etc.)
+		-- Skip when an active command is pending (fight, patrol, build, etc.). This may be unnecessary or should be configurable.
 		local _, cmdID = spGetActiveCommand()
 		if cmdID then
 			return
@@ -1576,13 +1586,14 @@ function widget:MousePress(x, y, button)
 		local cursor = spGetMouseCursor()
 		local hit_type = spTraceScreenRay(x, y)
 		local has_selection = spGetSelectedUnits()[1] ~= nil
+		-- hack to detect when the user isn't clicking on a button or other UI element
 		if not ((not has_selection or cursor == "Move") and hit_type ~= "unit") then
 			return
 		end
 
 		local steps = config.leftClickSteps
 		if #steps == 0 then
-			steps = {1} -- empty config falls back to whole-squad
+			steps = {1}
 		end
 		-- Whole-squad mode = the config is just {1} (or was empty and fell back
 		-- to {1}). Anything else (including {0.5} or {5}) is portion mode.
@@ -1697,15 +1708,18 @@ local function compare_points(a, b)
 	return a.x < b.x or (a.x == b.x and a.y < b.y)
 end
 
+
 local function cross(o, a, b)
 	return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x)
 end
+
 
 local function truncate(buf, new_len)
 	for i = #buf, new_len + 1, -1 do
 		buf[i] = nil
 	end
 end
+
 
 -- Writes refs-into-world into out. Sorts `world` in place. Expects #world == n.
 local function convex_hull(world, n, out, upper)
@@ -1882,10 +1896,18 @@ function widget:DrawWorldPreUnit()
 						end
 						p.x = x
 						p.y = z
-						if x < min_x then min_x = x end
-						if x > max_x then max_x = x end
-						if z < min_z then min_z = z end
-						if z > max_z then max_z = z end
+						if x < min_x then
+							min_x = x
+						end
+						if x > max_x then
+							max_x = x
+						end
+						if z < min_z then
+							min_z = z
+						end
+						if z > max_z then
+							max_z = z
+						end
 					end
 				end
 				truncate(scratch_world, n_world)
