@@ -17,6 +17,7 @@ end
 
 local config = {
 	leftClickSelectsSquad = true, -- left-click can be used to select squads
+	leftClickSteps = {1}, -- step values for left-click selection; {1} = whole squad, {0.5, 1} = 50% then 100%, etc.
 	cyclingToNextSquad = true, -- when full squad/type is selected, exclude it to cycle to next
 	rightClickSquadCreate = true, -- right-click creates squads; toggle with squad_create_toggle action
 	modifierRightClickCreatesSquad = false, -- Ctrl+right-click also creates a squad (click still passes through, so the engine's move-in-formation runs too)
@@ -883,9 +884,10 @@ end
 -------------------------------------------------------------------------------
 
 local function closest_squad_select(_, _, args)
+	local append = args and args[1] == "append"
 	do_squad_select({
-		append = args and args[1] == "append",
-		cycle_when_full = config.cyclingToNextSquad,
+		append = append,
+		cycle_when_full = append or config.cyclingToNextSquad,
 	})
 end
 
@@ -981,10 +983,11 @@ local function closest_squad_select_filtered(_, _, args)
 	if not filter_defs then
 		return
 	end
+	local append = args and args[1] == "append"
 	do_squad_select({
-		append = args and args[1] == "append",
+		append = append,
 		filter_defs = filter_defs,
-		cycle_when_full = config.cyclingToNextSquad,
+		cycle_when_full = append or config.cyclingToNextSquad,
 	})
 end
 
@@ -997,10 +1000,11 @@ local function squad_select_group(_, _, args)
 	if not group_num then
 		return
 	end
+	local append = args[2] == "append"
 	do_squad_select({
-		append = args[2] == "append",
+		append = append,
 		group_set = build_group_set(group_num),
-		cycle_when_full = config.cyclingToNextSquad,
+		cycle_when_full = append or config.cyclingToNextSquad,
 	})
 end
 
@@ -1236,6 +1240,13 @@ local function squad_setting(_, _, args)
 		return
 	end
 
+	local function format_value(v)
+		if type(v) == "table" then
+			return "[" .. table.concat(v, ", ") .. "]"
+		end
+		return tostring(v)
+	end
+
 	if action == "toggle" then
 		if type(config[key]) ~= "boolean" then
 			spEcho("[Squad] Cannot toggle non-boolean key: " .. key)
@@ -1244,6 +1255,20 @@ local function squad_setting(_, _, args)
 		config[key] = not config[key]
 		spEcho("[Squad] " .. key .. " = " .. tostring(config[key]))
 	elseif action == "set" then
+		-- Table-typed keys collect all remaining numeric args as a list.
+		-- Passing no values clears the list (e.g. `squad_setting set leftClickSteps`).
+		if type(config[key]) == "table" then
+			local list = {}
+			for i = 3, #args do
+				local n = tonumber(args[i])
+				if n then
+					list[#list + 1] = n
+				end
+			end
+			config[key] = list
+			spEcho("[Squad] " .. key .. " = " .. format_value(list))
+			return
+		end
 		local value = args[3]
 		if not value then
 			spEcho("[Squad] Missing value for set")
@@ -1260,7 +1285,7 @@ local function squad_setting(_, _, args)
 		config[key] = value
 		spEcho("[Squad] " .. key .. " = " .. tostring(config[key]))
 	elseif action == "get" then
-		spEcho("[Squad] " .. key .. " = " .. tostring(config[key]))
+		spEcho("[Squad] " .. key .. " = " .. format_value(config[key]))
 	else
 		spEcho("[Squad] Unknown action: " .. action .. " (use toggle, set, get, or reload)")
 	end
@@ -1537,27 +1562,54 @@ function widget:MousePress(x, y, button)
 		end
 	elseif button == 1 and config.leftClickSelectsSquad then
 		local alt, ctrl, _, shift = spGetModKeyState()
-		if alt or ctrl or shift then
-			-- Skip when an active command is pending (fight, patrol, build, etc.)
-			local _, cmdID = spGetActiveCommand()
-			if cmdID then
+		-- Ctrl or Shift is required to trigger; Alt alone is not enough.
+		-- Shift → append, Ctrl → replace, Alt → filtered (orthogonal).
+		if not (ctrl or shift) then
+			return
+		end
+
+		-- Skip when an active command is pending (fight, patrol, build, etc.)
+		local _, cmdID = spGetActiveCommand()
+		if cmdID then
+			return
+		end
+		local cursor = spGetMouseCursor()
+		local hit_type = spTraceScreenRay(x, y)
+		local has_selection = spGetSelectedUnits()[1] ~= nil
+		if not ((not has_selection or cursor == "Move") and hit_type ~= "unit") then
+			return
+		end
+
+		local steps = config.leftClickSteps
+		if #steps == 0 then
+			steps = {1} -- empty config falls back to whole-squad
+		end
+		-- Whole-squad mode = the config is just {1} (or was empty and fell back
+		-- to {1}). Anything else (including {0.5} or {5}) is portion mode.
+		local whole_squad = #steps == 1 and steps[1] == 1
+		local append = shift
+
+		-- Append always cycles across squads (grow-the-selection semantics).
+		-- Whole-squad replace cycles per user config. Portion replace never
+		-- cycles — step progression takes the place of cycling.
+		local opts = {
+			append = append,
+			steps = steps,
+			cycle_when_full = append or (whole_squad and config.cyclingToNextSquad),
+		}
+
+		if alt then
+			local wx, wz = get_mouse_world_pos()
+			if not wx then
 				return
 			end
-			local cursor = spGetMouseCursor()
-			local hit_type = spTraceScreenRay(x, y)
-			local has_selection = spGetSelectedUnits()[1] ~= nil
-			if (not has_selection or cursor == "Move") and hit_type ~= "unit" then
-				if alt and shift then
-					closest_squad_select_filtered(nil, nil, {"append"})
-				elseif alt and ctrl then
-					closest_squad_select_filtered(nil, nil, nil)
-				elseif shift then
-					closest_squad_select(nil, nil, {"append"})
-				elseif ctrl then
-					closest_squad_select(nil, nil, nil)
-				end
+			opts.filter_defs = resolve_filter_defs(analyze_selection(), wx, wz)
+			if not opts.filter_defs then
+				return
 			end
 		end
+
+		do_squad_select(opts)
 	end
 	-- Never return true: let the click pass through to the engine.
 end

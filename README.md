@@ -78,6 +78,17 @@ With `leftClickSelectsSquad` enabled (default), clicking on empty ground trigger
 
 Mouse squad selections are skipped when clicking directly on a unit or when an active command is pending (fight, patrol, build placement, etc.).
 
+**Portion-mode left-click.** `leftClickSteps` controls how many units each click selects. Default is `1` (= whole squad). Set anything else — even a single step like `0.5` or `5` — and the four combos above switch to portion selection: closest N units, re-sorted by cursor proximity on each press. Filter/append flags still come from the modifiers. Examples:
+
+```
+/luaui squad_setting set leftClickSteps 0.25 0.5 1   # 25% → 50% → 100% on successive Shift+clicks
+/luaui squad_setting set leftClickSteps 0.5          # always select the closest 50%
+/luaui squad_setting set leftClickSteps 5 10         # fixed counts
+/luaui squad_setting set leftClickSteps              # clear → back to whole-squad (equivalent to 1)
+```
+
+Append (Shift+click) always keeps growing the selection and extends into the next squad once the current one is exhausted. Replace (Ctrl+click) in portion mode snaps to the closest N each time. See [Portion selection](#portion-selection) for how step values work.
+
 **Right-click** (no modifiers) with a selection creates a squad from the selected squad-eligible units. The click still passes through to the engine, so the normal move command issues alongside the grouping.
 
 **Ctrl+right-click** (opt-in via `/luaui squad_setting toggle modifierRightClickCreatesSquad`) also creates a squad. Useful if you disabled plain right-click squad creation but still want a mouse shortcut. The click passes through to the engine, so it also issues Ctrl+RMB's move-in-formation command.
@@ -86,7 +97,7 @@ Mouse squad selections are skipped when clicking directly on a unit or when an a
 
 ### Cycling
 
-When you already have a full squad selected (or all matching types for filtered select), the action automatically excludes your current selection and finds the *next* closest squad. This lets you cycle through squads by pressing the same key repeatedly (can be disabled via `cyclingToNextSquad` in data/LuaUi/Config/BYAR.lua -> Squad Selection section).
+When you already have a full squad selected (or all matching types for filtered select), the action automatically excludes your current selection and finds the *next* closest squad. This lets you cycle through squads by pressing the same key repeatedly. `cyclingToNextSquad` (default on) controls this for **replace** actions only — append actions always cycle to the next squad when the current one is exhausted, since growing the selection across squads is the whole point of append.
 
 ### Filtered selection
 
@@ -237,6 +248,7 @@ These changes persist.
 | Setting                          | Default        | Description                                                                                    |
 | -------------------------------- | -------------- | ---------------------------------------------------------------------------------------------- |
 | `leftClickSelectsSquad`          | `true`         | Modifier+click on empty ground selects squads                                                  |
+| `leftClickSteps`                 | `[1]`          | Step values for left-click selection; `1` = whole squad, `0.5 1` = 50% then 100%, etc.         |
 | `cyclingToNextSquad`             | `true`         | Cycle to next squad when full squad is selected                                                |
 | `rightClickSquadCreate`          | `true`         | Right-click squad creation is active                                                           |
 | `modifierRightClickCreatesSquad` | `false`        | Ctrl+right-click also creates a squad (click passes through)                                   |
