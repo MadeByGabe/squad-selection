@@ -23,6 +23,8 @@ local config = {
 	modifierRightClickCreatesSquad = false, -- Ctrl+right-click creates a squad (click still passes through, so the engine's move-in-formation runs too which can cause issues)
 	doubleClickMs = 200, -- double right-click window (ms) — triggers squad_reassign instead of create
 	doubleClickPx = 5, -- max screen-pixel distance between the two clicks of a double
+	viewselectionDoubleTapMs = 300, -- second rapid same-place non-append squad-select tap (single-step, or multi-step at the last step) calls viewselection on the just-selected squad (0 disables)
+	viewselectionDoubleTapPx = 5, -- max screen-pixel distance between the two taps
 	showReserveSquads = true, -- when true, auto per-factory reserves + uncategorized reserve are visualized
 	visualizationMode = "convexHull", -- "convexHull" or "coloredLabel"
 	convexHullPadding = 60, -- space (in elmos) between the units and the hull boundary
@@ -104,6 +106,7 @@ local squad_sel_count = {} -- squad table -> number of selected units in it
 local selection_dirty = true -- forces a full recount on the first draw frame
 
 local last_rmb_create = nil -- { t = Spring timer, x = screen_x, y = screen_y } of most recent RMB that called create_squad_from_selection
+local last_squad_select = nil -- { t, x, y } of most recent whole-squad replace do_squad_select; armed for the double-tap viewselection gesture
 
 -------------------------------------------------------------------------------
 -- Debug
@@ -836,10 +839,31 @@ local function do_squad_select(opts)
 		return
 	end
 
+	local mx, my = spGetMouseState()
+
+	-- Compute the double-tap window match once — used by the early (single-
+	-- step) and late (multi-step at last step) trigger checks below.
+	local in_double_tap_window = false
+	if last_squad_select and config.viewselectionDoubleTapMs > 0 then
+		local dt_ms = spDiffTimers(spGetTimer(), last_squad_select.t, true)
+		local dx = mx - last_squad_select.x
+		local dy = my - last_squad_select.y
+		local px = config.viewselectionDoubleTapPx
+		in_double_tap_window = dt_ms < config.viewselectionDoubleTapMs and (dx * dx + dy * dy) < (px * px)
+	end
+
+	-- Double-tap viewselection (early): single-step replace always fires.
+	-- There's no step progression to preserve, so we can bail before the
+	-- expensive find_closest_squad work.
+	if in_double_tap_window and #steps == 1 and not opts.append then
+		spSendCommands("viewselection")
+		last_squad_select = nil
+		return
+	end
+
 	local sel = analyze_selection()
 	local filter_defs = opts.filter_defs
 	local group_set = opts.group_set
-	local whole_squad = #steps == 1 and steps[1] == 1
 
 	local target_squad = find_closest_squad(filter_defs, group_set, nil, wx, wz)
 	if not target_squad then
@@ -847,26 +871,42 @@ local function do_squad_select(opts)
 	end
 	local pool = build_pool(target_squad, filter_defs, group_set)
 
-	-- Whole-squad mode only needs the fully-selected boolean (use the short-
-	-- circuiting helper). Portion mode needs the count for step progression,
-	-- so count once and derive fully-selected from it.
+	-- Single-step calls (#steps == 1, any value) don't need current_in_pool —
+	-- target_count is a pure function of the step value and pool size. Use the
+	-- short-circuiting fully_selected check. Multi-step needs the count for
+	-- step progression.
 	local current_in_pool
 	local fully_selected
-	if whole_squad then
+	if #steps == 1 then
 		fully_selected = #pool > 0 and pool_fully_selected(pool, sel.selected_set)
 	else
 		current_in_pool = count_selected_in(pool, sel.selected_set)
 		fully_selected = #pool > 0 and current_in_pool == #pool
 	end
 
+	-- Double-tap viewselection (late): multi-step replace fires only when the
+	-- player has already reached the last step (no progression left), so
+	-- intermediate taps still advance through steps as normal.
+	if in_double_tap_window and #steps > 1 and not opts.append and #pool > 0
+		and current_in_pool >= step_to_count(steps[#steps], #pool) then
+		spSendCommands("viewselection")
+		last_squad_select = nil
+		return
+	end
+
 	if opts.cycle_when_full and fully_selected then
-		target_squad = find_closest_squad(filter_defs, group_set, sel.selected_set, wx, wz)
-		if not target_squad then
-			return
-		end
-		pool = build_pool(target_squad, filter_defs, group_set)
-		if not whole_squad then
-			current_in_pool = count_selected_in(pool, sel.selected_set)
+		-- If cycling finds no other squad (e.g. the player previously appended
+		-- their way through every squad so nothing is unselected), keep the
+		-- original target so a replace tap still replaces with the closest
+		-- squad instead of silently doing nothing. For append, the empty
+		-- pick_units result later short-circuits to a no-op.
+		local cycled_target = find_closest_squad(filter_defs, group_set, sel.selected_set, wx, wz)
+		if cycled_target then
+			target_squad = cycled_target
+			pool = build_pool(target_squad, filter_defs, group_set)
+			if #steps > 1 then
+				current_in_pool = count_selected_in(pool, sel.selected_set)
+			end
 		end
 	end
 
@@ -874,7 +914,12 @@ local function do_squad_select(opts)
 		return
 	end
 
-	local target_count = whole_squad and #pool or resolve_target_count(steps, #pool, current_in_pool)
+	local target_count
+	if #steps == 1 then
+		target_count = step_to_count(steps[1], #pool)
+	else
+		target_count = resolve_target_count(steps, #pool, current_in_pool)
+	end
 
 	if target_count < #pool then
 		sort_units_by_distance(pool, wx, wz)
@@ -885,6 +930,15 @@ local function do_squad_select(opts)
 	end
 	spSelectUnitArray(to_select, opts.append)
 	push_to_mru(target_squad)
+
+	-- Arm the gesture for any non-append call so the next tap can detect a
+	-- double-tap. Cleared on append.
+	if not opts.append then
+		last_squad_select = { t = spGetTimer(), x = mx, y = my }
+	else
+		last_squad_select = nil
+	end
+
 	log("Squad select [" .. (target_squad.letter or "?") .. "]: " .. #to_select .. "/" .. #pool .. (opts.append and " +append" or ""))
 end
 

@@ -96,6 +96,15 @@ Append (Shift+click) always keeps growing the selection and extends into the nex
 
 When you already have a full squad selected (or all matching types for filtered select), the action automatically excludes your current selection and finds the *next* closest squad. This lets you cycle through squads by pressing the same key repeatedly. `cyclingToNextSquad` (default on) controls this for **replace** actions only — append actions always cycle to the next squad when the current one is exhausted, since growing the selection across squads is the whole point of append.
 
+### Double-tap to focus camera
+
+Tap any non-append squad-select (hotkey or modifier-click) twice in quick succession at the same screen spot and the second tap centers the camera on the squad you just selected. (Same effect as the engine's `viewselection`)  
+Useful when the closest squad (or the squad you just cycled to) is off-screen: the first tap selects it, the second tap shows you where it is. Works on minimap too.
+
+Works for `closest_squad_select`, `closest_squad_select_filtered`, `squad_select_group`, the equivalent left-click commands, and any portion call (single-step like `leftClickSteps = 0.5`, or multi-step like `0.25 0.5 1` once you've already reached the last step so only a tap that *would* re-select the same count fires the gesture). 
+
+Append calls are skipped (their repeat semantics is "keep growing"). Tunables: `viewselectionDoubleTapMs` (default 300, set to 0 to disable) and `viewselectionDoubleTapPx` (default 5).
+
 ### Filtered selection
 
 Filtered selection is useful with some playstyles but unnecessary for others. If your main goal is to just create squads based on unit types (thugs, grunts, etc.), then you could just use autogroups or any kind of selection method to select the thugs, then right-click to create a squad for them, same with grunts. Then you can use the normal closest squad select to get the squad of thugs or grunts, or better yet, cycle between them.
@@ -246,6 +255,8 @@ These changes persist.
 | `modifierRightClickCreatesSquad` | `false`        | Ctrl+right-click also creates a squad (click passes through)                           |
 | `doubleClickMs`                  | `200`          | Max ms between two right-clicks for the double-click gesture (→ `squad_reassign`)      |
 | `doubleClickPx`                  | `5`            | Max screen-pixel distance between the two right-clicks of a double-click               |
+| `viewselectionDoubleTapMs`       | `300`          | Max ms between two single-step replace selects for the double-tap → `viewselection` gesture; `0` disables |
+| `viewselectionDoubleTapPx`       | `5`            | Max screen-pixel distance between the two taps of the `viewselection` double-tap       |
 | `visualizationMode`              | `"convexHull"` | `"coloredLabel"`, `"convexHull"`, (soon `"metaballs"`)                                 |
 | `showReserveSquads`              | `true`         | Visualize per-factory and uncategorized reserves as squads                             |
 
@@ -258,7 +269,7 @@ These changes persist.
 | `squad_setting get <key>`         | Prints the current value of a setting                       |
 | `squad_setting reload`            | Resets all settings to the defaults defined in the Lua file |
 
-*Note: for quickly centering the camera on the current selection (the equivalent of double-tapping a control group's number key), bind `viewselection` to a hotkey. See also the [recent-squad cycling](#recent-squad-cycling-mru) feature, which selects a recently-used squad and focuses the camera on it in one press.*
+*Note: for quickly centering the camera on the current selection (the equivalent of double-tapping a control group's number key), you can either double-tap a squad-select hotkey/click (see [Double-tap to focus camera](#double-tap-to-focus-camera)) or bind `viewselection` directly to a hotkey. See also the [recent-squad cycling](#recent-squad-cycling-mru) feature, which selects a recently-used squad and focuses the camera on it in one press.*
 
 ### Hotkey setup
 
