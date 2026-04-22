@@ -839,6 +839,7 @@ local function do_squad_select(opts)
 	local sel = analyze_selection()
 	local filter_defs = opts.filter_defs
 	local group_set = opts.group_set
+	local whole_squad = #steps == 1 and steps[1] == 1
 
 	local target_squad = find_closest_squad(filter_defs, group_set, nil, wx, wz)
 	if not target_squad then
@@ -846,20 +847,34 @@ local function do_squad_select(opts)
 	end
 	local pool = build_pool(target_squad, filter_defs, group_set)
 
-	if opts.cycle_when_full and #pool > 0 and pool_fully_selected(pool, sel.selected_set) then
+	-- Whole-squad mode only needs the fully-selected boolean (use the short-
+	-- circuiting helper). Portion mode needs the count for step progression,
+	-- so count once and derive fully-selected from it.
+	local current_in_pool
+	local fully_selected
+	if whole_squad then
+		fully_selected = #pool > 0 and pool_fully_selected(pool, sel.selected_set)
+	else
+		current_in_pool = count_selected_in(pool, sel.selected_set)
+		fully_selected = #pool > 0 and current_in_pool == #pool
+	end
+
+	if opts.cycle_when_full and fully_selected then
 		target_squad = find_closest_squad(filter_defs, group_set, sel.selected_set, wx, wz)
 		if not target_squad then
 			return
 		end
 		pool = build_pool(target_squad, filter_defs, group_set)
+		if not whole_squad then
+			current_in_pool = count_selected_in(pool, sel.selected_set)
+		end
 	end
 
 	if #pool == 0 then
 		return
 	end
 
-	local current_in_pool = count_selected_in(pool, sel.selected_set)
-	local target_count = resolve_target_count(steps, #pool, current_in_pool)
+	local target_count = whole_squad and #pool or resolve_target_count(steps, #pool, current_in_pool)
 
 	if target_count < #pool then
 		sort_units_by_distance(pool, wx, wz)
