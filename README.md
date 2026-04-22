@@ -18,7 +18,7 @@ Every factory (lab) gets its own **reserve squad**, and the squad-eligible units
 
 Squad-eligible means: unit can move and has no build options.
 
-**Creating squads:** Select some units and **right-click** (with no modifier keys held). Those units are pulled out of their current reserve squad into a new one.  (The default might change in the future to make it easier to use the widget without needing to learn how it works first)
+**Creating squads:** Select some units and **right-click** (with no modifier keys held). Those units are pulled out of their current reserve squad into a new one.
 
 The reason for the "no modifiers" requirement is that it allows you to use units without creating a new squad if that's what you want. For example, you can send multiple squads together to a target with shift and right mouse button which wouldn't merge them into one squad since shift is a modifier. Then you can use squad selection to easily select each squad individually near the target for good flanking micro.
 
@@ -53,7 +53,7 @@ bind Alt+Shift+sc_x  closest_squad_select_filtered append
 | `closest_squad_select_filtered`                      | Selects only the unit types (from your current selection or closest unit if nothing is selected) in the closest squad                                    |
 | `closest_squad_select_filtered append`               | Same, but appends to selection                                                                                                                           |
 | `squad_create_toggle`                                | Toggles right-click squad creation on/off (see next section)                                                                                             |
-| `squad_create`                                       | Creates a squad from the current selection (useful if you disable right-click squad creation) or you want to assign a lab to a squad                     |
+| `squad_create`                                       | Runs squad creation for the current selection                                                                                                            |
 | `squad_select_group N`                               | Select squad ∩ control group N closest to cursor                                                                                                         |
 | `squad_select_portion [append] <steps...>`           | Select a portion of the closest squad                                                                                                                    |
 | `squad_select_portion_filtered [append] <steps...>`  | Same, but filtered by unit type                                                                                                                          |
@@ -86,9 +86,9 @@ Mouse squad selections are skipped when clicking directly on a unit or when an a
 
 Append (Shift+click) always keeps growing the selection and extends into the next squad once the current one is exhausted. Replace (Ctrl+click) in portion mode snaps to the closest N each time. See [Portion selection](#portion-selection) for how step values work.
 
-**Right-click** (no modifiers) with a selection creates a squad from the selected squad-eligible units. The click still passes through to the engine, so the normal move command issues alongside the grouping.
+**Right-click** (no modifiers) with a selection runs `squad_create`: it creates a squad from selected squad-eligible combat units, and for factory-only selections it merges/splits factory reserve squads. The click still passes through to the engine, so the normal move command issues alongside the grouping.
 
-**Ctrl+right-click** (opt-in via `/luaui squad_setting toggle modifierRightClickCreatesSquad`) also creates a squad. Useful if you disabled plain right-click squad creation but still want a mouse shortcut. The click passes through to the engine, so it also issues Ctrl+RMB's move-in-formation command. Be careful with this one since it also turns on the keep slowest unit's speed option for move commands, you can turn that off with a normal right click, right click drag won't work.
+**Ctrl+right-click** (opt-in via `/luaui squad_setting toggle modifierRightClickCreatesSquad`) also runs `squad_create`. Useful if you disabled plain right-click squad creation but still want a mouse shortcut. The click passes through to the engine, so it also issues Ctrl+RMB's move-in-formation command. Be careful with this one since it also turns on the keep slowest unit's speed option for move commands, you can turn that off with a normal right click, right click drag won't work.
 
 **Double right-click** (either variant above) triggers `squad_reassign` instead of a second create — see the [Reassigning units](#reassigning-units-to-another-squad) section.
 
@@ -116,10 +116,10 @@ Right-click squad creation can be toggled on/off. (Detailed explanation for the 
 There's also an action to create a squad on demand (without needing right-click).
 
 
-| Action                | What it does                               |
-| --------------------- | ------------------------------------------ |
-| `squad_create`        | Creates a squad from the current selection |
-| `squad_create_toggle` | Toggles right-click squad creation on/off  |
+| Action                | What it does                                                                                           |
+| --------------------- | ------------------------------------------------------------------------------------------------------ |
+| `squad_create`        | Same create behavior as right-click, including factory reserve merge/split for factory-only selections |
+| `squad_create_toggle` | Toggles right-click squad creation on/off                                                              |
 
 ### Control group intersection
 
@@ -240,25 +240,25 @@ For now you can change settings in-game via chat commands like so:
 /luaui squad_setting toggle cyclingToNextSquad
 /luaui squad_setting set visualizationMode convexHull
 /luaui squad_setting set visualizationMode coloredLabel
-/luaui squad_setting set leftClickSteps 0.5 1
+/luaui squad_setting set leftClickSteps 0.5
 ```
 
 These changes persist.
 
 
-| Setting                          | Default        | Description                                                                            |
-| -------------------------------- | -------------- | -------------------------------------------------------------------------------------- |
-| `leftClickSelectsSquad`          | `true`         | Modifier+click on empty ground selects squads                                          |
-| `leftClickSteps`                 | `1`            | Step values for left-click selection; `1` = whole squad, `0.5 1` = 50% then 100%, etc. |
-| `cyclingToNextSquad`             | `true`         | Cycle to next squad when full squad is selected                                        |
-| `rightClickSquadCreate`          | `true`         | Right-click squad creation is active                                                   |
-| `modifierRightClickCreatesSquad` | `false`        | Ctrl+right-click also creates a squad (click passes through)                           |
-| `doubleClickMs`                  | `200`          | Max ms between two right-clicks for the double-click gesture (→ `squad_reassign`)      |
-| `doubleClickPx`                  | `5`            | Max screen-pixel distance between the two right-clicks of a double-click               |
+| Setting                          | Default        | Description                                                                                               |
+| -------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------- |
+| `leftClickSelectsSquad`          | `true`         | Modifier+click on empty ground selects squads                                                             |
+| `leftClickSteps`                 | `1`            | Step values for left-click selection; `1` = whole squad, `0.5 1` = 50% then 100%, etc.                    |
+| `cyclingToNextSquad`             | `true`         | Cycle to next squad when full squad is selected                                                           |
+| `rightClickSquadCreate`          | `true`         | Right-click squad creation is active                                                                      |
+| `modifierRightClickCreatesSquad` | `false`        | Ctrl+right-click also creates a squad (click passes through)                                              |
+| `doubleClickMs`                  | `200`          | Max ms between two right-clicks for the double-click gesture (→ `squad_reassign`)                         |
+| `doubleClickPx`                  | `5`            | Max screen-pixel distance between the two right-clicks of a double-click                                  |
 | `viewselectionDoubleTapMs`       | `300`          | Max ms between two single-step replace selects for the double-tap → `viewselection` gesture; `0` disables |
-| `viewselectionDoubleTapPx`       | `5`            | Max screen-pixel distance between the two taps of the `viewselection` double-tap       |
-| `visualizationMode`              | `"convexHull"` | `"coloredLabel"`, `"convexHull"`, (soon `"metaballs"`)                                 |
-| `showReserveSquads`              | `true`         | Visualize per-factory and uncategorized reserves as squads                             |
+| `viewselectionDoubleTapPx`       | `5`            | Max screen-pixel distance between the two taps of the `viewselection` double-tap                          |
+| `visualizationMode`              | `"convexHull"` | `"coloredLabel"`, `"convexHull"`, (soon `"metaballs"`)                                                    |
+| `showReserveSquads`              | `true`         | Visualize per-factory and uncategorized reserves as squads                                                |
 
 
 
@@ -322,7 +322,6 @@ bind Shift+sc_d gridmenu_key 2 3
 bind Shift+sc_d squad_cycle_idle
 
 bind Alt selectbox_same
-bind sc_b viewselection
 ```
 
 Then in game write `/keyreload` in chat to apply the changes if the game is already running.
@@ -338,9 +337,7 @@ With these changes `c` becomes squad selection, with shift it's append, with ctr
 
 `Space+1` is the group intersection selection for group 1, feel free to add more lines for more groups, or even rebind to different keys (maybe even replace `group select 1` and bind that to space+1).
 
-I added two bonus hotkeys. Hold `Alt` while you have a unit selected to draw a selectbox. That selectbox will select only the same unit types as the currently selected units. This is very useful together with the squad selection though it's less important now that we have portion selection. 
-
-I also bound `viewselection` to `b` for a quick camera centering on your current selection since that's not yet part of this widget. 
+I added a bonus hotkeys. Hold `Alt` while you have a unit selected to draw a selectbox. That selectbox will select only the same unit types as the currently selected units. This is very useful together with the squad selection though it's less important now that we have portion selection. 
 
 ### Guide to learn how it works
 
@@ -364,15 +361,16 @@ Press `ctrl+shift+c` to append 10 units to your selection from the same squad or
 
 Same with `x` but filtered by type and my hotkey example had different step values for `x`. 
 
-Note, you can use the closest unit selection (`ctrl+c` once) and then draw a selectbox with alt to select the same type of unit.
+Note, you can use the closest unit selection (`ctrl+c` once) and then draw a selectbox with alt to select the same type of unit in an area.
 
-Now build two vehicle plants and spam some rascals/rovers. Each vehicle plant has its own squad, so `c` will pick whichever squad is closest to your cursor. If you'd rather have both vehicle plants share one squad, select them and press `alt+c`.
+Now build two vehicle plants and spam some rascals/rovers. Each vehicle plant has its own squad, so `c` will pick whichever squad is closest to your cursor. If you'd rather have both vehicle plants share one squad, select them and press `alt+c` or just right click add a waypoint for them to merge them into one squad. If you want to assign different waypoints to each plant but still have them share a squad, you can shift right click or fight plus left click or do any other command that isn't a plain right click. 
 
-Select some units and right click. Selected squad-eligible units are now a squad of their own, pulled out of whichever reserve they were in. Everything above applies. If you don't want this behavior you can disable the right click squad creation and just use the `alt+c` hotkey to create squads from selected units when you want to.
+Select some units and right click. Selected squad-eligible units are now a squad of their own, pulled out of whichever reserve they were in. Everything above applies. If you don't want this behavior you can disable the right click squad creation and just use the `alt+c` hotkey to create squads from selected units when you want to or turn on the ctrl right click option.
 
-Reserves are visualized by default so you can see which labs own which units at a glance. If the extra labels are noisy, turn them off with `/luaui squad_setting toggle showReserveSquads` and only your explicitly created squads will be shown.
+If you don't want to bother with `c` and `x`, you can use `ctrl+leftclick` and `alt+ctrl+leftclick` respectively. Both can be used with shift to append instead of replace.  
 
-If you don't want to bother with `c` and `x`, you can use `ctrl+leftclick` and `alt+ctrl+leftclick` respectively. Both can be used with shift to append instead of replace.
+There are many options worth experimenting with. For example I use hotkeys to select full squads but I use `leftClickSteps = 0.5` to select half squads with the mouse to quickly split off a portion of a squad for micro.  
+There are also many convenience features like the double-tap to focus camera, the recent squad cycling, and the idle squad finder that you can set up hotkeys for and use to quickly jump between squads.
 
 ## Credits
 

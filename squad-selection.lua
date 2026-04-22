@@ -1633,7 +1633,7 @@ function widget:MousePress(x, y, button)
 					return true
 				end
 			end
-			create_squad_from_selection()
+			squad_create()
 			last_rmb_create = {
 				t = spGetTimer(),
 				x = x,
