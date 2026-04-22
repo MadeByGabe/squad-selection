@@ -28,7 +28,7 @@ local config = {
 	showReserveSquads = true, -- when true, auto per-factory reserves + uncategorized reserve are visualized
 	visualizationMode = "convexHull", -- "convexHull" or "coloredLabel"
 	convexHullPadding = 60, -- space (in elmos) between the units and the hull boundary
-	convexHullArcResolution = math.rad(30), -- angle that each chord of the arc spans
+	convexHullArcResolution = 0.4, -- angle that each chord of the arc spans in radians; smaller = smoother but more expensive
 	convexHullFillOpacity = 0.1,
 	convexHullBorderOpacity = 0.2,
 	convexHullBorderThickness = 2,
