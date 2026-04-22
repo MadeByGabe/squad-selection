@@ -887,8 +887,7 @@ local function do_squad_select(opts)
 	-- Double-tap viewselection (late): multi-step replace fires only when the
 	-- player has already reached the last step (no progression left), so
 	-- intermediate taps still advance through steps as normal.
-	if in_double_tap_window and #steps > 1 and not opts.append and #pool > 0
-		and current_in_pool >= step_to_count(steps[#steps], #pool) then
+	if in_double_tap_window and #steps > 1 and not opts.append and #pool > 0 and current_in_pool >= step_to_count(steps[#steps], #pool) then
 		spSendCommands("viewselection")
 		last_squad_select = nil
 		return
@@ -934,7 +933,11 @@ local function do_squad_select(opts)
 	-- Arm the gesture for any non-append call so the next tap can detect a
 	-- double-tap. Cleared on append.
 	if not opts.append then
-		last_squad_select = { t = spGetTimer(), x = mx, y = my }
+		last_squad_select = {
+			t = spGetTimer(),
+			x = mx,
+			y = my,
+		}
 	else
 		last_squad_select = nil
 	end
@@ -1611,12 +1614,12 @@ end
 -------------------------------------------------------------------------------
 function widget:MousePress(x, y, button)
 	local alt, ctrl, meta, shift = spGetModKeyState()
+	local cursor = spGetMouseCursor()
 	if button == 3 then
 		local plain = not (alt or ctrl or meta or shift)
 		local mod_combo = ctrl and not alt and not meta and not shift
 		local will_create = (config.rightClickSquadCreate and plain) or (config.modifierRightClickCreatesSquad and mod_combo)
-
-		if will_create then
+		if (will_create and cursor ~= "cursornormal") then
 			-- Double right-click within a small time/distance window becomes a
 			-- squad_reassign instead of a second create. The first click's
 			-- create still ran, but when the selection already matched an
@@ -1652,7 +1655,6 @@ function widget:MousePress(x, y, button)
 		if cmdID then
 			return
 		end
-		local cursor = spGetMouseCursor()
 		local hit_type = spTraceScreenRay(x, y)
 		local has_selection = spGetSelectedUnits()[1] ~= nil
 		-- hack to detect when the user isn't clicking on a button or other UI element
