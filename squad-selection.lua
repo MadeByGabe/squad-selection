@@ -1630,7 +1630,7 @@ function widget:MousePress(x, y, button)
 				if dt_ms < config.doubleClickMs and (dx * dx + dy * dy) < (px * px) then
 					squad_reassign()
 					last_rmb_create = nil
-					return
+					return true
 				end
 			end
 			create_squad_from_selection()
