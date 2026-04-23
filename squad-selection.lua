@@ -32,6 +32,7 @@ local config = {
 	convexHullFillOpacity = 0.1,
 	convexHullBorderOpacity = 0.2,
 	convexHullBorderThickness = 2,
+	idleHullColor = {0.35, 0.8, 1.0}, -- convexHull tint used when >=50% of a squad is idle
 	debug = false,
 }
 
@@ -104,6 +105,8 @@ local mru = {} -- most-recently-used squads, newest at index 1
 
 local squad_sel_count = {} -- squad table -> number of selected units in it
 local selection_dirty = true -- forces a full recount on the first draw frame
+local squad_idle_state = {} -- squad table -> true when >=50% of the squad is idle
+local idle_scan_index = 0 -- round-robin index into squads for incremental idle-state updates
 
 local last_rmb_create = nil -- { t = Spring timer, x = screen_x, y = screen_y } of most recent RMB that called create_squad_from_selection
 local last_squad_select = nil -- { t, x, y } of most recent whole-squad replace do_squad_select; armed for the double-tap viewselection gesture
@@ -143,6 +146,47 @@ end
 -- more readable way to limit a value at two ends
 local function constrain(x, min, max)
 	return math.max(min, math.min(max, x))
+end
+
+
+-- Recompute whether a squad is "idle" (>=50% units with no commands).
+local function refresh_squad_idle_state(sq)
+	local size = #sq
+	if size == 0 then
+		squad_idle_state[sq] = false
+		return false
+	end
+
+	local threshold = math.ceil(size * 0.5)
+	local idle = 0
+	for i = 1, size do
+		if spGetUnitCommands(sq[i], 0) == 0 then
+			idle = idle + 1
+			if idle >= threshold then
+				squad_idle_state[sq] = true
+				return true
+			end
+		end
+		if idle + (size - i) < threshold then
+			break
+		end
+	end
+
+	squad_idle_state[sq] = false
+	return false
+end
+
+
+local function sweep_idle_state()
+	local present = {}
+	for i = 1, #squads do
+		present[squads[i]] = true
+	end
+	for sq, _ in pairs(squad_idle_state) do
+		if not present[sq] then
+			squad_idle_state[sq] = nil
+		end
+	end
 end
 
 
@@ -228,6 +272,7 @@ local function add_to_squad(unit_id, squad)
 	squad[slot] = unit_id
 	unit_squad[unit_id] = squad
 	unit_slot[unit_id] = slot
+	squad_idle_state[squad] = false
 end
 
 
@@ -249,6 +294,7 @@ local function remove_from_squad(unit_id)
 	squad[#squad] = nil
 	unit_squad[unit_id] = nil
 	unit_slot[unit_id] = nil
+	squad_idle_state[squad] = false
 end
 
 
@@ -337,6 +383,7 @@ local function prune_empty_squads()
 		end
 	end
 	sweep_mru()
+	sweep_idle_state()
 end
 
 
@@ -1008,32 +1055,15 @@ local function squad_cycle_idle()
 	for offset = 1, n do
 		local sq = squads[((start_index - 1 + offset) % n) + 1]
 		local size = #sq
-		if size > 0 and (not sq.is_reserve or size > 10) then
-			local threshold = math.ceil(size * 0.5)
-			local idle = 0
-			local accepted = false
-			for j = 1, size do
-				if spGetUnitCommands(sq[j], 0) == 0 then
-					idle = idle + 1
-					if idle >= threshold then
-						accepted = true
-						break
-					end
-				end
-				if idle + (size - j) < threshold then
-					break
-				end
-			end
-			if accepted then
+		if size > 0 and squad_idle_state[sq] then
 				local units = {}
 				for j = 1, size do
 					units[j] = sq[j]
 				end
 				spSelectUnitArray(units)
 				spSendCommands("viewselection")
-				log("Idle squad [" .. (sq.letter or "?") .. "]: " .. idle .. "+ idle of " .. size)
+				log("Idle squad [" .. (sq.letter or "?") .. "]")
 				return
-			end
 		end
 	end
 
@@ -1389,6 +1419,8 @@ function widget:Initialize()
 	factory_squad = {}
 	unit_squad = {}
 	unit_slot = {}
+	squad_idle_state = {}
+	idle_scan_index = 0
 	next_squad_tag = 0
 
 	local tr, tg, tb = spGetTeamColor(spGetMyTeamID())
@@ -1481,6 +1513,24 @@ function widget:Initialize()
 
 	log("Initialized — " .. count .. " combat units in uncategorized reserve")
 	log_squads()
+end
+
+
+function widget:Update(dt)
+	if #squads == 0 then
+		idle_scan_index = 0
+		return
+	end
+
+	if idle_scan_index >= #squads then
+		idle_scan_index = 0
+	end
+	idle_scan_index = idle_scan_index + 1
+
+	local sq = squads[idle_scan_index]
+	if sq then
+		refresh_squad_idle_state(sq)
+	end
 end
 
 
@@ -1935,6 +1985,10 @@ function widget:DrawWorldPreUnit()
 	local arc_res = config.convexHullArcResolution
 	local tr, tg, tb = team_color[1], team_color[2], team_color[3]
 	local show_reserves = config.showReserveSquads
+	local idle_color = config.idleHullColor
+	local ir = idle_color and idle_color[1] or 0.35
+	local ig = idle_color and idle_color[2] or 0.8
+	local ib = idle_color and idle_color[3] or 1.0
 
 	glDepthTest(false)
 	glUseShader(hull_shader)
@@ -1947,6 +2001,8 @@ function widget:DrawWorldPreUnit()
 				local cr, cg, cb
 				if (squad_sel_count[squad] or 0) >= size then
 					cr, cg, cb = 1, 1, 1
+				elseif squad_idle_state[squad] then
+					cr, cg, cb = ir, ig, ib
 				else
 					cr, cg, cb = tr, tg, tb
 				end
