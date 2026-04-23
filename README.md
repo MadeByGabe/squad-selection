@@ -90,7 +90,9 @@ Append (Shift+click) always keeps growing the selection and extends into the nex
 
 **Right-click** (no modifiers) with a selection runs `squad_create`: it creates a squad from selected squad-eligible combat units, and for factory-only selections it merges/splits factory reserve squads. The click still passes through to the engine, so the normal move command issues alongside the grouping.
 
-**Ctrl+right-click** (opt-in via `/luaui squad_setting toggle modifierRightClickCreatesSquad`) also runs `squad_create`. Useful if you disabled plain right-click squad creation but still want a mouse shortcut. The click passes through to the engine, so it also issues Ctrl+RMB's move-in-formation command. Be careful with this one since it also turns on the keep slowest unit's speed option for move commands, you can turn that off with a normal right click, right click drag won't work.
+**Ctrl+right-click** (opt-in via `/luaui squad_setting toggle modifierRightClickCreatesSquad`) also runs `squad_create`. Useful if you disabled plain right-click squad creation but still want a mouse shortcut. The click passes through to the engine, so it also issues Ctrl+RMB's move-in-formation command. Be careful with this one since it also turns on the keep slowest unit's speed option for move commands, you can turn that off with a normal right click, right click drag won't work.  
+
+*You can avoid move-in-formation by drawing a line move while holding ctrl, or if you switch to fight mode first.*
 
 **Double right-click** (either variant above) triggers `squad_reassign` instead of a second create — see the [Reassigning units](#reassigning-units-to-another-squad) section.
 
@@ -210,11 +212,11 @@ bind Shift+sc_s squad_cycle_recent
 
 Squads you left behind (e.g. defenders you parked during an attack and forgot) are easy to lose track of. `squad_cycle_idle` walks your squads in order and selects the next one that's mostly idle, centering the camera on it. Press again to step to the next idle squad.
 
-A squad counts as idle when at least 50% of its units have no commands queued. Reserve squads (per-factory and uncategorized) are skipped unless they contain more than 10 units — otherwise a single idle newly-built unit would hijack the action.
+A squad counts as idle when at least 50% of its units have no commands queued. 
 
 Idle squads also get a distinct visualization color in convex-hull mode so they stand out when you're scanning the map.
 
-There is one special case for air: if an idle squad is entirely air units and those units are currently flying, then its convex hull fades out completely instead of leaving a big floating visual noise on the screen.
+There is one special case for air: if an idle squad is entirely strafing air units and those units are currently flying, then its convex hull fades out completely instead of leaving a big floating visual noise on the screen.
 
 Suggested keybind:
 ```

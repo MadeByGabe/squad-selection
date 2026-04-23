@@ -1469,6 +1469,7 @@ end
 
 -- Team color for unselected-squad hulls. Populated in widget:Initialize. 
 local team_color = {1, 1, 1}
+local idle_color = {1, 1, 1}
 
 function widget:Initialize()
 	if spGetSpectatingState() or spIsReplay() then
@@ -1489,6 +1490,8 @@ function widget:Initialize()
 
 	local tr, tg, tb = spGetTeamColor(spGetMyTeamID())
 	team_color[1], team_color[2], team_color[3] = tr or 1, tg or 1, tb or 1
+	-- Derive idle tint from team color by rotating channels: R<-B, G<-R, B<-G and making it darker.
+	idle_color[1], idle_color[2], idle_color[3] = team_color[2] * 0.2, team_color[3] * 0.2, team_color[1] * 0.2
 
 	classify_unitdefs()
 
@@ -1597,7 +1600,7 @@ function widget:Update(dt)
 	end
 
 	-- Animate color blend for all squads (cheap: no per-unit calls).
-	local step = constrain(dt * 7, 0, 1)
+	local step = constrain(dt * 2, 0, 1)
 	for i = 1, #squads do
 		local s = squads[i]
 		local target = squad_idle_state[s] and 1 or 0
@@ -2065,11 +2068,7 @@ function widget:DrawWorldPreUnit()
 	local border_thickness = config.convexHullBorderThickness
 	local padding = config.convexHullPadding
 	local arc_res = config.convexHullArcResolution
-	local tr, tg, tb = team_color[1], team_color[2], team_color[3]
 	local show_reserves = config.showReserveSquads
-	local ir = 0.8
-	local ig = 0.0
-	local ib = 0.0
 
 	glDepthTest(false)
 	glUseShader(hull_shader)
@@ -2092,9 +2091,9 @@ function widget:DrawWorldPreUnit()
 					if (squad_sel_count[squad] or 0) >= size then
 						cr, cg, cb = 1, 1, 1
 					else
-						cr = tr + (ir - tr) * idle_blend
-						cg = tg + (ig - tg) * idle_blend
-						cb = tb + (ib - tb) * idle_blend
+						cr = team_color[1] + (idle_color[1] - team_color[1]) * idle_blend
+						cg = team_color[2] + (idle_color[2] - team_color[2]) * idle_blend
+						cb = team_color[3] + (idle_color[3] - team_color[3]) * idle_blend
 					end
 
 					-- fill scratch_world in place (reuse {x,y} tables) and track
