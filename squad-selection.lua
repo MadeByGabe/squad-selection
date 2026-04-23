@@ -106,7 +106,15 @@ local squad_sel_count = {} -- squad table -> number of selected units in it
 local selection_dirty = true -- forces a full recount on the first draw frame
 local squad_idle_state = {} -- squad table -> true when >=50% of the squad is idle
 local squad_idle_blend = {} -- squad table -> 0..1 blend between team color and idle color
+local squad_hide_idle_air_hull = {} -- squad table -> true when an idle squad is entirely airborne air units
 local idle_scan_index = 0 -- round-robin index into squads for incremental idle-state updates
+
+-- Unit classification caches (declared early so utility helpers capture locals,
+-- not globals).
+local defid_of = {} -- unitID -> defID (false when lookup fails)
+local is_combat = {} -- defID -> bool
+local is_factory = {} -- defID -> bool (immobile with buildOptions)
+local is_air = {} -- defID -> bool (air unit type)
 
 local last_rmb_create = nil -- { t = Spring timer, x = screen_x, y = screen_y } of most recent RMB that called create_squad_from_selection
 local last_squad_select = nil -- { t, x, y } of most recent whole-squad replace do_squad_select; armed for the double-tap viewselection gesture
@@ -143,6 +151,8 @@ end
 -- Utility
 -------------------------------------------------------------------------------
 
+local AIR_HULL_HIDE_HEIGHT = 50 -- unit is considered flying when y is this much above ground
+
 -- more readable way to limit a value at two ends
 local function constrain(x, min, max)
 	return math.max(min, math.min(max, x))
@@ -154,17 +164,19 @@ local function refresh_squad_idle_state(sq)
 	local size = #sq
 	if size == 0 then
 		squad_idle_state[sq] = false
+		squad_hide_idle_air_hull[sq] = false
 		return false
 	end
 
 	local threshold = math.ceil(size * 0.5)
 	local idle = 0
+	local idle_reached = false
 	for i = 1, size do
 		if spGetUnitCommands(sq[i], 0) == 0 then
 			idle = idle + 1
 			if idle >= threshold then
-				squad_idle_state[sq] = true
-				return true
+				idle_reached = true
+				break
 			end
 		end
 		if idle + (size - i) < threshold then
@@ -172,8 +184,35 @@ local function refresh_squad_idle_state(sq)
 		end
 	end
 
-	squad_idle_state[sq] = false
-	return false
+	if not idle_reached then
+		squad_idle_state[sq] = false
+		squad_hide_idle_air_hull[sq] = false
+		return false
+	end
+
+	squad_idle_state[sq] = true
+
+	-- Hide hull only when the whole squad is air-capable and currently flying.
+	local hide_hull = true
+	for i = 1, size do
+		local u = sq[i]
+		local def_id = defid_of[u]
+		if not (def_id and is_air[def_id]) then
+			hide_hull = false
+			break
+		end
+		local x, y, z = spGetUnitPosition(u)
+		if not x then
+			hide_hull = false
+			break
+		end
+		if y <= spGetGroundHeight(x, z) + AIR_HULL_HIDE_HEIGHT then
+			hide_hull = false
+			break
+		end
+	end
+	squad_hide_idle_air_hull[sq] = hide_hull
+	return true
 end
 
 
@@ -186,6 +225,7 @@ local function sweep_idle_state()
 		if not present[sq] then
 			squad_idle_state[sq] = nil
 			squad_idle_blend[sq] = nil
+			squad_hide_idle_air_hull[sq] = nil
 		end
 	end
 end
@@ -225,15 +265,10 @@ local function assign_squad_tag(squad)
 end
 
 
--------------------------------------------------------------------------------
 -- Unit classification
 --
 -- is_combat[defID] — true if the unit type is squad-eligible.
 -------------------------------------------------------------------------------
-
-local defid_of = {} -- unitID -> defID  (false when lookup fails)
-local is_combat = {} -- defID  -> bool
-local is_factory = {} -- defID  -> bool (immobile with buildOptions)
 
 local function get_defid(unit_id)
 	local v = defid_of[unit_id]
@@ -260,6 +295,8 @@ local function classify_unitdefs()
 		if def.isFactory then
 			is_factory[defID] = true
 		end
+
+		is_air[defID] = def.canFly and true or false
 	end
 end
 
@@ -274,6 +311,7 @@ local function add_to_squad(unit_id, squad)
 	unit_squad[unit_id] = squad
 	unit_slot[unit_id] = slot
 	squad_idle_state[squad] = false
+	squad_hide_idle_air_hull[squad] = false
 end
 
 
@@ -296,6 +334,7 @@ local function remove_from_squad(unit_id)
 	unit_squad[unit_id] = nil
 	unit_slot[unit_id] = nil
 	squad_idle_state[squad] = false
+	squad_hide_idle_air_hull[squad] = false
 end
 
 
@@ -1422,6 +1461,7 @@ function widget:Initialize()
 	unit_slot = {}
 	squad_idle_state = {}
 	squad_idle_blend = {}
+	squad_hide_idle_air_hull = {}
 	idle_scan_index = 0
 	next_squad_tag = 0
 
@@ -2013,77 +2053,86 @@ function widget:DrawWorldPreUnit()
 		if not squad.is_reserve or show_reserves then
 			local size = #squad
 			if size > 0 then
-				local cr, cg, cb
-				if (squad_sel_count[squad] or 0) >= size then
-					cr, cg, cb = 1, 1, 1
-				else
-					local idle_blend = squad_idle_blend[squad] or 0
-					cr = tr + (ir - tr) * idle_blend
-					cg = tg + (ig - tg) * idle_blend
-					cb = tb + (ib - tb) * idle_blend
+				local idle_blend = squad_idle_blend[squad] or 0
+				local alpha_scale = 1
+				if squad_hide_idle_air_hull[squad] then
+					alpha_scale = 1 - idle_blend
 				end
 
-				-- fill scratch_world in place (reuse {x,y} tables) and track
-				-- the bbox in the same pass, so we can frustum-cull without a
-				-- second iteration.
-				local n_world = 0
-				local min_x, max_x, min_z, max_z = math.huge, -math.huge, math.huge, -math.huge
-				for i = 1, size do
-					local x, _, z = spGetUnitPosition(squad[i])
-					if x and z then
-						n_world = n_world + 1
-						local p = scratch_world[n_world]
-						if not p then
-							p = {}
-							scratch_world[n_world] = p
-						end
-						p.x = x
-						p.y = z
-						if x < min_x then
-							min_x = x
-						end
-						if x > max_x then
-							max_x = x
-						end
-						if z < min_z then
-							min_z = z
-						end
-						if z > max_z then
-							max_z = z
+				if alpha_scale <= 0.001 then
+					-- Fully hidden for idle flying-air squads.
+				else
+					local cr, cg, cb
+					if (squad_sel_count[squad] or 0) >= size then
+						cr, cg, cb = 1, 1, 1
+					else
+						cr = tr + (ir - tr) * idle_blend
+						cg = tg + (ig - tg) * idle_blend
+						cb = tb + (ib - tb) * idle_blend
+					end
+
+					-- fill scratch_world in place (reuse {x,y} tables) and track
+					-- the bbox in the same pass, so we can frustum-cull without a
+					-- second iteration.
+					local n_world = 0
+					local min_x, max_x, min_z, max_z = math.huge, -math.huge, math.huge, -math.huge
+					for i = 1, size do
+						local x, _, z = spGetUnitPosition(squad[i])
+						if x and z then
+							n_world = n_world + 1
+							local p = scratch_world[n_world]
+							if not p then
+								p = {}
+								scratch_world[n_world] = p
+							end
+							p.x = x
+							p.y = z
+							if x < min_x then
+								min_x = x
+							end
+							if x > max_x then
+								max_x = x
+							end
+							if z < min_z then
+								min_z = z
+							end
+							if z > max_z then
+								max_z = z
+							end
 						end
 					end
-				end
-				truncate(scratch_world, n_world)
+					truncate(scratch_world, n_world)
 
-				if n_world > 0 then
-					-- Frustum cull: enclose the squad + padding in one sphere
-					-- around the bbox centre. Vertical slop (256) covers
-					-- terrain variation under the ground-projected hull.
-					local cx = (min_x + max_x) * 0.5
-					local cz = (min_z + max_z) * 0.5
-					local hx = (max_x - min_x) * 0.5
-					local hz = (max_z - min_z) * 0.5
-					local cy = spGetGroundHeight(cx, cz)
-					local radius = math.sqrt(hx * hx + hz * hz) + padding + 256
-					local visible = (not spIsSphereInView) or spIsSphereInView(cx, cy, cz, radius)
+					if n_world > 0 then
+						-- Frustum cull: enclose the squad + padding in one sphere
+						-- around the bbox centre. Vertical slop (256) covers
+						-- terrain variation under the ground-projected hull.
+						local cx = (min_x + max_x) * 0.5
+						local cz = (min_z + max_z) * 0.5
+						local hx = (max_x - min_x) * 0.5
+						local hz = (max_z - min_z) * 0.5
+						local cy = spGetGroundHeight(cx, cz)
+						local radius = math.sqrt(hx * hx + hz * hz) + padding + 256
+						local visible = (not spIsSphereInView) or spIsSphereInView(cx, cy, cz, radius)
 
-					if visible then
-						local n = get_padded_hull(n_world, padding, arc_res)
-						if n >= 3 and n <= HULL_MAX_VERTICES then
-							local fi = 0
-							for i = 1, n do
-								local p = scratch_padded[i]
-								scratch_flat[fi + 1] = p.x
-								scratch_flat[fi + 2] = spGetGroundHeight(p.x, p.y)
-								scratch_flat[fi + 3] = p.y
-								fi = fi + 3
+						if visible then
+							local n = get_padded_hull(n_world, padding, arc_res)
+							if n >= 3 and n <= HULL_MAX_VERTICES then
+								local fi = 0
+								for i = 1, n do
+									local p = scratch_padded[i]
+									scratch_flat[fi + 1] = p.x
+									scratch_flat[fi + 2] = spGetGroundHeight(p.x, p.y)
+									scratch_flat[fi + 3] = p.y
+									fi = fi + 3
+								end
+
+								hull_vbo:Upload(scratch_flat, nil, nil, 1, fi)
+								glUniform(hull_color_loc, cr, cg, cb, fill_opacity * alpha_scale)
+								hull_vao:DrawArrays(GL.TRIANGLE_FAN, n)
+								glUniform(hull_color_loc, cr, cg, cb, border_opacity * alpha_scale)
+								hull_vao:DrawArrays(GL.LINE_LOOP, n)
 							end
-
-							hull_vbo:Upload(scratch_flat, nil, nil, 1, fi)
-							glUniform(hull_color_loc, cr, cg, cb, fill_opacity)
-							hull_vao:DrawArrays(GL.TRIANGLE_FAN, n)
-							glUniform(hull_color_loc, cr, cg, cb, border_opacity)
-							hull_vao:DrawArrays(GL.LINE_LOOP, n)
 						end
 					end
 				end
