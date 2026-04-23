@@ -57,9 +57,9 @@ bind Alt+Shift+sc_x  closest_squad_select_filtered append
 | `squad_create_toggle`                                | Toggles right-click squad creation on/off (see next section)                                                                                             |
 | `squad_create`                                       | Runs squad creation for the current selection                                                                                                            |
 | `squad_select_group N`                               | Select squad ∩ control group N closest to cursor                                                                                                         |
-| `squad_select_portion [append] <steps...>`           | Select a portion of the closest squad                                                                                                                    |
-| `squad_select_portion_filtered [append] <steps...>`  | Same, but filtered by unit type                                                                                                                          |
-| `squad_select_portion_group <N> [append] <steps...>` | Same, but limited to squad ∩ control group N (probably will be removed)                                                                                  |
+| `squad_select_portion [append] [distance_<N>] <steps...>`           | Select a portion of the closest squad                                                                                                     |
+| `squad_select_portion_filtered [append] [distance_<N>] <steps...>`  | Same, but filtered by unit type                                                                                                           |
+| `squad_select_portion_group <N> [append] [distance_<N>] <steps...>` | Same, but limited to squad ∩ control group N (probably will be removed)                                                                   |
 | `squad_cycle_recent`                                 | Select + focus camera on the most recently used squad; each press steps further back; wraps around (max 3 squads for now, probably will be configurable) |
 | `squad_cycle_idle`                                   | Select + focus camera on the next squad that's mostly idle; each press moves on to the next one                                                          |
 | `squad_reassign`                                     | Moves the selected units into the squad closest to the cursor and selects the full combined squad                                                        |
@@ -188,12 +188,18 @@ I know the above sounds a bit complicated and honestly it is, so here's a few ex
   - Then in replace mode the first press selects the 5 closest units, the second press replaces that selection with the 10 closest, then each press after that also replaces the selection with the 10 closest.
   - In append mode the first press selects 5, the second press adds 10 to it. Each press after that adds 10 more unselected units to the selection.
 
+**Distance cap (`distance_<N>`).** Add a token like `distance_800` anywhere in the bind to cap the pool to units within `N` world-distance of your cursor. The closest squad is still picked as normal, but only its units within the radius are considered, then the step percentage/count then resolves against that smaller pool. Handy for "grab 50% of the units near the front line without pulling in the stragglers behind".
+
+```
+bind Ctrl+Shift+c_c squad_select_portion 0.5 distance_800 append
+```
+
 
 | Action                                               | What it does                                 |
 | ---------------------------------------------------- | -------------------------------------------- |
-| `squad_select_portion [append] <steps...>`           | Select a portion of the closest squad        |
-| `squad_select_portion_filtered [append] <steps...>`  | Same, but filtered by unit type              |
-| `squad_select_portion_group <N> [append] <steps...>` | Same, but limited to squad ∩ control group N |
+| `squad_select_portion [append] [distance_<N>] <steps...>`           | Select a portion of the closest squad        |
+| `squad_select_portion_filtered [append] [distance_<N>] <steps...>`  | Same, but filtered by unit type              |
+| `squad_select_portion_group <N> [append] [distance_<N>] <steps...>` | Same, but limited to squad ∩ control group N |
 
 ### Recent-squad cycling (MRU)
 

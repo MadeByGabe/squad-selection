@@ -750,24 +750,33 @@ local function step_to_count(step, pool_size)
 end
 
 
---- Parse portion action args: optional "append" keyword + step numbers.
+--- Parse portion action args: optional "append" keyword, optional
+-- "distance_<N>" modifier that caps selection to units within N world-distance
+-- of the cursor, plus step numbers.
 local function parse_portion_args(args)
 	if not args then
-		return false, {}
+		return false, {}, nil
 	end
 	local append = false
 	local steps = {}
+	local max_distance
 	for i = 1, #args do
-		if args[i] == "append" then
+		local arg = args[i]
+		if arg == "append" then
 			append = true
+		elseif type(arg) == "string" and arg:sub(1, 9) == "distance_" then
+			local d = tonumber(arg:sub(10))
+			if d and d > 0 then
+				max_distance = d
+			end
 		else
-			local n = tonumber(args[i])
+			local n = tonumber(arg)
 			if n then
 				steps[#steps + 1] = n
 			end
 		end
 	end
-	return append, steps
+	return append, steps, max_distance
 end
 
 
@@ -791,12 +800,23 @@ end
 
 
 --- Build a squad's pool: the units in the squad matching the optional filters.
-local function build_pool(squad, filter_defs, group_set)
+-- If max_distance_sq is set, units farther than that from (wx,wz) are excluded.
+local function build_pool(squad, filter_defs, group_set, max_distance_sq, wx, wz)
 	local pool = {}
 	for j = 1, #squad do
 		local u = squad[j]
-		if not group_set or group_set[u] then
-			if not filter_defs or (defid_of[u] and filter_defs[defid_of[u]]) then
+		if (not group_set or group_set[u])
+			and (not filter_defs or (defid_of[u] and filter_defs[defid_of[u]])) then
+			if max_distance_sq then
+				local ux, _, uz = spGetUnitPosition(u)
+				if ux then
+					local dx = ux - wx
+					local dz = uz - wz
+					if dx * dx + dz * dz <= max_distance_sq then
+						pool[#pool + 1] = u
+					end
+				end
+			else
 				pool[#pool + 1] = u
 			end
 		end
@@ -922,6 +942,8 @@ end
 --   steps            array of step values; nil → {1} (whole pool),
 --   filter_defs      nil or defID set (narrow pool to matching types),
 --   group_set        nil or unitID set (narrow pool to group members),
+--   max_distance     nil or number — cap pool to units within that world
+--                    distance from the cursor,
 --   cycle_when_full  bool — when the closest squad's pool is already fully
 --                    selected, re-pick a squad with those units excluded
 -- }
@@ -963,12 +985,13 @@ local function do_squad_select(opts)
 	local sel = analyze_selection()
 	local filter_defs = opts.filter_defs
 	local group_set = opts.group_set
+	local max_distance_sq = opts.max_distance and opts.max_distance * opts.max_distance or nil
 
 	local target_squad = find_closest_squad(filter_defs, group_set, nil, wx, wz)
 	if not target_squad then
 		return
 	end
-	local pool = build_pool(target_squad, filter_defs, group_set)
+	local pool = build_pool(target_squad, filter_defs, group_set, max_distance_sq, wx, wz)
 
 	-- Single-step calls (#steps == 1, any value) don't need current_in_pool —
 	-- target_count is a pure function of the step value and pool size. Use the
@@ -1001,7 +1024,7 @@ local function do_squad_select(opts)
 		local cycled_target = find_closest_squad(filter_defs, group_set, sel.selected_set, wx, wz)
 		if cycled_target then
 			target_squad = cycled_target
-			pool = build_pool(target_squad, filter_defs, group_set)
+			pool = build_pool(target_squad, filter_defs, group_set, max_distance_sq, wx, wz)
 			if #steps > 1 then
 				current_in_pool = count_selected_in(pool, sel.selected_set)
 			end
@@ -1159,17 +1182,18 @@ end
 
 
 local function squad_select_portion(_, _, args)
-	local append, steps = parse_portion_args(args)
+	local append, steps, max_distance = parse_portion_args(args)
 	do_squad_select({
 		append = append,
 		steps = steps,
+		max_distance = max_distance,
 		cycle_when_full = append,
 	})
 end
 
 
 local function squad_select_portion_filtered(_, _, args)
-	local append, steps = parse_portion_args(args)
+	local append, steps, max_distance = parse_portion_args(args)
 	local wx, wz = get_mouse_world_pos()
 	if not wx then
 		return
@@ -1182,6 +1206,7 @@ local function squad_select_portion_filtered(_, _, args)
 		append = append,
 		steps = steps,
 		filter_defs = filter_defs,
+		max_distance = max_distance,
 		cycle_when_full = append,
 	})
 end
@@ -1199,11 +1224,12 @@ local function squad_select_portion_group(_, _, args)
 	for i = 2, #args do
 		remaining[#remaining + 1] = args[i]
 	end
-	local append, steps = parse_portion_args(remaining)
+	local append, steps, max_distance = parse_portion_args(remaining)
 	do_squad_select({
 		append = append,
 		steps = steps,
 		group_set = build_group_set(group_num),
+		max_distance = max_distance,
 		cycle_when_full = append,
 	})
 end
