@@ -75,9 +75,12 @@ local spGetMiniMapGeometry = Spring.GetMiniMapGeometry
 local spIsSphereInView = Spring.IsSphereInView
 local spGetTimer = Spring.GetTimer
 local spDiffTimers = Spring.DiffTimers
+local spGetViewGeometry = Spring.GetViewGeometry
 
 local glColor = gl.Color
 local glDepthTest = gl.DepthTest
+local glDepthMask = gl.DepthMask
+local glBlending = gl.Blending
 local glLineWidth = gl.LineWidth
 local glCreateShader = gl.CreateShader
 local glDeleteShader = gl.DeleteShader
@@ -229,13 +232,253 @@ end
 
 
 -------------------------------------------------------------------------------
--- Squad operations
+-- Squad marker — per-unit GPU-accelerated badge floating above each unit.
+--
+-- Pipeline:
+--   1. Quad VBO (4 vertices, TRIANGLE_STRIP) provides the billboard geometry.
+--   2. Instance VBO stores {color, instData} per tracked unit. instData.y
+--      indexes into the engine's per-unit SSBO, so the shader reads current
+--      positions directly — no per-frame upload from Lua.
+--   3. Vertex shader offsets the quad in clip space (constant screen-space
+--      size; markers don't shrink with distance).
+--   4. Fragment shader computes a circle SDF with anti-aliased edge.
+--
+-- Lifecycle: push/pop instances from add_to_squad/remove_from_squad so the VBO
+-- always mirrors live squad membership. Visibility of reserve squads is
+-- enforced by rebuild_markers() which runs on showReserveSquads toggle.
 -------------------------------------------------------------------------------
 
--- Forward declarations: these are defined later in the "Squad marker" section
--- but need to be callable from add_to_squad / remove_from_squad here.
-local push_marker_instance
-local pop_marker_instance
+-- InstanceVBOTable is a GL4 helper for per-instance data with engine SSBO
+-- unit-ID slots. Resolved lazily because some builds don't expose it on `gl`
+-- at widget-file-load time.
+local InstanceVBOTable
+
+local MARKER_SIZE_PX = 8 -- half-extent in screen pixels
+local MARKER_Y_OFFSET = 40 -- world units above unit center
+local MARKER_OPACITY = 0.85
+
+local marker_ready = false
+local marker_init_failed = false
+local marker_fail_reason = nil
+local marker_shader = nil
+local marker_u_viewport = nil
+local marker_u_yOffset = nil
+local marker_u_opacity = nil
+local marker_u_size = nil
+local markerInstanceVBO = nil
+local markerQuadVBO = nil
+local marker_instance_cache = {0, 0, 0,  0, 0, 0, 0}
+local last_show_reserves = nil
+
+-- Compatibility profile gives us gl_ModelViewProjectionMatrix without needing
+-- LuaShader's engine-preprocessing directives. SSBO binding number is just a
+-- GLSL layout qualifier — no engine preprocessing required.
+local marker_vs_src = [[
+#version 430 compatibility
+#extension GL_ARB_shader_storage_buffer_object : require
+#extension GL_ARB_shading_language_420pack : require
+
+layout (location = 0) in vec2 quadVertex;
+layout (location = 1) in vec3 color;
+layout (location = 2) in uvec4 instData;
+
+struct SUniformsBuffer {
+	uint composite;
+	uint unused2;
+	uint unused3;
+	uint unused4;
+
+	float maxHealth;
+	float health;
+	float unused5;
+	float unused6;
+
+	vec4 drawPos;
+	vec4 speed;
+	vec4[4] userDefined;
+};
+
+layout(std140, binding=1) readonly buffer UniformsBuffer {
+	SUniformsBuffer uni[];
+};
+
+uniform vec2 viewport;
+uniform float yOffset;
+uniform float size;
+
+out vec3 v_color;
+out vec2 v_localPos;
+
+void main() {
+	vec3 worldPos = uni[instData.y].drawPos.xyz;
+	worldPos.y += yOffset;
+
+	vec4 clip = gl_ModelViewProjectionMatrix * vec4(worldPos, 1.0);
+	vec2 ndcScale = vec2(2.0 / viewport.x, 2.0 / viewport.y) * size;
+	clip.xy += quadVertex * ndcScale * clip.w;
+
+	gl_Position = clip;
+	v_color = color;
+	v_localPos = quadVertex;
+}
+]]
+
+local marker_fs_src = [[
+#version 430 compatibility
+
+in vec3 v_color;
+in vec2 v_localPos;
+
+uniform float opacity;
+
+out vec4 fragColor;
+
+void main() {
+	float dist = length(v_localPos);
+	if (dist > 1.0) discard;
+	float edge = fwidth(dist);
+	float alpha = 1.0 - smoothstep(1.0 - edge, 1.0, dist);
+	fragColor = vec4(v_color, alpha * opacity);
+}
+]]
+
+local function init_gl_marker()
+	if marker_ready or marker_init_failed then
+		return marker_ready
+	end
+	InstanceVBOTable = InstanceVBOTable or gl.InstanceVBOTable
+	if not InstanceVBOTable then
+		local ok, mod = pcall(VFS.Include, "LuaUI/Include/InstanceVBOTable.lua")
+		if ok then InstanceVBOTable = mod end
+	end
+	if not glCreateShader or not InstanceVBOTable then
+		marker_fail_reason = "GL4 unavailable — createShader=" .. tostring(glCreateShader ~= nil)
+			.. " InstanceVBOTable=" .. tostring(InstanceVBOTable ~= nil)
+		marker_init_failed = true
+		return false
+	end
+
+	marker_shader = glCreateShader({
+		vertex = marker_vs_src,
+		fragment = marker_fs_src,
+	})
+	if not marker_shader then
+		local shaderLog = gl.GetShaderLog and gl.GetShaderLog() or "(no log)"
+		marker_fail_reason = "shader compile failed: " .. tostring(shaderLog)
+		marker_init_failed = true
+		return false
+	end
+	marker_u_viewport = glGetUniformLocation(marker_shader, "viewport")
+	marker_u_yOffset = glGetUniformLocation(marker_shader, "yOffset")
+	marker_u_opacity = glGetUniformLocation(marker_shader, "opacity")
+	marker_u_size = glGetUniformLocation(marker_shader, "size")
+
+	-- 4-vertex quad in [-1,1]^2 for TRIANGLE_STRIP
+	markerQuadVBO = glGetVBO(GL.ARRAY_BUFFER, false)
+	if not markerQuadVBO then
+		glDeleteShader(marker_shader)
+		marker_shader = nil
+		marker_init_failed = true
+		marker_fail_reason = "Marker quad VBO creation failed"
+		return false
+	end
+	markerQuadVBO:Define(4, {{id = 0, name = "quadVertex", size = 2}})
+	markerQuadVBO:Upload({-1,-1,  1,-1,  -1,1,  1,1})
+
+	local instanceLayout = {
+		{id = 1, name = "color",    size = 3},
+		{id = 2, name = "instData", size = 4, type = GL.UNSIGNED_INT},
+	}
+	markerInstanceVBO = InstanceVBOTable.makeInstanceVBOTable(instanceLayout, 128, "squadMarkerVBO", 2)
+	markerInstanceVBO.numVertices = 4
+	markerInstanceVBO.vertexVBO = markerQuadVBO
+	markerInstanceVBO.VAO = InstanceVBOTable.makeVAOandAttach(markerQuadVBO, markerInstanceVBO.instanceVBO)
+
+	marker_ready = true
+	return true
+end
+
+
+local marker_draw_logged = false
+
+
+local function cleanup_gl_marker()
+	if markerInstanceVBO and markerInstanceVBO.VAO then
+		markerInstanceVBO.VAO:Delete()
+	end
+	if markerQuadVBO then
+		markerQuadVBO:Delete()
+	end
+	if marker_shader then
+		glDeleteShader(marker_shader)
+	end
+	markerInstanceVBO = nil
+	markerQuadVBO = nil
+	marker_shader = nil
+	marker_u_viewport = nil
+	marker_u_yOffset = nil
+	marker_u_opacity = nil
+	marker_u_size = nil
+	marker_ready = false
+	marker_init_failed = false
+	last_show_reserves = nil
+end
+
+
+local function marker_visible(sq)
+	return sq and (not sq.is_reserve or config.showReserveSquads)
+end
+
+
+local function push_marker_instance(unit_id)
+	if not marker_ready then
+		return
+	end
+	local sq = unit_squad[unit_id]
+	if not sq or not sq.color or not marker_visible(sq) then
+		return
+	end
+	local c = sq.color
+	marker_instance_cache[1] = c[1]
+	marker_instance_cache[2] = c[2]
+	marker_instance_cache[3] = c[3]
+	InstanceVBOTable.pushElementInstance(markerInstanceVBO, marker_instance_cache, unit_id, true, false, unit_id)
+end
+
+
+local function pop_marker_instance(unit_id)
+	if not marker_ready then
+		return
+	end
+	if markerInstanceVBO.instanceIDtoIndex[unit_id] then
+		InstanceVBOTable.popElementInstance(markerInstanceVBO, unit_id)
+	end
+end
+
+
+-- Walk all squads and synchronize their markers with current visibility.
+-- Called on showReserveSquads toggle (or any wholesale state change).
+local function rebuild_markers()
+	if not marker_ready then
+		return
+	end
+	for _, sq in ipairs(squads) do
+		local visible = marker_visible(sq)
+		for j = 1, #sq do
+			local uid = sq[j]
+			if visible then
+				push_marker_instance(uid)
+			else
+				pop_marker_instance(uid)
+			end
+		end
+	end
+end
+
+
+-------------------------------------------------------------------------------
+-- Squad operations
+-------------------------------------------------------------------------------
 
 local function add_to_squad(unit_id, squad)
 	local slot = #squad + 1
@@ -1308,249 +1551,6 @@ end
 
 
 -------------------------------------------------------------------------------
--- Squad marker — per-unit GPU-accelerated badge floating above each unit.
---
--- Pipeline:
---   1. Quad VBO (4 vertices, TRIANGLE_STRIP) provides the billboard geometry.
---   2. Instance VBO stores {color_size, instData} per tracked unit. instData.y
---      indexes into the engine's per-unit SSBO, so the shader reads current
---      positions directly — no per-frame upload from Lua.
---   3. Vertex shader offsets the quad in clip space (constant screen-space
---      size; markers don't shrink with distance).
---   4. Fragment shader computes a circle SDF with anti-aliased edge.
---
--- Lifecycle: push/pop instances from add_to_squad/remove_from_squad so the VBO
--- always mirrors live squad membership. Visibility of reserve squads is
--- enforced by rebuild_markers() which runs on showReserveSquads toggle.
--------------------------------------------------------------------------------
-
--- InstanceVBOTable is a GL4 helper for per-instance data with engine SSBO
--- unit-ID slots. Resolved lazily because some builds don't expose it on `gl`
--- at widget-file-load time.
-local InstanceVBOTable
-
-local MARKER_SIZE_PX = 8 -- half-extent in screen pixels
-local MARKER_Y_OFFSET = 40 -- world units above unit center
-local MARKER_OPACITY = 0.85
-
-local marker_ready = false
-local marker_init_failed = false
-local marker_fail_reason = nil
-local marker_shader = nil
-local marker_u_viewport = nil
-local marker_u_yOffset = nil
-local marker_u_opacity = nil
-local markerInstanceVBO = nil
-local markerQuadVBO = nil
-local marker_instance_cache = {0, 0, 0, 0,  0, 0, 0, 0}
-local last_show_reserves = nil
-
--- Compatibility profile gives us gl_ModelViewProjectionMatrix without needing
--- LuaShader's engine-preprocessing directives. SSBO binding number is just a
--- GLSL layout qualifier — no engine preprocessing required.
-local marker_vs_src = [[
-#version 430 compatibility
-#extension GL_ARB_shader_storage_buffer_object : require
-#extension GL_ARB_shading_language_420pack : require
-
-layout (location = 0) in vec2 quadVertex;
-layout (location = 1) in vec4 color_size;
-layout (location = 2) in uvec4 instData;
-
-struct SUniformsBuffer {
-	uint composite;
-	uint unused2;
-	uint unused3;
-	uint unused4;
-
-	float maxHealth;
-	float health;
-	float unused5;
-	float unused6;
-
-	vec4 drawPos;
-	vec4 speed;
-	vec4[4] userDefined;
-};
-
-layout(std140, binding=1) readonly buffer UniformsBuffer {
-	SUniformsBuffer uni[];
-};
-
-uniform vec2 viewport;
-uniform float yOffset;
-
-out vec3 v_color;
-out vec2 v_localPos;
-
-void main() {
-	vec3 worldPos = uni[instData.y].drawPos.xyz;
-	worldPos.y += yOffset;
-
-	vec4 clip = gl_ModelViewProjectionMatrix * vec4(worldPos, 1.0);
-	vec2 ndcScale = vec2(2.0 / viewport.x, 2.0 / viewport.y) * color_size.w;
-	clip.xy += quadVertex * ndcScale * clip.w;
-
-	gl_Position = clip;
-	v_color = color_size.rgb;
-	v_localPos = quadVertex;
-}
-]]
-
-local marker_fs_src = [[
-#version 430 compatibility
-
-in vec3 v_color;
-in vec2 v_localPos;
-
-uniform float opacity;
-
-out vec4 fragColor;
-
-void main() {
-	float dist = length(v_localPos);
-	if (dist > 1.0) discard;
-	float edge = fwidth(dist);
-	float alpha = 1.0 - smoothstep(1.0 - edge, 1.0, dist);
-	fragColor = vec4(v_color, alpha * opacity);
-}
-]]
-
-local function init_gl_marker()
-	if marker_ready or marker_init_failed then
-		return marker_ready
-	end
-	InstanceVBOTable = InstanceVBOTable or gl.InstanceVBOTable
-	if not InstanceVBOTable then
-		local ok, mod = pcall(VFS.Include, "LuaUI/Include/InstanceVBOTable.lua")
-		if ok then InstanceVBOTable = mod end
-	end
-	if not glCreateShader or not InstanceVBOTable then
-		marker_fail_reason = "GL4 unavailable — createShader=" .. tostring(glCreateShader ~= nil)
-			.. " InstanceVBOTable=" .. tostring(InstanceVBOTable ~= nil)
-		marker_init_failed = true
-		return false
-	end
-
-	marker_shader = glCreateShader({
-		vertex = marker_vs_src,
-		fragment = marker_fs_src,
-	})
-	if not marker_shader then
-		local shaderLog = gl.GetShaderLog and gl.GetShaderLog() or "(no log)"
-		marker_fail_reason = "shader compile failed: " .. tostring(shaderLog)
-		marker_init_failed = true
-		return false
-	end
-	marker_u_viewport = glGetUniformLocation(marker_shader, "viewport")
-	marker_u_yOffset = glGetUniformLocation(marker_shader, "yOffset")
-	marker_u_opacity = glGetUniformLocation(marker_shader, "opacity")
-
-	-- 4-vertex quad in [-1,1]^2 for TRIANGLE_STRIP
-	markerQuadVBO = gl.GetVBO(GL.ARRAY_BUFFER, false)
-	if not markerQuadVBO then
-		glDeleteShader(marker_shader)
-		marker_shader = nil
-		marker_init_failed = true
-		marker_fail_reason = "Marker quad VBO creation failed"
-		return false
-	end
-	markerQuadVBO:Define(4, {{id = 0, name = "quadVertex", size = 2}})
-	markerQuadVBO:Upload({-1,-1,  1,-1,  -1,1,  1,1})
-
-	local instanceLayout = {
-		{id = 1, name = "color_size", size = 4},
-		{id = 2, name = "instData",   size = 4, type = GL.UNSIGNED_INT},
-	}
-	markerInstanceVBO = InstanceVBOTable.makeInstanceVBOTable(instanceLayout, 128, "squadMarkerVBO", 2)
-	markerInstanceVBO.numVertices = 4
-	markerInstanceVBO.vertexVBO = markerQuadVBO
-	markerInstanceVBO.VAO = InstanceVBOTable.makeVAOandAttach(markerQuadVBO, markerInstanceVBO.instanceVBO)
-
-	marker_ready = true
-	return true
-end
-
-
-local marker_draw_logged = false
-
-
-local function cleanup_gl_marker()
-	if markerInstanceVBO and markerInstanceVBO.VAO then
-		markerInstanceVBO.VAO:Delete()
-	end
-	if markerQuadVBO then
-		markerQuadVBO:Delete()
-	end
-	if marker_shader then
-		glDeleteShader(marker_shader)
-	end
-	markerInstanceVBO = nil
-	markerQuadVBO = nil
-	marker_shader = nil
-	marker_u_viewport = nil
-	marker_u_yOffset = nil
-	marker_u_opacity = nil
-	marker_ready = false
-	marker_init_failed = false
-	last_show_reserves = nil
-end
-
-
-local function marker_visible(sq)
-	return sq and (not sq.is_reserve or config.showReserveSquads)
-end
-
-
--- Assigned (not re-declared) to the forward-declared upvalues near add_to_squad.
-push_marker_instance = function(unit_id)
-	if not marker_ready then
-		return
-	end
-	local sq = unit_squad[unit_id]
-	if not sq or not sq.color or not marker_visible(sq) then
-		return
-	end
-	local c = sq.color
-	marker_instance_cache[1] = c[1]
-	marker_instance_cache[2] = c[2]
-	marker_instance_cache[3] = c[3]
-	marker_instance_cache[4] = MARKER_SIZE_PX
-	InstanceVBOTable.pushElementInstance(markerInstanceVBO, marker_instance_cache, unit_id, true, false, unit_id)
-end
-
-
-pop_marker_instance = function(unit_id)
-	if not marker_ready then
-		return
-	end
-	if markerInstanceVBO.instanceIDtoIndex[unit_id] then
-		InstanceVBOTable.popElementInstance(markerInstanceVBO, unit_id)
-	end
-end
-
-
--- Walk all squads and synchronize their markers with current visibility.
--- Called on showReserveSquads toggle (or any wholesale state change).
-local function rebuild_markers()
-	if not marker_ready then
-		return
-	end
-	for _, sq in ipairs(squads) do
-		local visible = marker_visible(sq)
-		for j = 1, #sq do
-			local uid = sq[j]
-			if visible then
-				push_marker_instance(uid)
-			else
-				pop_marker_instance(uid)
-			end
-		end
-	end
-end
-
-
--------------------------------------------------------------------------------
 -- Settings action — toggle/set config values from chat
 -- Usage:
 --   /luaui squad_setting toggle rightClickSquadCreate
@@ -1772,12 +1772,6 @@ function widget:Shutdown()
 	cleanup_gl_hull()
 	cleanup_gl_marker()
 	log("Shutdown")
-end
-
-
-function widget:ViewResize()
-	-- Viewport is re-read from Spring.GetViewGeometry() at draw time and pushed
-	-- as a uniform, so nothing to do here. (Kept for call-in completeness.)
 end
 
 
@@ -2022,20 +2016,21 @@ function widget:DrawWorld()
 		last_show_reserves = config.showReserveSquads
 	end
 
-	local vsx, vsy = Spring.GetViewGeometry()
+	local vsx, vsy = spGetViewGeometry()
 
-	gl.DepthTest(false)
-	gl.DepthMask(false)
-	gl.Blending(GL.SRC_ALPHA, GL.ONE_MINUS_SRC_ALPHA)
+	glDepthTest(false)
+	glDepthMask(false)
+	glBlending(GL.SRC_ALPHA, GL.ONE_MINUS_SRC_ALPHA)
 	glUseShader(marker_shader)
 	glUniform(marker_u_viewport, vsx, vsy)
 	glUniform(marker_u_yOffset, MARKER_Y_OFFSET)
 	glUniform(marker_u_opacity, MARKER_OPACITY)
+	glUniform(marker_u_size, MARKER_SIZE_PX)
 	markerInstanceVBO.VAO:DrawArrays(GL.TRIANGLE_STRIP, 4, 0, markerInstanceVBO.usedElements, 0)
 	glUseShader(0)
-	gl.Blending(GL.SRC_ALPHA, GL.ONE_MINUS_SRC_ALPHA)
-	gl.DepthMask(true)
-	gl.DepthTest(true)
+	glBlending(false)
+	glDepthMask(true)
+	glDepthTest(true)
 end
 
 
