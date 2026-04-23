@@ -195,7 +195,7 @@ I know the above sounds a bit complicated and honestly it is, so here's a few ex
 
 Control groups have a nice double-tap feature that moves the camera to the group. Squads don't have a number key, but the widget tracks the squads you most recently worked with so you can jump back and forth between them. The MRU holds 3 entries (will be configurable eventually).
 
-A squad is pushed onto the MRU whenever you create a squad (right-click or `squad_create`) or run one of the squad-selection actions (`closest_squad_select`, the filtered and group variants, and the portion actions). Plain click/box selection does not push. Reserves (per-factory and uncategorized) are never pushed, even when a squad-selection action targets them.
+A squad is pushed onto the MRU whenever you create a squad (right-click or `squad_create`) or run one of the squad-selection actions (`closest_squad_select`, the filtered and group variants, and the portion actions). Plain click/box selection does not push. 
 
 `squad_cycle_recent` selects the most recently pushed squad and centers the camera on it (via `viewselection`). Each press steps to the next entry in the MRU, wrapping around at the end. The step position is derived from the current selection rather than a stored cursor — if you change selection between presses, cycling rebases from wherever you are now.
 
@@ -209,6 +209,10 @@ bind Shift+sc_s squad_cycle_recent
 Squads you left behind (e.g. defenders you parked during an attack and forgot) are easy to lose track of. `squad_cycle_idle` walks your squads in order and selects the next one that's mostly idle, centering the camera on it. Press again to step to the next idle squad.
 
 A squad counts as idle when at least 50% of its units have no commands queued. Reserve squads (per-factory and uncategorized) are skipped unless they contain more than 10 units — otherwise a single idle newly-built unit would hijack the action.
+
+Idle squads also get a distinct visualization color in convex-hull mode so they stand out when you're scanning the map.
+
+There is one special case for air: if an idle squad is entirely air units and those units are currently flying, then its convex hull fades out completely instead of leaving a big floating visual noise on the screen.
 
 Suggested keybind:
 ```
