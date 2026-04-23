@@ -25,6 +25,7 @@ local config = {
 	doubleClickPx = 5, -- max screen-pixel distance between the two clicks of a double
 	viewselectionDoubleTapMs = 300, -- second rapid same-place non-append squad-select tap (single-step, or multi-step at the last step) calls viewselection on the just-selected squad (0 disables)
 	viewselectionDoubleTapPx = 5, -- max screen-pixel distance between the two taps
+	excludedUnitTypes = "", -- comma-separated unit names to exclude from squad tracking (e.g. "armrectr,cornecro")
 	showReserveSquads = true, -- when true, auto per-factory reserves + uncategorized reserve are visualized
 	visualizationMode = "convexHull", -- "convexHull" or "coloredLabel"
 	convexHullPadding = 60, -- space (in elmos) between the units and the hull boundary
@@ -295,6 +296,19 @@ local function classify_unitdefs()
 		end
 
 		is_air[defID] = def.canFly and true or false
+	end
+
+	-- Apply user exclusions.
+	if config.excludedUnitTypes and config.excludedUnitTypes ~= "" then
+		for name in config.excludedUnitTypes:gmatch("[^,]+") do
+			name = name:match("^%s*(.-)%s*$") -- trim whitespace
+			for defID, def in pairs(UnitDefs) do
+				if def.name == name then
+					is_combat[defID] = false
+					break
+				end
+			end
+		end
 	end
 end
 
@@ -1402,6 +1416,16 @@ local function squad_setting(_, _, args)
 		config[key] = not config[key]
 		spEcho("[Squad] " .. key .. " = " .. tostring(config[key]))
 	elseif action == "set" then
+		-- excludedUnitTypes collects all remaining args joined with commas.
+		if key == "excludedUnitTypes" then
+			local parts = {}
+			for i = 3, #args do
+				parts[#parts + 1] = args[i]
+			end
+			config[key] = table.concat(parts, ",")
+			spEcho("[Squad] excludedUnitTypes = \"" .. config[key] .. "\" (takes effect on next widget load)")
+			return
+		end
 		-- Table-typed keys collect all remaining numeric args as a list.
 		-- Passing no values clears the list (e.g. `squad_setting set leftClickSteps`).
 		if type(config[key]) == "table" then

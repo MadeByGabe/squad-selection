@@ -247,6 +247,7 @@ For now you can change settings in-game via chat commands like so:
 /luaui squad_setting set visualizationMode convexHull
 /luaui squad_setting set visualizationMode coloredLabel
 /luaui squad_setting set leftClickSteps 0.5
+/luaui squad_setting set excludedUnitTypes armrectr cornecro legrezbot
 ```
 
 These changes persist.
@@ -265,6 +266,7 @@ These changes persist.
 | `viewselectionDoubleTapPx`       | `5`            | Max screen-pixel distance between the two taps of the `viewselection` double-tap                          |
 | `visualizationMode`              | `"convexHull"` | `"coloredLabel"`, `"convexHull"`, (soon `"metaballs"`)                                                    |
 | `showReserveSquads`              | `true`         | Visualize per-factory and uncategorized reserves as squads                                                |
+| `excludedUnitTypes`              | `""`           | Comma or space separated unit IDs to exclude from squad tracking (e.g. `"armrectr,cornecro,legrezbot"`). Takes effect on next widget load. To find a unit's name, open its page on [beyondallreason.info](https://www.beyondallreason.info) — the name is the last segment of the URL (e.g. `https://www.beyondallreason.info/unit/cornecro`, cornecro = Graverobber). |
 
 
 
