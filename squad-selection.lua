@@ -1688,7 +1688,19 @@ function widget:UnitCreated(unit_id, unit_def_id, unit_team, builder_id)
 
 	if unit_def_id and is_combat[unit_def_id] then
 		local sq = (builder_id and factory_squad[builder_id]) or uncategorized_reserve
-		local was_fully_selected = sq.is_reserve and selection_is_existing_squad(spGetSelectedUnits()) == sq
+		local was_fully_selected = false
+		if sq.is_reserve and #sq > 0 then
+			local sel = spGetSelectedUnits()
+			local sel_set = {}
+			for _, u in ipairs(sel) do sel_set[u] = true end
+			was_fully_selected = true
+			for i = 1, #sq do
+				if not sel_set[sq[i]] then
+					was_fully_selected = false
+					break
+				end
+			end
+		end
 		add_to_squad(unit_id, sq)
 		if was_fully_selected then
 			spSelectUnitArray({unit_id}, true)
