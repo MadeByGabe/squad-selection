@@ -16,6 +16,8 @@ Jump straight to [installation](#installation) if you want to get going right aw
 
 Every factory (lab) gets its own **reserve squad**, and the squad-eligible units it builds start there. Units that don't come from a factory you built (gifted, resurrected, alive at widget load, etc.) go into a single catch-all **uncategorized reserve**. Reserve squads are visible by default — turn them off with `/luaui squad_setting set showReserveSquads false` if you'd rather only see squads you created explicitly.
 
+When you have a **full reserve squad selected** and the factory (or rez bot) produces a new unit into it, that unit is **automatically added to your selection**. This keeps your selection in sync as units roll off the production line without requiring any extra input.
+
 Squad-eligible means: unit can move and has no build options.
 
 **Creating squads:** Select some units and **right-click** (with no modifier keys held). Those units are pulled out of their current reserve squad into a new one.
