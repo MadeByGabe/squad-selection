@@ -592,6 +592,9 @@ local function create_squad_from_selection()
 	end
 	squads[#squads + 1] = new_squad
 	prune_empty_squads()
+	-- Selection itself didn't change, but selected units moved between squads.
+	-- Force DrawWorldPreUnit to rebuild per-squad selected counts.
+	selection_dirty = true
 	push_to_mru(new_squad)
 
 	log("New squad [" .. new_squad.letter .. "]: " .. #new_squad .. " units")
@@ -1279,6 +1282,9 @@ local function squad_reassign()
 
 	if moved > 0 then
 		prune_empty_squads()
+		-- Reassign changes squad membership under the current selection.
+		-- Recount selected units per squad before hull coloring.
+		selection_dirty = true
 		push_to_mru(target_squad)
 
 		-- Select the whole combined squad so the player can immediately act on it.
