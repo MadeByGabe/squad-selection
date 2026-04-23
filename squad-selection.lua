@@ -151,8 +151,6 @@ end
 -- Utility
 -------------------------------------------------------------------------------
 
-local AIR_HULL_HIDE_HEIGHT = 50 -- unit is considered flying when y is this much above ground
-
 -- more readable way to limit a value at two ends
 local function constrain(x, min, max)
 	return math.max(min, math.min(max, x))
@@ -206,7 +204,7 @@ local function refresh_squad_idle_state(sq)
 			hide_hull = false
 			break
 		end
-		if y <= spGetGroundHeight(x, z) + AIR_HULL_HIDE_HEIGHT then
+		if y <= spGetGroundHeight(x, z) + 50 then
 			hide_hull = false
 			break
 		end
@@ -342,14 +340,14 @@ end
 -- MRU (most-recently-used squads)
 --
 -- Push points are both inside create_squad_from_selection: successful squad
--- creation, and right-click on a selection that already matches an existing
--- non-reserve squad. Plain selection changes and command issuance do NOT push.
+-- creation, and right-click on a selection that already matches an existing squad. 
+-- Plain selection changes and command issuance do NOT push.
 -- Players who disable rightClickSquadCreate still populate the MRU via the
 -- squad_create action, which routes through the same function.
 -------------------------------------------------------------------------------
 
 local function push_to_mru(sq)
-	if not sq or sq.is_reserve then
+	if not sq then
 		return
 	end
 	for i = 1, #mru do
