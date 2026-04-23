@@ -1269,6 +1269,26 @@ local function squad_reassign()
 		return
 	end
 
+	-- If the selection is entirely inside target_squad, reassigning would be
+	-- a self-merge. Retry with that squad's units excluded to pick the next
+	-- closest instead; if none exists, we fall through and the main loop
+	-- harmlessly moves nothing.
+	local self_merge = true
+	for i = 1, #selected do
+		local sq = unit_squad[selected[i]]
+		if sq and sq ~= target_squad then
+			self_merge = false
+			break
+		end
+	end
+	if self_merge then
+		local exclude = {}
+		for i = 1, #target_squad do
+			exclude[target_squad[i]] = true
+		end
+		target_squad = find_closest_squad(nil, nil, exclude, wx, wz) or target_squad
+	end
+
 	local moved = 0
 	for i = 1, #selected do
 		local u = selected[i]
