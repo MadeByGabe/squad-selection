@@ -188,7 +188,7 @@ I know the above sounds a bit complicated and honestly it is, so here's a few ex
   - Then in replace mode the first press selects the 5 closest units, the second press replaces that selection with the 10 closest, then each press after that also replaces the selection with the 10 closest.
   - In append mode the first press selects 5, the second press adds 10 to it. Each press after that adds 10 more unselected units to the selection.
 
-**Distance cap (`distance_<N>`).** Add a token like `distance_800` anywhere in the bind to cap the pool to units within `N` world-distance of your cursor. The closest squad is still picked as normal, but only its units within the radius are considered, then the step percentage/count then resolves against that smaller pool. Handy for "grab 50% of the units near the front line without pulling in the stragglers behind".
+**Distance cap (`distance_<N>`).** Add a token like `distance_800` anywhere in the bind to cap selection by units within `N` world-distance of your cursor. The closest squad is still picked as normal, and the step percentage/count is resolved against that squad's full eligible pool first; then only units within the radius are actually selected. 
 
 ```
 bind Ctrl+Shift+c_c squad_select_portion 0.5 distance_800 append

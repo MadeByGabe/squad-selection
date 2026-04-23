@@ -991,25 +991,33 @@ local function do_squad_select(opts)
 	if not target_squad then
 		return
 	end
-	local pool = build_pool(target_squad, filter_defs, group_set, max_distance_sq, wx, wz)
+	local step_pool = build_pool(target_squad, filter_defs, group_set, nil, wx, wz)
+	local pool = step_pool
+	if max_distance_sq then
+		pool = build_pool(target_squad, filter_defs, group_set, max_distance_sq, wx, wz)
+	end
+
+	if #step_pool == 0 then
+		return
+	end
 
 	-- Single-step calls (#steps == 1, any value) don't need current_in_pool —
 	-- target_count is a pure function of the step value and pool size. Use the
 	-- short-circuiting fully_selected check. Multi-step needs the count for
 	-- step progression.
-	local current_in_pool
+	local current_in_step_pool
 	local fully_selected
 	if #steps == 1 then
 		fully_selected = #pool > 0 and pool_fully_selected(pool, sel.selected_set)
 	else
-		current_in_pool = count_selected_in(pool, sel.selected_set)
-		fully_selected = #pool > 0 and current_in_pool == #pool
+		current_in_step_pool = count_selected_in(step_pool, sel.selected_set)
+		fully_selected = #pool > 0 and count_selected_in(pool, sel.selected_set) == #pool
 	end
 
 	-- Double-tap viewselection (late): multi-step replace fires only when the
 	-- player has already reached the last step (no progression left), so
 	-- intermediate taps still advance through steps as normal.
-	if in_double_tap_window and #steps > 1 and not opts.append and #pool > 0 and current_in_pool >= step_to_count(steps[#steps], #pool) then
+	if in_double_tap_window and #steps > 1 and not opts.append and #pool > 0 and current_in_step_pool >= step_to_count(steps[#steps], #step_pool) then
 		spSendCommands("viewselection")
 		last_squad_select = nil
 		return
@@ -1024,9 +1032,13 @@ local function do_squad_select(opts)
 		local cycled_target = find_closest_squad(filter_defs, group_set, sel.selected_set, wx, wz)
 		if cycled_target then
 			target_squad = cycled_target
-			pool = build_pool(target_squad, filter_defs, group_set, max_distance_sq, wx, wz)
+			step_pool = build_pool(target_squad, filter_defs, group_set, nil, wx, wz)
+			pool = step_pool
+			if max_distance_sq then
+				pool = build_pool(target_squad, filter_defs, group_set, max_distance_sq, wx, wz)
+			end
 			if #steps > 1 then
-				current_in_pool = count_selected_in(pool, sel.selected_set)
+				current_in_step_pool = count_selected_in(step_pool, sel.selected_set)
 			end
 		end
 	end
@@ -1037,9 +1049,9 @@ local function do_squad_select(opts)
 
 	local target_count
 	if #steps == 1 then
-		target_count = step_to_count(steps[1], #pool)
+		target_count = step_to_count(steps[1], #step_pool)
 	else
-		target_count = resolve_target_count(steps, #pool, current_in_pool)
+		target_count = resolve_target_count(steps, #step_pool, current_in_step_pool)
 	end
 
 	if target_count < #pool then
