@@ -26,7 +26,7 @@ local config = {
 	viewselectionDoubleTapMs = 300, -- second rapid same-place non-append squad-select tap (single-step, or multi-step at the last step) calls viewselection on the just-selected squad (0 disables)
 	viewselectionDoubleTapPx = 5, -- max screen-pixel distance between the two taps
 	showReserveSquads = true, -- when true, auto per-factory reserves + uncategorized reserve are visualized
-	visualizationMode = "convexHull", -- "convexHull" or "coloredLabel"
+	visualizationMode = "convexHull", -- "convexHull" or "coloredMarker"
 	convexHullPadding = 60, -- space (in elmos) between the units and the hull boundary
 	convexHullArcResolution = 0.4, -- angle that each chord of the arc spans in radians; smaller = smoother but more expensive
 	convexHullFillOpacity = 0.1,
@@ -58,7 +58,6 @@ local spGetSelectedUnits = Spring.GetSelectedUnits
 local spSelectUnitArray = Spring.SelectUnitArray
 local spGetMouseState = Spring.GetMouseState
 local spTraceScreenRay = Spring.TraceScreenRay
-local spWorldToScreenCoords = Spring.WorldToScreenCoords
 local spIsGUIHidden = Spring.IsGUIHidden
 local spGetModKeyState = Spring.GetModKeyState
 local spGetSpectatingState = Spring.GetSpectatingState
@@ -78,7 +77,6 @@ local spGetTimer = Spring.GetTimer
 local spDiffTimers = Spring.DiffTimers
 
 local glColor = gl.Color
-local glText = gl.Text
 local glDepthTest = gl.DepthTest
 local glLineWidth = gl.LineWidth
 local glCreateShader = gl.CreateShader
@@ -155,27 +153,38 @@ end
 -- keyed unit list or #squad.
 -------------------------------------------------------------------------------
 
-local SQUAD_COLORS = { -- should be removed, use hue rotation instead with one sat/val combo
-	{1.0, 0.3, 0.3}, -- red
-	{0.3, 1.0, 0.3}, -- green
-	{0.3, 0.5, 1.0}, -- blue
-	{1.0, 1.0, 0.3}, -- yellow
-	{1.0, 0.3, 1.0}, -- magenta
-	{0.3, 1.0, 1.0}, -- cyan
-	{1.0, 0.6, 0.2}, -- orange
-	{0.7, 0.3, 1.0} -- purple
-}
+-- Golden-angle hue spacing gives maximally distinct colors for any N squads
+-- without a fixed palette. 0.381966 ≈ (3 - √5) / 2.
+local GOLDEN_HUE_STEP = 0.381966
+local SQUAD_SAT = 0.65
+local SQUAD_VAL = 0.7
 
 local SQUAD_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ+#@!$=&"
 local next_squad_tag = 0
 
 local FACTORY_RESERVE_COLOR = {1, 1, 1}
 
+local function hsv_to_rgb(h, s, v)
+	local i = math.floor(h * 6)
+	local f = h * 6 - i
+	local p = v * (1 - s)
+	local q = v * (1 - f * s)
+	local t = v * (1 - (1 - f) * s)
+	i = i % 6
+	if     i == 0 then return v, t, p
+	elseif i == 1 then return q, v, p
+	elseif i == 2 then return p, v, t
+	elseif i == 3 then return p, q, v
+	elseif i == 4 then return t, p, v
+	else               return v, p, q end
+end
+
 local function assign_squad_tag(squad)
 	next_squad_tag = next_squad_tag + 1
-	local ci = (next_squad_tag - 1) % #SQUAD_COLORS + 1
+	local hue = ((next_squad_tag - 1) * GOLDEN_HUE_STEP) % 1
 	local li = (next_squad_tag - 1) % #SQUAD_LETTERS + 1
-	squad.color = SQUAD_COLORS[ci]
+	local r, g, b = hsv_to_rgb(hue, SQUAD_SAT, SQUAD_VAL)
+	squad.color = {r, g, b}
 	squad.letter = SQUAD_LETTERS:sub(li, li)
 end
 
@@ -223,11 +232,17 @@ end
 -- Squad operations
 -------------------------------------------------------------------------------
 
+-- Forward declarations: these are defined later in the "Squad marker" section
+-- but need to be callable from add_to_squad / remove_from_squad here.
+local push_marker_instance
+local pop_marker_instance
+
 local function add_to_squad(unit_id, squad)
 	local slot = #squad + 1
 	squad[slot] = unit_id
 	unit_squad[unit_id] = squad
 	unit_slot[unit_id] = slot
+	push_marker_instance(unit_id)
 end
 
 
@@ -237,6 +252,8 @@ local function remove_from_squad(unit_id)
 	if not squad then
 		return
 	end
+
+	pop_marker_instance(unit_id)
 
 	local slot = unit_slot[unit_id]
 	local last = squad[#squad]
@@ -490,6 +507,11 @@ local function create_squad_from_selection()
 		new_squad.color, new_squad.letter = donor.color, donor.letter
 	else
 		assign_squad_tag(new_squad)
+	end
+	-- Color was nil when add_to_squad ran above, so push_marker_instance was
+	-- a no-op. Now that .color is set, push each unit's marker.
+	for i = 1, #new_squad do
+		push_marker_instance(new_squad[i])
 	end
 	squads[#squads + 1] = new_squad
 	prune_empty_squads()
@@ -1286,13 +1308,256 @@ end
 
 
 -------------------------------------------------------------------------------
+-- Squad marker — per-unit GPU-accelerated badge floating above each unit.
+--
+-- Pipeline:
+--   1. Quad VBO (4 vertices, TRIANGLE_STRIP) provides the billboard geometry.
+--   2. Instance VBO stores {color_size, instData} per tracked unit. instData.y
+--      indexes into the engine's per-unit SSBO, so the shader reads current
+--      positions directly — no per-frame upload from Lua.
+--   3. Vertex shader offsets the quad in clip space (constant screen-space
+--      size; markers don't shrink with distance).
+--   4. Fragment shader computes a circle SDF with anti-aliased edge.
+--
+-- Lifecycle: push/pop instances from add_to_squad/remove_from_squad so the VBO
+-- always mirrors live squad membership. Visibility of reserve squads is
+-- enforced by rebuild_markers() which runs on showReserveSquads toggle.
+-------------------------------------------------------------------------------
+
+-- InstanceVBOTable is a GL4 helper for per-instance data with engine SSBO
+-- unit-ID slots. Resolved lazily because some builds don't expose it on `gl`
+-- at widget-file-load time.
+local InstanceVBOTable
+
+local MARKER_SIZE_PX = 8 -- half-extent in screen pixels
+local MARKER_Y_OFFSET = 40 -- world units above unit center
+local MARKER_OPACITY = 0.85
+
+local marker_ready = false
+local marker_init_failed = false
+local marker_fail_reason = nil
+local marker_shader = nil
+local marker_u_viewport = nil
+local marker_u_yOffset = nil
+local marker_u_opacity = nil
+local markerInstanceVBO = nil
+local markerQuadVBO = nil
+local marker_instance_cache = {0, 0, 0, 0,  0, 0, 0, 0}
+local last_show_reserves = nil
+
+-- Compatibility profile gives us gl_ModelViewProjectionMatrix without needing
+-- LuaShader's engine-preprocessing directives. SSBO binding number is just a
+-- GLSL layout qualifier — no engine preprocessing required.
+local marker_vs_src = [[
+#version 430 compatibility
+#extension GL_ARB_shader_storage_buffer_object : require
+#extension GL_ARB_shading_language_420pack : require
+
+layout (location = 0) in vec2 quadVertex;
+layout (location = 1) in vec4 color_size;
+layout (location = 2) in uvec4 instData;
+
+struct SUniformsBuffer {
+	uint composite;
+	uint unused2;
+	uint unused3;
+	uint unused4;
+
+	float maxHealth;
+	float health;
+	float unused5;
+	float unused6;
+
+	vec4 drawPos;
+	vec4 speed;
+	vec4[4] userDefined;
+};
+
+layout(std140, binding=1) readonly buffer UniformsBuffer {
+	SUniformsBuffer uni[];
+};
+
+uniform vec2 viewport;
+uniform float yOffset;
+
+out vec3 v_color;
+out vec2 v_localPos;
+
+void main() {
+	vec3 worldPos = uni[instData.y].drawPos.xyz;
+	worldPos.y += yOffset;
+
+	vec4 clip = gl_ModelViewProjectionMatrix * vec4(worldPos, 1.0);
+	vec2 ndcScale = vec2(2.0 / viewport.x, 2.0 / viewport.y) * color_size.w;
+	clip.xy += quadVertex * ndcScale * clip.w;
+
+	gl_Position = clip;
+	v_color = color_size.rgb;
+	v_localPos = quadVertex;
+}
+]]
+
+local marker_fs_src = [[
+#version 430 compatibility
+
+in vec3 v_color;
+in vec2 v_localPos;
+
+uniform float opacity;
+
+out vec4 fragColor;
+
+void main() {
+	float dist = length(v_localPos);
+	if (dist > 1.0) discard;
+	float edge = fwidth(dist);
+	float alpha = 1.0 - smoothstep(1.0 - edge, 1.0, dist);
+	fragColor = vec4(v_color, alpha * opacity);
+}
+]]
+
+local function init_gl_marker()
+	if marker_ready or marker_init_failed then
+		return marker_ready
+	end
+	InstanceVBOTable = InstanceVBOTable or gl.InstanceVBOTable
+	if not InstanceVBOTable then
+		local ok, mod = pcall(VFS.Include, "LuaUI/Include/InstanceVBOTable.lua")
+		if ok then InstanceVBOTable = mod end
+	end
+	if not glCreateShader or not InstanceVBOTable then
+		marker_fail_reason = "GL4 unavailable — createShader=" .. tostring(glCreateShader ~= nil)
+			.. " InstanceVBOTable=" .. tostring(InstanceVBOTable ~= nil)
+		marker_init_failed = true
+		return false
+	end
+
+	marker_shader = glCreateShader({
+		vertex = marker_vs_src,
+		fragment = marker_fs_src,
+	})
+	if not marker_shader then
+		local shaderLog = gl.GetShaderLog and gl.GetShaderLog() or "(no log)"
+		marker_fail_reason = "shader compile failed: " .. tostring(shaderLog)
+		marker_init_failed = true
+		return false
+	end
+	marker_u_viewport = glGetUniformLocation(marker_shader, "viewport")
+	marker_u_yOffset = glGetUniformLocation(marker_shader, "yOffset")
+	marker_u_opacity = glGetUniformLocation(marker_shader, "opacity")
+
+	-- 4-vertex quad in [-1,1]^2 for TRIANGLE_STRIP
+	markerQuadVBO = gl.GetVBO(GL.ARRAY_BUFFER, false)
+	if not markerQuadVBO then
+		glDeleteShader(marker_shader)
+		marker_shader = nil
+		marker_init_failed = true
+		marker_fail_reason = "Marker quad VBO creation failed"
+		return false
+	end
+	markerQuadVBO:Define(4, {{id = 0, name = "quadVertex", size = 2}})
+	markerQuadVBO:Upload({-1,-1,  1,-1,  -1,1,  1,1})
+
+	local instanceLayout = {
+		{id = 1, name = "color_size", size = 4},
+		{id = 2, name = "instData",   size = 4, type = GL.UNSIGNED_INT},
+	}
+	markerInstanceVBO = InstanceVBOTable.makeInstanceVBOTable(instanceLayout, 128, "squadMarkerVBO", 2)
+	markerInstanceVBO.numVertices = 4
+	markerInstanceVBO.vertexVBO = markerQuadVBO
+	markerInstanceVBO.VAO = InstanceVBOTable.makeVAOandAttach(markerQuadVBO, markerInstanceVBO.instanceVBO)
+
+	marker_ready = true
+	return true
+end
+
+
+local marker_draw_logged = false
+
+
+local function cleanup_gl_marker()
+	if markerInstanceVBO and markerInstanceVBO.VAO then
+		markerInstanceVBO.VAO:Delete()
+	end
+	if markerQuadVBO then
+		markerQuadVBO:Delete()
+	end
+	if marker_shader then
+		glDeleteShader(marker_shader)
+	end
+	markerInstanceVBO = nil
+	markerQuadVBO = nil
+	marker_shader = nil
+	marker_u_viewport = nil
+	marker_u_yOffset = nil
+	marker_u_opacity = nil
+	marker_ready = false
+	marker_init_failed = false
+	last_show_reserves = nil
+end
+
+
+local function marker_visible(sq)
+	return sq and (not sq.is_reserve or config.showReserveSquads)
+end
+
+
+-- Assigned (not re-declared) to the forward-declared upvalues near add_to_squad.
+push_marker_instance = function(unit_id)
+	if not marker_ready then
+		return
+	end
+	local sq = unit_squad[unit_id]
+	if not sq or not sq.color or not marker_visible(sq) then
+		return
+	end
+	local c = sq.color
+	marker_instance_cache[1] = c[1]
+	marker_instance_cache[2] = c[2]
+	marker_instance_cache[3] = c[3]
+	marker_instance_cache[4] = MARKER_SIZE_PX
+	InstanceVBOTable.pushElementInstance(markerInstanceVBO, marker_instance_cache, unit_id, true, false, unit_id)
+end
+
+
+pop_marker_instance = function(unit_id)
+	if not marker_ready then
+		return
+	end
+	if markerInstanceVBO.instanceIDtoIndex[unit_id] then
+		InstanceVBOTable.popElementInstance(markerInstanceVBO, unit_id)
+	end
+end
+
+
+-- Walk all squads and synchronize their markers with current visibility.
+-- Called on showReserveSquads toggle (or any wholesale state change).
+local function rebuild_markers()
+	if not marker_ready then
+		return
+	end
+	for _, sq in ipairs(squads) do
+		local visible = marker_visible(sq)
+		for j = 1, #sq do
+			local uid = sq[j]
+			if visible then
+				push_marker_instance(uid)
+			else
+				pop_marker_instance(uid)
+			end
+		end
+	end
+end
+
+
+-------------------------------------------------------------------------------
 -- Settings action — toggle/set config values from chat
 -- Usage:
 --   /luaui squad_setting toggle rightClickSquadCreate
 --   /luaui squad_setting toggle modifierRightClickCreatesSquad
 --   /luaui squad_setting toggle cyclingToNextSquad
 --   /luaui squad_setting set visualizationMode convexHull
---   /luaui squad_setting set visualizationMode coloredLabel
+--   /luaui squad_setting set visualizationMode coloredMarker
 --   /luaui squad_setting get cyclingToNextSquad
 --   /luaui squad_setting reload
 -------------------------------------------------------------------------------
@@ -1422,6 +1687,12 @@ function widget:Initialize()
 		end
 	end
 
+	-- Marker VBO starts empty; rebuild from current squad state once GL4 is up.
+	if init_gl_marker() then
+		rebuild_markers()
+		last_show_reserves = config.showReserveSquads
+	end
+
 	widgetHandler:AddAction("closest_squad_select", closest_squad_select, nil, "p")
 	widgetHandler:AddAction("closest_squad_select_filtered", closest_squad_select_filtered, nil, "p")
 	widgetHandler:AddAction("squad_create_toggle", squad_create_toggle, nil, "p")
@@ -1499,7 +1770,14 @@ function widget:Shutdown()
 	widgetHandler:RemoveAction("squad_cycle_recent")
 	widgetHandler:RemoveAction("squad_cycle_idle")
 	cleanup_gl_hull()
+	cleanup_gl_marker()
 	log("Shutdown")
+end
+
+
+function widget:ViewResize()
+	-- Viewport is re-read from Spring.GetViewGeometry() at draw time and pushed
+	-- as a uniform, so nothing to do here. (Kept for call-in completeness.)
 end
 
 
@@ -1707,6 +1985,10 @@ function widget:SetConfigData(data)
 			config[key] = value
 		end
 	end
+	-- Migrate from the previous CPU-drawn label mode.
+	if config.visualizationMode == "coloredLabel" then
+		config.visualizationMode = "coloredMarker"
+	end
 end
 
 
@@ -1719,46 +2001,41 @@ end
 -- Drawing
 -------------------------------------------------------------------------------
 
-function widget:DrawScreenEffects()
-	if spIsGUIHidden() or config.visualizationMode ~= "coloredLabel" then
+function widget:DrawWorld()
+	if spIsGUIHidden() or config.visualizationMode ~= "coloredMarker" then
+		return
+	end
+	if not marker_ready and not init_gl_marker() then
+		if not marker_draw_logged then
+			spEcho("[Squad] DrawWorld: pipeline not ready. Reason:\n" .. tostring(marker_fail_reason))
+			marker_draw_logged = true
+		end
+		return
+	end
+	if not markerInstanceVBO or markerInstanceVBO.usedElements == 0 then
 		return
 	end
 
-	local show_reserves = config.showReserveSquads
-
-	for _, squad in ipairs(squads) do
-		if #squad > 0 and squad.color and squad.letter and (not squad.is_reserve or show_reserves) then
-			local c = squad.color
-			glColor(c[1], c[2], c[3], 0.75)
-			for j = 1, #squad do
-				local _, _, _, x, y, z = spGetUnitPosition(squad[j], true)
-				if x then
-					local sx, sy = spWorldToScreenCoords(x, y, z - 40)
-					if sx then
-						glText(squad.letter, sx, sy, 10, "co")
-					end
-				end
-			end
-		end
-		glColor(1, 1, 1, 1)
+	-- Pick up showReserveSquads toggles between frames.
+	if last_show_reserves ~= config.showReserveSquads then
+		rebuild_markers()
+		last_show_reserves = config.showReserveSquads
 	end
 
-	-- Draw labels on factory buildings (all factories are reserves now).
-	if show_reserves then
-		for fid, sq in pairs(factory_squad) do
-			local c = sq.color
-			glColor(c[1], c[2], c[3], 0.75)
-			local _, _, _, x, y, z = spGetUnitPosition(fid, true)
-			if x then
-				local sx, sy = spWorldToScreenCoords(x, y, z)
-				if sx then
-					glText(sq.letter, sx, sy + 14, 16, "co")
-				end
-			end
-		end
-	end
+	local vsx, vsy = Spring.GetViewGeometry()
 
-	glColor(1, 1, 1, 1)
+	gl.DepthTest(false)
+	gl.DepthMask(false)
+	gl.Blending(GL.SRC_ALPHA, GL.ONE_MINUS_SRC_ALPHA)
+	glUseShader(marker_shader)
+	glUniform(marker_u_viewport, vsx, vsy)
+	glUniform(marker_u_yOffset, MARKER_Y_OFFSET)
+	glUniform(marker_u_opacity, MARKER_OPACITY)
+	markerInstanceVBO.VAO:DrawArrays(GL.TRIANGLE_STRIP, 4, 0, markerInstanceVBO.usedElements, 0)
+	glUseShader(0)
+	gl.Blending(GL.SRC_ALPHA, GL.ONE_MINUS_SRC_ALPHA)
+	gl.DepthMask(true)
+	gl.DepthTest(true)
 end
 
 
