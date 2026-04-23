@@ -115,7 +115,7 @@ local idle_scan_index = 0 -- round-robin index into squads for incremental idle-
 local defid_of = {} -- unitID -> defID (false when lookup fails)
 local is_combat = {} -- defID -> bool
 local is_factory = {} -- defID -> bool (immobile with buildOptions)
-local is_air = {} -- defID -> bool (air unit type)
+local is_strafing_air = {} -- defID -> bool (air units that strafe/fly around while idle)
 
 local last_rmb_create = nil -- { t = Spring timer, x = screen_x, y = screen_y } of most recent RMB that called create_squad_from_selection
 local last_squad_select = nil -- { t, x, y } of most recent whole-squad replace do_squad_select; armed for the double-tap viewselection gesture
@@ -191,12 +191,12 @@ local function refresh_squad_idle_state(sq)
 
 	squad_idle_state[sq] = true
 
-	-- Hide hull only when the whole squad is air-capable and currently flying.
+	-- Hide hull only when the whole squad is strafing-air and currently flying.
 	local hide_hull = true
 	for i = 1, size do
 		local u = sq[i]
 		local def_id = defid_of[u]
-		if not (def_id and is_air[def_id]) then
+		if not (def_id and is_strafing_air[def_id]) then
 			hide_hull = false
 			break
 		end
@@ -295,7 +295,7 @@ local function classify_unitdefs()
 			is_factory[defID] = true
 		end
 
-		is_air[defID] = def.canFly and true or false
+		is_strafing_air[defID] = def.isStrafingAirUnit and true or false
 	end
 
 	-- Apply user exclusions.
