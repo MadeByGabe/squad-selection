@@ -1175,25 +1175,28 @@ local function closest_squad_select(_, _, args)
 		append = append,
 		cycle_when_full = append or config.cyclingToNextSquad,
 	})
+	return true
 end
 
 
 local function squad_create_toggle()
 	config.rightClickSquadCreate = not config.rightClickSquadCreate
 	spEcho("[Squad] Squad creation " .. (config.rightClickSquadCreate and "enabled" or "disabled"))
+	return true
 end
 
 
 local function squad_create()
 	assign_factory_squad()
 	create_squad_from_selection()
+	return true
 end
 
 
 local function squad_cycle_recent()
 	if #mru == 0 then
 		spEcho("[Squad] MRU is empty")
-		return
+		return true
 	end
 	local current_squad = selection_is_existing_squad(spGetSelectedUnits())
 	local current_index = 0
@@ -1204,12 +1207,13 @@ local function squad_cycle_recent()
 		end
 	end
 	recall_mru((current_index % #mru) + 1)
+	return true
 end
 
 
 local function squad_cycle_idle()
 	if #squads == 0 then
-		return
+		return true
 	end
 
 	local current_squad = selection_is_existing_squad(spGetSelectedUnits())
@@ -1235,22 +1239,23 @@ local function squad_cycle_idle()
 			spSelectUnitArray(units)
 			spSendCommands("viewselection")
 			log("Idle squad [", sq.letter or "?", "]")
-			return
+			return true
 		end
 	end
 
 	spEcho("[Squad] No idle squads found")
+	return true
 end
 
 
 local function closest_squad_select_filtered(_, _, args)
 	local wx, wz = get_mouse_world_pos()
 	if not wx then
-		return
+		return true
 	end
 	local filter_defs = resolve_filter_defs(analyze_selection(), wx, wz)
 	if not filter_defs then
-		return
+		return true
 	end
 	local append = args and args[1] == "append"
 	do_squad_select({
@@ -1258,16 +1263,17 @@ local function closest_squad_select_filtered(_, _, args)
 		filter_defs = filter_defs,
 		cycle_when_full = append or config.cyclingToNextSquad,
 	})
+	return true
 end
 
 
 local function squad_select_group(_, _, args)
 	if not args or not args[1] then
-		return
+		return true
 	end
 	local group_num = tonumber(args[1])
 	if not group_num then
-		return
+		return true
 	end
 	local append = args[2] == "append"
 	do_squad_select({
@@ -1275,6 +1281,7 @@ local function squad_select_group(_, _, args)
 		group_set = build_group_set(group_num),
 		cycle_when_full = append or config.cyclingToNextSquad,
 	})
+	return true
 end
 
 
@@ -1286,6 +1293,7 @@ local function squad_select_portion(_, _, args)
 		max_distance = max_distance,
 		cycle_when_full = append,
 	})
+	return true
 end
 
 
@@ -1293,11 +1301,11 @@ local function squad_select_portion_filtered(_, _, args)
 	local append, steps, max_distance = parse_portion_args(args)
 	local wx, wz = get_mouse_world_pos()
 	if not wx then
-		return
+		return true
 	end
 	local filter_defs = resolve_filter_defs(analyze_selection(), wx, wz)
 	if not filter_defs then
-		return
+		return true
 	end
 	do_squad_select({
 		append = append,
@@ -1306,16 +1314,17 @@ local function squad_select_portion_filtered(_, _, args)
 		max_distance = max_distance,
 		cycle_when_full = append,
 	})
+	return true
 end
 
 
 local function squad_select_portion_group(_, _, args)
 	if not args or not args[1] then
-		return
+		return true
 	end
 	local group_num = tonumber(args[1])
 	if not group_num then
-		return
+		return true
 	end
 	local remaining = {}
 	for i = 2, #args do
@@ -1329,6 +1338,7 @@ local function squad_select_portion_group(_, _, args)
 		max_distance = max_distance,
 		cycle_when_full = append,
 	})
+	return true
 end
 
 
@@ -1597,17 +1607,17 @@ function widget:Initialize()
 		end
 	end
 
-	widgetHandler:AddAction("closest_squad_select", closest_squad_select, nil, "p")
-	widgetHandler:AddAction("closest_squad_select_filtered", closest_squad_select_filtered, nil, "p")
-	widgetHandler:AddAction("squad_create_toggle", squad_create_toggle, nil, "p")
-	widgetHandler:AddAction("squad_create", squad_create, nil, "p")
-	widgetHandler:AddAction("squad_select_group", squad_select_group, nil, "p")
-	widgetHandler:AddAction("squad_select_portion", squad_select_portion, nil, "p")
-	widgetHandler:AddAction("squad_select_portion_filtered", squad_select_portion_filtered, nil, "p")
-	widgetHandler:AddAction("squad_select_portion_group", squad_select_portion_group, nil, "p")
+	widgetHandler:AddAction("closest_squad_select", closest_squad_select, nil, "pt")
+	widgetHandler:AddAction("closest_squad_select_filtered", closest_squad_select_filtered, nil, "pt")
+	widgetHandler:AddAction("squad_create_toggle", squad_create_toggle, nil, "pt")
+	widgetHandler:AddAction("squad_create", squad_create, nil, "pt")
+	widgetHandler:AddAction("squad_select_group", squad_select_group, nil, "pt")
+	widgetHandler:AddAction("squad_select_portion", squad_select_portion, nil, "pt")
+	widgetHandler:AddAction("squad_select_portion_filtered", squad_select_portion_filtered, nil, "pt")
+	widgetHandler:AddAction("squad_select_portion_group", squad_select_portion_group, nil, "pt")
 	widgetHandler:AddAction("squad_setting", squad_setting, nil, "t")
-	widgetHandler:AddAction("squad_cycle_recent", squad_cycle_recent, nil, "p")
-	widgetHandler:AddAction("squad_cycle_idle", squad_cycle_idle, nil, "p")
+	widgetHandler:AddAction("squad_cycle_recent", squad_cycle_recent, nil, "pt")
+	widgetHandler:AddAction("squad_cycle_idle", squad_cycle_idle, nil, "pt")
 
 	-- WG interface for gui_options.lua integration. Auto-generates
 	-- get<Key>/set<Key> pairs for every exposed config key.
