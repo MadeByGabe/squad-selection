@@ -1180,7 +1180,7 @@ end
 -- Action handlers (thin wrappers over do_squad_select)
 -------------------------------------------------------------------------------
 
-local function closest_squad_select(_, _, args)
+local function squad_select(_, _, args)
 	local append = args and args[1] == "append"
 	do_squad_select({
 		append = append,
@@ -1259,7 +1259,7 @@ local function squad_cycle_idle()
 end
 
 
-local function closest_squad_select_filtered(_, _, args)
+local function squad_select_filtered(_, _, args)
 	local wx, wz = get_mouse_world_pos()
 	if not wx then
 		return true
@@ -1618,8 +1618,8 @@ function widget:Initialize()
 		end
 	end
 
-	widgetHandler:AddAction("closest_squad_select", closest_squad_select, nil, "pt")
-	widgetHandler:AddAction("closest_squad_select_filtered", closest_squad_select_filtered, nil, "pt")
+	widgetHandler:AddAction("squad_select", squad_select, nil, "pt")
+	widgetHandler:AddAction("squad_select_filtered", squad_select_filtered, nil, "pt")
 	widgetHandler:AddAction("squad_create_toggle", squad_create_toggle, nil, "pt")
 	widgetHandler:AddAction("squad_create", squad_create, nil, "pt")
 	widgetHandler:AddAction("squad_select_group", squad_select_group, nil, "pt")
@@ -1687,8 +1687,8 @@ end
 
 function widget:Shutdown()
 	WG['squadselection'] = nil
-	widgetHandler:RemoveAction("closest_squad_select")
-	widgetHandler:RemoveAction("closest_squad_select_filtered")
+	widgetHandler:RemoveAction("squad_select")
+	widgetHandler:RemoveAction("squad_select_filtered")
 	widgetHandler:RemoveAction("squad_create_toggle")
 	widgetHandler:RemoveAction("squad_create")
 	widgetHandler:RemoveAction("squad_select_group")

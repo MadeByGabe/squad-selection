@@ -44,20 +44,20 @@ All selection methods can be used with shift to append to the current selection 
 If you want to use hotkeys instead of mouse (or in addition to), you can bind the following actions in your `uikeys.txt`:
 
 ```
-bind           sc_c  closest_squad_select
-bind     Shift+sc_c  closest_squad_select append
-bind       Alt+sc_x  closest_squad_select_filtered
-bind Alt+Shift+sc_x  closest_squad_select_filtered append
+bind           sc_c  squad_select
+bind     Shift+sc_c  squad_select append
+bind       Alt+sc_x  squad_select_filtered
+bind Alt+Shift+sc_x  squad_select_filtered append
 ```
 *(change to your preferred keys)*
 
 
 | Action                                               | What it does                                                                                                                                             |
 | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `closest_squad_select`                               | Selects the entire squad closest to the cursor                                                                                                           |
-| `closest_squad_select append`                        | Appends the closest squad to the current selection                                                                                                       |
-| `closest_squad_select_filtered`                      | Selects only the unit types (from your current selection or closest unit if nothing is selected) in the closest squad                                    |
-| `closest_squad_select_filtered append`               | Same, but appends to selection                                                                                                                           |
+| `squad_select`                               | Selects the entire squad closest to the cursor                                                                                                           |
+| `squad_select append`                        | Appends the closest squad to the current selection                                                                                                       |
+| `squad_select_filtered`                      | Selects only the unit types (from your current selection or closest unit if nothing is selected) in the closest squad                                    |
+| `squad_select_filtered append`               | Same, but appends to selection                                                                                                                           |
 | `squad_create_toggle`                                | Toggles right-click squad creation on/off (see next section)                                                                                             |
 | `squad_create`                                       | Runs squad creation for the current selection                                                                                                            |
 | `squad_select_group N`                               | Select squad ∩ control group N closest to cursor                                                                                                         |
@@ -106,7 +106,7 @@ When you already have a full squad selected (or all matching types for filtered 
 Tap any non-append squad-select (hotkey or modifier-click) twice in quick succession at the same screen spot and the second tap centers the camera on the squad you just selected. (Same effect as the engine's `viewselection`)  
 Useful when the closest squad (or the squad you just cycled to) is off-screen: the first tap selects it, the second tap shows you where it is. Works on minimap too.
 
-Works for `closest_squad_select`, `closest_squad_select_filtered`, `squad_select_group`, the equivalent left-click commands, and any portion call (single-step like `leftClickSteps = 0.5`, or multi-step like `0.25 0.5 1` once you've already reached the last step so only a tap that *would* re-select the same count fires the gesture). 
+Works for `squad_select`, `squad_select_filtered`, `squad_select_group`, the equivalent left-click commands, and any portion call (single-step like `leftClickSteps = 0.5`, or multi-step like `0.25 0.5 1` once you've already reached the last step so only a tap that *would* re-select the same count fires the gesture). 
 
 Append calls are skipped (their repeat semantics is "keep growing"). Tunables: `viewselectionDoubleTapMs` (default 300, set to 0 to disable) and `viewselectionDoubleTapPx` (default 5).
 
@@ -201,7 +201,7 @@ bind Ctrl+Shift+c_c squad_select_portion 0.5 distance_800 append
 
 Control groups have a nice double-tap feature that moves the camera to the group. Squads don't have a number key, but the widget tracks the squads you most recently worked with so you can jump back and forth between them. The MRU holds `mruSize` entries (default 3) — tune with `/luaui squad_setting set mruSize 5`.
 
-A squad is pushed onto the MRU whenever you create a squad (right-click or `squad_create`) or run one of the squad-selection actions (`closest_squad_select`, the filtered and group variants, and the portion actions). Plain click/box selection does not push. 
+A squad is pushed onto the MRU whenever you create a squad (right-click or `squad_create`) or run one of the squad-selection actions (`squad_select`, the filtered and group variants, and the portion actions). Plain click/box selection does not push. 
 
 `squad_cycle_recent` selects the most recently pushed squad and centers the camera on it (via `viewselection`). Each press steps to the next entry in the MRU, wrapping around at the end. The step position is derived from the current selection rather than a stored cursor — if you change selection between presses, cycling rebases from wherever you are now.
 
@@ -303,8 +303,8 @@ bind sc_c gridmenu_key 1 3
 bind Shift+sc_c gridmenu_key 1 3
 
 bind Alt+sc_c squad_create
-bind sc_c closest_squad_select
-bind shift+sc_c closest_squad_select append
+bind sc_c squad_select
+bind shift+sc_c squad_select append
 bind Ctrl+sc_c squad_select_portion 0 0.5
 bind Ctrl+shift+sc_c squad_select_portion 3 10 append
 bind Ctrl+Meta+sc_c squad_create_toggle
@@ -314,8 +314,8 @@ unbind Any+sc_x gridmenu_key 1 2
 bind sc_x gridmenu_key 1 2
 bind Shift+sc_x gridmenu_key 1 2
 
-bind sc_x closest_squad_select_filtered
-bind shift+sc_x closest_squad_select_filtered append
+bind sc_x squad_select_filtered
+bind shift+sc_x squad_select_filtered append
 bind Ctrl+sc_x squad_select_portion_filtered 0 0.25 0.5 0.75 1
 bind Ctrl+shift+sc_x squad_select_portion_filtered 5 10 append
 
@@ -382,6 +382,17 @@ If you don't want to bother with `c` and `x`, you can use `ctrl+leftclick` and `
 
 There are many options worth experimenting with. For example I use hotkeys to select full squads but I use `leftClickSteps = 0.5` to select half squads with the mouse to quickly split off a portion of a squad for micro.  
 There are also many convenience features like the double-tap to focus camera, the recent squad cycling, and the idle squad finder that you can set up hotkeys for and use to quickly jump between squads.
+
+## Breaking changes
+
+### Action renames
+
+| Old name                        | New name                |
+| ------------------------------- | ----------------------- |
+| `closest_squad_select`          | `squad_select`          |
+| `closest_squad_select_filtered` | `squad_select_filtered` |
+
+Update any `uikeys.txt` bindings that use the old names.
 
 ## Credits
 
