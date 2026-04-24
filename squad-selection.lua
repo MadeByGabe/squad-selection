@@ -25,6 +25,7 @@ local config = {
 	doubleClickPx = 5, -- max screen-pixel distance between the two clicks of a double
 	viewselectionDoubleTapMs = 300, -- second rapid same-place non-append squad-select tap (single-step, or multi-step at the last step) calls viewselection on the just-selected squad (0 disables)
 	viewselectionDoubleTapPx = 5, -- max screen-pixel distance between the two taps
+	mruSize = 3, -- how many recent squads squad_cycle_recent cycles through
 	excludedUnitTypes = "", -- comma-separated unit names to exclude from squad tracking (e.g. "armrectr,cornecro")
 	showReserveSquads = true, -- when true, auto per-factory reserves + uncategorized reserve are visualized
 	visualizationMode = "convexHull", -- "convexHull" or "coloredLabel"
@@ -100,7 +101,6 @@ local unit_slot = {} -- unitID -> index within that squad (for O(1) removal)
 local factory_squad = {} -- factoryUnitID -> squad (every factory gets an auto-created squad)
 local uncategorized_reserve = nil -- catch-all reserve for units with no factory origin (gifted, resurrected, etc.)
 
-local MRU_MAX = 3 -- should probably make it a config
 local mru = {} -- most-recently-used squads, newest at index 1
 
 local squad_sel_count = {} -- squad table -> number of selected units in it
@@ -124,10 +124,21 @@ local last_squad_select = nil -- { t, x, y } of most recent whole-squad replace 
 -- Debug
 -------------------------------------------------------------------------------
 
-local function log(msg)
-	if config.debug then
-		spEcho("[Squad] " .. tostring(msg))
+-- Varargs so call sites pay no concatenation cost when debug is off.
+local function log(...)
+	if not config.debug then
+		return
 	end
+	local n = select("#", ...)
+	if n == 1 then
+		spEcho("[Squad] " .. tostring((...)))
+		return
+	end
+	local parts = {...}
+	for i = 1, n do
+		parts[i] = tostring(parts[i])
+	end
+	spEcho("[Squad] " .. table.concat(parts))
 end
 
 
@@ -135,7 +146,7 @@ local function log_squads()
 	if not config.debug then
 		return
 	end
-	log("  " .. #squads .. " squad(s):")
+	log("  ", #squads, " squad(s):")
 	for _, squad in ipairs(squads) do
 		local label = squad.letter or "?"
 		if squad == uncategorized_reserve then
@@ -143,7 +154,7 @@ local function log_squads()
 		elseif squad.from_factory then
 			label = label .. ":fac"
 		end
-		log("    [" .. label .. "] " .. #squad .. " units")
+		log("    [", label, "] ", #squad, " units")
 	end
 end
 
@@ -371,7 +382,7 @@ local function push_to_mru(sq)
 		end
 	end
 	table.insert(mru, 1, sq)
-	while #mru > MRU_MAX do
+	while #mru > config.mruSize do
 		mru[#mru] = nil
 	end
 end
@@ -430,7 +441,8 @@ local function prune_empty_squads()
 	for i = #squads, 1, -1 do
 		local sq = squads[i]
 		if is_prunable(sq) then
-			log("Squad [" .. (sq.letter or "?") .. "] emptied and removed")
+			log("Squad [", sq.letter or "?", "] emptied and removed")
+			squad_sel_count[sq] = nil
 			table.remove(squads, i)
 		end
 	end
@@ -485,7 +497,7 @@ end
 local function create_factory_squad(factory_id)
 	local sq = make_reserve_squad(true)
 	factory_squad[factory_id] = sq
-	log("Factory " .. factory_id .. " → auto squad [" .. sq.letter .. "]")
+	log("Factory ", factory_id, " → auto squad [", sq.letter, "]")
 	return sq
 end
 
@@ -543,7 +555,7 @@ local function assign_factory_squad()
 
 	prune_empty_squads()
 
-	log("Factory squad [" .. new_squad.letter .. "] assigned to " .. #factories .. " factory(s)")
+	log("Factory squad [", new_squad.letter, "] assigned to ", #factories, " factory(s)")
 	log_squads()
 end
 
@@ -597,7 +609,7 @@ local function create_squad_from_selection()
 	selection_dirty = true
 	push_to_mru(new_squad)
 
-	log("New squad [" .. new_squad.letter .. "]: " .. #new_squad .. " units")
+	log("New squad [", new_squad.letter, "]: ", #new_squad, " units")
 	log_squads()
 end
 
@@ -802,14 +814,19 @@ local function sort_units_by_distance(units, wx, wz)
 end
 
 
---- Build a squad's pool: the units in the squad matching the optional filters.
--- If max_distance_sq is set, units farther than that from (wx,wz) are excluded.
-local function build_pool(squad, filter_defs, group_set, max_distance_sq, wx, wz)
-	local pool = {}
+--- Build a squad's pool(s): units matching the optional filters.
+-- Returns (pool, step_pool). step_pool is the filter-only pool used for step
+-- progression; pool is step_pool additionally capped to units within
+-- max_distance_sq of (wx, wz). When max_distance_sq is nil the two are the
+-- same array.
+local function build_pools(squad, filter_defs, group_set, max_distance_sq, wx, wz)
+	local step_pool = {}
+	local pool = max_distance_sq and {} or step_pool
 	for j = 1, #squad do
 		local u = squad[j]
 		if (not group_set or group_set[u])
 			and (not filter_defs or (defid_of[u] and filter_defs[defid_of[u]])) then
+			step_pool[#step_pool + 1] = u
 			if max_distance_sq then
 				local ux, _, uz = spGetUnitPosition(u)
 				if ux then
@@ -819,12 +836,10 @@ local function build_pool(squad, filter_defs, group_set, max_distance_sq, wx, wz
 						pool[#pool + 1] = u
 					end
 				end
-			else
-				pool[#pool + 1] = u
 			end
 		end
 	end
-	return pool
+	return pool, step_pool
 end
 
 
@@ -994,28 +1009,20 @@ local function do_squad_select(opts)
 	if not target_squad then
 		return
 	end
-	local step_pool = build_pool(target_squad, filter_defs, group_set, nil, wx, wz)
-	local pool = step_pool
-	if max_distance_sq then
-		pool = build_pool(target_squad, filter_defs, group_set, max_distance_sq, wx, wz)
-	end
+	local pool, step_pool = build_pools(target_squad, filter_defs, group_set, max_distance_sq, wx, wz)
 
 	if #step_pool == 0 then
 		return
 	end
 
-	-- Single-step calls (#steps == 1, any value) don't need current_in_pool —
-	-- target_count is a pure function of the step value and pool size. Use the
-	-- short-circuiting fully_selected check. Multi-step needs the count for
-	-- step progression.
+	-- Multi-step calls need current_in_step_pool to advance through the step
+	-- progression; single-step ones only need fully_selected, which is a pure
+	-- function of pool size and selection.
 	local current_in_step_pool
-	local fully_selected
-	if #steps == 1 then
-		fully_selected = #pool > 0 and pool_fully_selected(pool, sel.selected_set)
-	else
+	if #steps > 1 then
 		current_in_step_pool = count_selected_in(step_pool, sel.selected_set)
-		fully_selected = #pool > 0 and count_selected_in(pool, sel.selected_set) == #pool
 	end
+	local fully_selected = #pool > 0 and pool_fully_selected(pool, sel.selected_set)
 
 	-- Double-tap viewselection (late): multi-step replace fires only when the
 	-- player has already reached the last step (no progression left), so
@@ -1035,11 +1042,7 @@ local function do_squad_select(opts)
 		local cycled_target = find_closest_squad(filter_defs, group_set, sel.selected_set, wx, wz)
 		if cycled_target then
 			target_squad = cycled_target
-			step_pool = build_pool(target_squad, filter_defs, group_set, nil, wx, wz)
-			pool = step_pool
-			if max_distance_sq then
-				pool = build_pool(target_squad, filter_defs, group_set, max_distance_sq, wx, wz)
-			end
+			pool, step_pool = build_pools(target_squad, filter_defs, group_set, max_distance_sq, wx, wz)
 			if #steps > 1 then
 				current_in_step_pool = count_selected_in(step_pool, sel.selected_set)
 			end
@@ -1079,7 +1082,7 @@ local function do_squad_select(opts)
 		last_squad_select = nil
 	end
 
-	log("Squad select [" .. (target_squad.letter or "?") .. "]: " .. #to_select .. "/" .. #pool .. (opts.append and " +append" or ""))
+	log("Squad select [", target_squad.letter or "?", "]: ", #to_select, "/", #pool, opts.append and " +append" or "")
 end
 
 
@@ -1152,7 +1155,7 @@ local function squad_cycle_idle()
 			end
 			spSelectUnitArray(units)
 			spSendCommands("viewselection")
-			log("Idle squad [" .. (sq.letter or "?") .. "]")
+			log("Idle squad [", sq.letter or "?", "]")
 			return
 		end
 	end
@@ -1314,7 +1317,7 @@ local function squad_reassign()
 		end
 		spSelectUnitArray(units)
 
-		log("Reassigned " .. moved .. " unit(s) → squad [" .. (target_squad.letter or "?") .. "]")
+		log("Reassigned ", moved, " unit(s) → squad [", target_squad.letter or "?", "]")
 		log_squads()
 	end
 end
@@ -1374,7 +1377,7 @@ local function init_gl_hull()
 	})
 	if not hull_shader then
 		local shaderLog = gl.GetShaderLog and gl.GetShaderLog() or "(no log)"
-		log("Failed to compile hull shader: " .. shaderLog)
+		log("Failed to compile hull shader: ", shaderLog)
 		hull_init_failed = true
 		return false
 	end
@@ -1642,7 +1645,7 @@ function widget:Initialize()
 ,
 	}
 
-	log("Initialized — " .. count .. " combat units in uncategorized reserve")
+	log("Initialized — ", count, " combat units in uncategorized reserve")
 	log_squads()
 end
 
@@ -1743,7 +1746,7 @@ function widget:UnitCreated(unit_id, unit_def_id, unit_team, builder_id)
 		if was_fully_selected then
 			spSelectUnitArray({unit_id}, true)
 		end
-		log("Unit " .. unit_id .. " created → squad [" .. (sq.letter or "?") .. "] (" .. #sq .. " units)")
+		log("Unit ", unit_id, " created → squad [", sq.letter or "?", "] (", #sq, " units)")
 	end
 end
 
@@ -1766,9 +1769,9 @@ local function stop_tracking(unit_id)
 end
 
 
-function widget:UnitDestroyed(unit_id, unit_def_id, unit_team, attacker_id)
+function widget:UnitDestroyed(unit_id, unit_def_id, unit_team, _)
 	if stop_tracking(unit_id) then
-		log("Unit " .. unit_id .. " destroyed — " .. #squads .. " squad(s) remain")
+		log("Unit ", unit_id, " destroyed — ", #squads, " squad(s) remain")
 	end
 end
 
@@ -1778,7 +1781,7 @@ function widget:UnitTaken(unit_id, unit_def_id, unit_team, new_team)
 		return
 	end
 	if stop_tracking(unit_id) then
-		log("Unit " .. unit_id .. " taken by team " .. new_team)
+		log("Unit ", unit_id, " taken by team ", new_team)
 	end
 end
 
@@ -1795,7 +1798,7 @@ function widget:UnitGiven(unit_id, unit_def_id, unit_team, old_team)
 
 	if unit_def_id and is_combat[unit_def_id] then
 		add_to_squad(unit_id, uncategorized_reserve)
-		log("Unit " .. unit_id .. " given to us → uncategorized reserve (" .. #uncategorized_reserve .. " units)")
+		log("Unit ", unit_id, " given to us → uncategorized reserve (", #uncategorized_reserve, " units)")
 	end
 end
 
@@ -1866,10 +1869,13 @@ function widget:MousePress(x, y, button)
 		if cmdID then
 			return
 		end
-		local hit_type = spTraceScreenRay(x, y)
-		local has_selection = spGetSelectedUnits()[1] ~= nil
-		-- hack to detect when the user isn't clicking on a button or other UI element
-		if not ((not has_selection or cursor == "Move") and hit_type ~= "unit") then
+		-- Skip clicks that land directly on a unit — engine select takes over.
+		if spTraceScreenRay(x, y) == "unit" then
+			return
+		end
+		-- Skip when something is already selected and the cursor isn't the move
+		-- cursor (hack: implies we're over a UI element, not open ground).
+		if spGetSelectedUnits()[1] ~= nil and cursor ~= "Move" then
 			return
 		end
 

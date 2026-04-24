@@ -60,7 +60,7 @@ bind Alt+Shift+sc_x  closest_squad_select_filtered append
 | `squad_select_portion [append] [distance_<N>] <steps...>`           | Select a portion of the closest squad                                                                                                     |
 | `squad_select_portion_filtered [append] [distance_<N>] <steps...>`  | Same, but filtered by unit type                                                                                                           |
 | `squad_select_portion_group <N> [append] [distance_<N>] <steps...>` | Same, but limited to squad ∩ control group N (probably will be removed)                                                                   |
-| `squad_cycle_recent`                                 | Select + focus camera on the most recently used squad; each press steps further back; wraps around (max 3 squads for now, probably will be configurable) |
+| `squad_cycle_recent`                                 | Select + focus camera on the most recently used squad; each press steps further back; wraps around (up to `mruSize` entries, default 3)                  |
 | `squad_cycle_idle`                                   | Select + focus camera on the next squad that's mostly idle; each press moves on to the next one                                                          |
 | `squad_reassign`                                     | Moves the selected units into the squad closest to the cursor and selects the full combined squad                                                        |
 
@@ -203,7 +203,7 @@ bind Ctrl+Shift+c_c squad_select_portion 0.5 distance_800 append
 
 ### Recent-squad cycling (MRU)
 
-Control groups have a nice double-tap feature that moves the camera to the group. Squads don't have a number key, but the widget tracks the squads you most recently worked with so you can jump back and forth between them. The MRU holds 3 entries (will be configurable eventually).
+Control groups have a nice double-tap feature that moves the camera to the group. Squads don't have a number key, but the widget tracks the squads you most recently worked with so you can jump back and forth between them. The MRU holds `mruSize` entries (default 3) — tune with `/luaui squad_setting set mruSize 5`.
 
 A squad is pushed onto the MRU whenever you create a squad (right-click or `squad_create`) or run one of the squad-selection actions (`closest_squad_select`, the filtered and group variants, and the portion actions). Plain click/box selection does not push. 
 
@@ -272,6 +272,7 @@ These changes persist.
 | `doubleClickPx`                  | `5`            | Max screen-pixel distance between the two right-clicks of a double-click                                  |
 | `viewselectionDoubleTapMs`       | `300`          | Max ms between two single-step replace selects for the double-tap → `viewselection` gesture; `0` disables |
 | `viewselectionDoubleTapPx`       | `5`            | Max screen-pixel distance between the two taps of the `viewselection` double-tap                          |
+| `mruSize`                        | `3`            | How many recent squads `squad_cycle_recent` cycles through                                                |
 | `visualizationMode`              | `"convexHull"` | `"coloredLabel"`, `"convexHull"`, (soon `"metaballs"`)                                                    |
 | `showReserveSquads`              | `true`         | Visualize per-factory and uncategorized reserves as squads                                                |
 | `excludedUnitTypes`              | `""`           | Comma or space separated unit IDs to exclude from squad tracking (e.g. `"armrectr,cornecro,legrezbot"`). Takes effect on next widget load. To find a unit's name, open its page on [beyondallreason.info](https://www.beyondallreason.info) — the name is the last segment of the URL (e.g. `https://www.beyondallreason.info/unit/cornecro`, cornecro = Graverobber). |
