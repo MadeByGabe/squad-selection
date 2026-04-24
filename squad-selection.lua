@@ -19,7 +19,7 @@ local config = {
 	leftClickSelectsSquad = true, -- left-click can be used to select squads
 	leftClickSteps = {1}, -- step values for left-click selection; {1} = whole squad, {0.5, 1} = 50% then 100%, etc.
 	cyclingToNextSquad = true, -- when full squad/type is selected, exclude it to cycle to next
-	rightClickSquadCreate = true, -- right-click creates squads; toggle with squad_create_toggle action
+	rightClickSquadCreate = false, -- right-click creates squads; toggle with squad_create_toggle action
 	modifierRightClickCreatesSquad = false, -- Ctrl+right-click creates a squad (click still passes through, so the engine's move-in-formation runs too which can cause issues)
 	doubleClickMs = 200, -- double right-click window (ms) — triggers squad_reassign instead of create
 	doubleClickPx = 5, -- max screen-pixel distance between the two clicks of a double
@@ -27,7 +27,7 @@ local config = {
 	viewselectionDoubleTapPx = 5, -- max screen-pixel distance between the two taps
 	mruSize = 3, -- how many recent squads squad_cycle_recent cycles through
 	excludedUnitTypes = "", -- comma-separated unit names to exclude from squad tracking (e.g. "armrectr,cornecro")
-	showReserveSquads = true, -- when true, auto per-factory reserves + uncategorized reserve are visualized
+	showReserveSquads = false, -- when true, auto per-factory reserves + uncategorized reserve are visualized
 	visualizationMode = "convexHull", -- "convexHull" or "coloredLabel"
 	convexHullPadding = 60, -- space (in elmos) between the units and the hull boundary
 	convexHullArcResolution = 0.4, -- angle that each chord of the arc spans in radians; smaller = smoother but more expensive
@@ -824,8 +824,7 @@ local function build_pools(squad, filter_defs, group_set, max_distance_sq, wx, w
 	local pool = max_distance_sq and {} or step_pool
 	for j = 1, #squad do
 		local u = squad[j]
-		if (not group_set or group_set[u])
-			and (not filter_defs or (defid_of[u] and filter_defs[defid_of[u]])) then
+		if (not group_set or group_set[u]) and (not filter_defs or (defid_of[u] and filter_defs[defid_of[u]])) then
 			step_pool[#step_pool + 1] = u
 			if max_distance_sq then
 				local ux, _, uz = spGetUnitPosition(u)
@@ -1611,9 +1610,11 @@ function widget:Initialize()
 			return config[key]
 		end
 
+
 		WG['squadselection']["set" .. cap] = function(v)
 			config[key] = v
 		end
+
 
 	end
 
@@ -1705,7 +1706,9 @@ function widget:UnitCreated(unit_id, unit_def_id, unit_team, builder_id)
 		if sq.is_reserve and #sq > 0 then
 			local sel = spGetSelectedUnits()
 			local sel_set = {}
-			for _, u in ipairs(sel) do sel_set[u] = true end
+			for _, u in ipairs(sel) do
+				sel_set[u] = true
+			end
 			was_fully_selected = true
 			for i = 1, #sq do
 				if not sel_set[sq[i]] then
