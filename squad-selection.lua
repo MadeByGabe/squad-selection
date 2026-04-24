@@ -20,6 +20,7 @@ local config = {
 	leftClickSteps = {1}, -- step values for left-click selection; {1} = whole squad, {0.5, 1} = 50% then 100%, etc.
 	cyclingToNextSquad = true, -- when full squad/type is selected, exclude it to cycle to next
 	rightClickSquadCreate = false, -- right-click creates squads; toggle with squad_create_toggle action
+	commandCreatesSquad = false,
 	modifierRightClickCreatesSquad = false, -- Ctrl+right-click creates a squad (click still passes through, so the engine's move-in-formation runs too which can cause issues)
 	viewselectionDoubleTapMs = 300, -- second rapid same-place non-append squad-select tap (single-step, or multi-step at the last step) calls viewselection on the just-selected squad (0 disables)
 	viewselectionDoubleTapPx = 5, -- max screen-pixel distance between the two taps
@@ -604,10 +605,29 @@ local function assign_factory_squad()
 end
 
 
-local function create_squad_from_selection()
+-- The use case for checking for the presence of a specific unit
+-- in the current selection is so that units being given a new command
+-- only triggers a resquad if said unit is actually selected
+--
+-- Other events that give commands to unselected units include
+-- Builders going through their queue, and new units coming out of the lab
+local player_input_since_last_resquad = false
+local function create_squad_from_selection(unit_that_must_be_in_selection)
 	local selected = spGetSelectedUnits()
 	if #selected == 0 then
 		return
+	end
+
+	local required_unit_present = false
+	if unit_that_must_be_in_selection then
+		for i = 1, #selected do
+			if selected[i] == unit_that_must_be_in_selection then
+				required_unit_present = true
+			end
+		end
+		if not required_unit_present then
+			return
+		end
 	end
 
 	local existing = selection_is_existing_squad(selected)
@@ -670,6 +690,7 @@ local function create_squad_from_selection()
 		if def_id and is_combat[def_id] then
 			remove_from_squad(u)
 			add_to_squad(u, new_squad)
+			player_input_since_last_resquad = false
 		end
 	end
 
@@ -1840,6 +1861,7 @@ end
 -- Input
 -------------------------------------------------------------------------------
 function widget:MousePress(x, y, button)
+	player_input_since_last_resquad = true
 	local alt, ctrl, meta, shift = spGetModKeyState()
 	local cursor = spGetMouseCursor()
 	if button == 3 then
@@ -1903,6 +1925,25 @@ function widget:MousePress(x, y, button)
 		do_squad_select(opts)
 	end
 	-- Never return true: let the click pass through to the engine.
+end
+
+
+function widget:KeyPress(key, mods, isRepeat)
+	player_input_since_last_resquad = true
+end
+
+
+function widget:UnitCommand(unitID, unitDefID, unitTeam, cmdID, cmdParams, cmdOpts, cmdTag)
+
+	-- low cost for players who do not select this function
+	if not config.commandCreatesSquad then
+		return
+	end
+
+	local team_id = spGetMyTeamID()
+	if player_input_since_last_resquad and unitTeam == team_id and is_combat[unitDefID] then
+		create_squad_from_selection(unitID)
+	end
 end
 
 
