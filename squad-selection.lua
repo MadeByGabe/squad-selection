@@ -452,30 +452,32 @@ end
 -- Squad creation from selection
 -------------------------------------------------------------------------------
 
--- Returns true if `unit_id` or its `builder_id` has a CMD_WAIT anywhere in
--- its command queue. Used at UnitCreated to skip selection auto-extend when
--- the player has signalled "don't grab this unit" via a wait — either on a
--- factory's rally, or on a fresh resurrection (rez bots wait until healed).
-local function has_wait_cmd(unit_id, builder_id)
-	local function queue_has_wait(u)
-		local cmds = spGetUnitCommands(u, -1)
-		if not cmds then
-			return false
-		end
-		for i = 1, #cmds do
-			if cmds[i].id == CMD.WAIT then
-				return true
-			end
-		end
+-- Returns true if `unit_id`'s command queue contains a CMD_WAIT anywhere.
+-- Used by the uncategorized-reserve path in UnitCreated to skip the selection
+-- auto-extend for a freshly resurrected unit (rez bots leave units in
+-- CMD_WAIT until fully healed).
+local function unit_queue_has_wait(unit_id)
+	local cmds = spGetUnitCommands(unit_id, -1)
+	if not cmds then
 		return false
 	end
-	if queue_has_wait(unit_id) then
-		return true
-	end
-	if builder_id and queue_has_wait(builder_id) then
-		return true
+	for i = 1, #cmds do
+		if cmds[i].id == CMD.WAIT then
+			return true
+		end
 	end
 	return false
+end
+
+
+-- Returns true if the factory's command queue ends with CMD_WAIT (i.e. the
+-- rally's last waypoint is a wait).
+local function factory_rally_ends_with_wait(factory_id)
+	local cmds = spGetUnitCommands(factory_id, -1)
+	if not cmds or #cmds == 0 then
+		return false
+	end
+	return cmds[#cmds].id == CMD.WAIT
 end
 
 
@@ -624,7 +626,13 @@ local function create_squad_from_selection()
 			selected_set[selected[i]] = true
 		end
 		for _, sq in ipairs(squads) do
-			if sq.is_reserve and squad_fully_selected(sq, selected_set) then
+			-- Skip reserves whose factory rally ends with a wait. In that flow
+			-- the player has already signalled "don't lump new units into this
+			-- selection" via the trailing wait; honoring that here means
+			-- squad_create on a selection that happens to include the whole
+			-- waiting reserve produces a new manual squad instead of quietly
+			-- merging everything into the reserve.
+			if sq.is_reserve and not sq.rally_ends_with_wait and squad_fully_selected(sq, selected_set) then
 				local moved = 0
 				for i = 1, #selected do
 					local u = selected[i]
@@ -1728,13 +1736,21 @@ function widget:UnitCreated(unit_id, unit_def_id, unit_team, builder_id)
 			end
 			extend_selection = squad_fully_selected(sq, sel_set)
 		end
-		-- Indirect opt-out: if the new unit or its builder has a wait command
-		-- in its queue, skip the selection extend. Covers two real cases —
-		-- a factory with a wait on its rally (new units will sit waiting), and
-		-- resurrection bots (the resurrected unit wakes up with CMD_WAIT until
-		-- fully healed). Player-facing: "set a wait and your new units won't
-		-- silently join the selection."
-		if extend_selection and has_wait_cmd(unit_id, builder_id) then
+		-- Wait-based opt-out for the selection auto-extend, split by reserve
+		-- kind:
+		--   Factory reserve → the rally's trailing wait is the signal. Refresh
+		--     the squad-level flag on every build (create_squad_from_selection
+		--     reads it to skip the merge branch) and suppress the extend here
+		--     when set.
+		--   Uncategorized reserve → no rally to inspect; fall back to the
+		--     unit's own queue. Covers resurrection bots, which wake with
+		--     CMD_WAIT until fully healed.
+		if sq.from_factory and builder_id then
+			sq.rally_ends_with_wait = factory_rally_ends_with_wait(builder_id)
+			if sq.rally_ends_with_wait then
+				extend_selection = false
+			end
+		elseif extend_selection and unit_queue_has_wait(unit_id) then
 			extend_selection = false
 		end
 		add_to_squad(unit_id, sq)

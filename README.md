@@ -18,7 +18,9 @@ Every factory (lab) gets its own **reserve squad**, and the squad-eligible units
 
 When you have a **full reserve squad selected** and the factory produces a new unit into it, that unit is **automatically added to your selection**. This keeps your selection in sync as units roll off the production line without requiring any extra input.
 
-*Exception:* units with a wait command (e.g. factory rally with wait, or freshly resurrected units still healing) are NOT auto-added. This also acts as an opt-out for the reserve-merge behavior below: if the reserve isn't fully selected, merging into it won't trigger.
+*Exception:* units with a wait command are NOT auto-added to your selection:
+- **Factory rally ending with wait** — new units sit at the rally waiting, and the widget remembers this on the reserve. While the wait is there, the reserve-merge behavior below is also disabled: pressing `squad_create` with the waiting reserve fully selected creates a new manual squad instead of swallowing your selection into the reserve.
+- **Freshly resurrected units still healing** — rez bots leave units in wait state until healed, so they don't extend the uncategorized reserve's selection.
 
 Squad-eligible means: unit can move and has no build options.
 
@@ -155,6 +157,8 @@ When your selection spans multiple squads AND fully contains a reserve squad (ev
 Typical use: dissolve a manual squad back into a factory's reserve. Select the manual squad together with that factory's reserve units, then press `squad_create` (hotkey or right-click). All of the manual squad's units are merged into the reserve and the combined reserve is left selected.
 
 Selecting *only* a reserve squad and pressing `squad_create` still creates a new manual squad from those units so use this to promote reserve units into a tracked manual squad.
+
+**Opting out with a wait rally.** If the factory's rally ends with a wait command, the merge path is skipped for that reserve even when it's fully selected — `squad_create` falls back to creating a new manual squad. This is the explicit way to say "I'm still going to select this reserve a lot, but don't keep swallowing my new squads into it." Remove the trailing wait (or change the rally) to turn the merge behavior back on (takes effect on the next unit built at that factory).
 
 ### Portion selection
 
