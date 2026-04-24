@@ -1601,49 +1601,21 @@ function widget:Initialize()
 	widgetHandler:AddAction("squad_cycle_recent", squad_cycle_recent, nil, "p")
 	widgetHandler:AddAction("squad_cycle_idle", squad_cycle_idle, nil, "p")
 
-	-- WG interface for gui_options.lua integration
-	WG['squadselection'] = {
-		getCycling = function()
-			return config.cyclingToNextSquad
+	-- WG interface for gui_options.lua integration. Auto-generates
+	-- get<Key>/set<Key> pairs for every exposed config key.
+	local exposed_settings = {"leftClickSelectsSquad", "leftClickSteps", "cyclingToNextSquad", "rightClickSquadCreate", "modifierRightClickCreatesSquad", "doubleClickMs", "doubleClickPx", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "visualizationMode", "convexHullPadding", "convexHullArcResolution", "convexHullFillOpacity", "convexHullBorderOpacity", "convexHullBorderThickness"}
+	WG['squadselection'] = {}
+	for _, key in ipairs(exposed_settings) do
+		local cap = key:sub(1, 1):upper() .. key:sub(2)
+		WG['squadselection']["get" .. cap] = function()
+			return config[key]
 		end
-,
-		setCycling = function(v)
-			config.cyclingToNextSquad = v
+
+		WG['squadselection']["set" .. cap] = function(v)
+			config[key] = v
 		end
-,
-		getLeftClickSelects = function()
-			return config.leftClickSelectsSquad
-		end
-,
-		setLeftClickSelects = function(v)
-			config.leftClickSelectsSquad = v
-		end
-,
-		getRightClickSquadCreate = function()
-			return config.rightClickSquadCreate
-		end
-,
-		setRightClickSquadCreate = function(v)
-			config.rightClickSquadCreate = v
-		end
-,
-		getVisualizationMode = function()
-			return config.visualizationMode
-		end
-,
-		setVisualizationMode = function(v)
-			config.visualizationMode = v
-		end
-,
-		getShowReserveSquads = function()
-			return config.showReserveSquads
-		end
-,
-		setShowReserveSquads = function(v)
-			config.showReserveSquads = v
-		end
-,
-	}
+
+	end
 
 	log("Initialized — ", count, " combat units in uncategorized reserve")
 	log_squads()
