@@ -452,6 +452,33 @@ end
 -- Squad creation from selection
 -------------------------------------------------------------------------------
 
+-- Returns true if `unit_id` or its `builder_id` has a CMD_WAIT anywhere in
+-- its command queue. Used at UnitCreated to skip selection auto-extend when
+-- the player has signalled "don't grab this unit" via a wait — either on a
+-- factory's rally, or on a fresh resurrection (rez bots wait until healed).
+local function has_wait_cmd(unit_id, builder_id)
+	local function queue_has_wait(u)
+		local cmds = spGetUnitCommands(u, -1)
+		if not cmds then
+			return false
+		end
+		for i = 1, #cmds do
+			if cmds[i].id == CMD.WAIT then
+				return true
+			end
+		end
+		return false
+	end
+	if queue_has_wait(unit_id) then
+		return true
+	end
+	if builder_id and queue_has_wait(builder_id) then
+		return true
+	end
+	return false
+end
+
+
 -- Returns true if every unit in `sq` is present in `selected_set`.
 -- Empty squads return false to avoid vacuous matches.
 local function squad_fully_selected(sq, selected_set)
@@ -1690,6 +1717,15 @@ function widget:UnitCreated(unit_id, unit_def_id, unit_team, builder_id)
 				sel_set[u] = true
 			end
 			extend_selection = squad_fully_selected(sq, sel_set)
+		end
+		-- Indirect opt-out: if the new unit or its builder has a wait command
+		-- in its queue, skip the selection extend. Covers two real cases —
+		-- a factory with a wait on its rally (new units will sit waiting), and
+		-- resurrection bots (the resurrected unit wakes up with CMD_WAIT until
+		-- fully healed). Player-facing: "set a wait and your new units won't
+		-- silently join the selection."
+		if extend_selection and has_wait_cmd(unit_id, builder_id) then
+			extend_selection = false
 		end
 		add_to_squad(unit_id, sq)
 		if extend_selection then
