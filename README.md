@@ -68,12 +68,12 @@ bind Alt+Shift+sc_x  closest_squad_select_filtered append
 
 With `leftClickSelectsSquad` enabled (default), clicking on empty ground triggers squad selection:
 
-| Click               | Action                          |
-| ------------------- | ------------------------------- |
-| **Ctrl+click**      | Select closest squad (replace)  |
-| **Shift+click**     | Select closest squad (append)   |
-| **Alt+Ctrl+click**  | Filtered squad select (replace) |
-| **Alt+Shift+click** | Filtered squad select (append)  |
+| Click                | Action                          |
+| -------------------- | ------------------------------- |
+| **Ctrl+click**       | Select closest squad (replace)  |
+| **Ctrl+Shift+click** | Select closest squad (append)   |
+| **Alt+Ctrl+click**   | Filtered squad select (replace) |
+| **Alt+Shift+click**  | Filtered squad select (append)  |
 
 Mouse squad selections are skipped when clicking directly on a unit or when an active command is pending (fight, patrol, build placement, etc.).
 
@@ -86,7 +86,7 @@ Mouse squad selections are skipped when clicking directly on a unit or when an a
 /luaui squad_setting set leftClickSteps              # clear → back to whole-squad (equivalent to 1)
 ```
 
-Append (Shift+click) always keeps growing the selection and extends into the next squad once the current one is exhausted. Replace (Ctrl+click) in portion mode snaps to the closest N each time. See [Portion selection](#portion-selection) for how step values work.
+Append (Ctrl+Shift+click) always keeps growing the selection and extends into the next squad once the current one is exhausted. Replace (Ctrl+click) in portion mode snaps to the closest N each time. See [Portion selection](#portion-selection) for how step values work.
 
 **Right-click** (no modifiers) with a selection runs `squad_create`: it creates a squad from selected squad-eligible combat units, and for factory-only selections it merges/splits factory reserve squads. The click still passes through to the engine, so the normal move command issues alongside the grouping.
 

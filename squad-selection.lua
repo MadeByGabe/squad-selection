@@ -1858,9 +1858,9 @@ function widget:MousePress(x, y, button)
 			}
 		end
 	elseif button == 1 and config.leftClickSelectsSquad then
-		-- Ctrl or Shift is required to trigger; Alt alone is not enough because then the ground click deselects the units.
-		-- Shift → append, Ctrl → replace, Alt → filtered (orthogonal).
-		if not (ctrl or shift) then
+		-- A modifier is required to trigger; plain/Shift/Alt alone are not enough because then the ground click deselects the units.
+		-- Ctrl → replace, Ctrl+Shift → append, +Alt → filtered. Alt+Shift also triggers (filtered append) since Ctrl is redundant there.
+		if not (ctrl or (alt and shift)) then
 			return
 		end
 
