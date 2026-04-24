@@ -62,7 +62,6 @@ bind Alt+Shift+sc_x  closest_squad_select_filtered append
 | `squad_select_portion_group <N> [append] [distance_<N>] <steps...>` | Same, but limited to squad ∩ control group N (probably will be removed)                                                                   |
 | `squad_cycle_recent`                                 | Select + focus camera on the most recently used squad; each press steps further back; wraps around (up to `mruSize` entries, default 3)                  |
 | `squad_cycle_idle`                                   | Select + focus camera on the next squad that's mostly idle; each press moves on to the next one                                                          |
-| `squad_reassign`                                     | Moves the selected units into the squad closest to the cursor and selects the full combined squad                                                        |
 
 ### Mouse controls
 
@@ -93,8 +92,6 @@ Append (Ctrl+Shift+click) always keeps growing the selection and extends into th
 **Ctrl+right-click** (opt-in via `/luaui squad_setting toggle modifierRightClickCreatesSquad`) also runs `squad_create`. Useful if you disabled plain right-click squad creation but still want a mouse shortcut. The click passes through to the engine, so it also issues Ctrl+RMB's move-in-formation command. Be careful with this one since it also turns on the keep slowest unit's speed option for move commands, you can turn that off with a normal right click, right click drag won't work.  
 
 *You can avoid move-in-formation by drawing a line move while holding ctrl, or if you switch to fight mode first.*
-
-**Double right-click** (either variant above) triggers `squad_reassign` instead of a second create — see the [Reassigning units](#reassigning-units-to-another-squad) section.
 
 ### Cycling
 
@@ -149,20 +146,13 @@ Every factory starts out with its own hidden reserve squad, and its units go the
 
 **Example use case:** You have 3 bot labs, 2 producing cheap spam units for distraction, 1 producing expensive units you want to micro. By default all three are separate. If you'd rather the two spam labs share one squad, select them and press `squad_create`, this way all your ticks or rascals will be in the same squad and easier to select together with one click. 
 
-### Reassigning units to another squad
+### Merging units into a reserve squad
 
-Sends the currently selected units into the squad closest to your cursor, then selects the full combined squad. Typical use: dissolve a manual squad back into a factory reserve — select the squad, point at the factory (or any of its units), trigger the action. Every squad is a valid target, reserves included. 
+When your selection spans multiple squads AND fully contains a reserve squad (every one of its units is selected), `squad_create` moves the rest of the selection INTO that reserve instead of creating a new manual squad. First matching reserve wins when multiple qualify.
 
-**Two ways to trigger:**
+Typical use: dissolve a manual squad back into a factory's reserve. Select the manual squad together with that factory's reserve units, then press `squad_create` (hotkey or right-click). All of the manual squad's units are merged into the reserve and the combined reserve is left selected.
 
-- Hotkey: bind `squad_reassign` to any key.
-- **Double right-click** at (roughly) the same screen position: the second right-click runs `squad_reassign` instead of a second create. Tolerances are `doubleClickMs` (default 200ms) and `doubleClickPx` (default 5px) — tune them via `/luaui squad_setting set …` if the window feels too tight or too loose.
-
-The double-click gesture works with either plain right-click or Ctrl+right-click creation, whichever you have enabled.
-
-| Action           | What it does                                                                                |
-| ---------------- | ------------------------------------------------------------------------------------------- |
-| `squad_reassign` | Move selected units into the squad closest to the cursor and select the full combined squad |
+Selecting *only* a reserve squad and pressing `squad_create` still creates a new manual squad from those units so use this to promote reserve units into a tracked manual squad.
 
 ### Portion selection
 
@@ -268,8 +258,6 @@ These changes persist.
 | `cyclingToNextSquad`             | `true`         | Cycle to next squad when full squad is selected                                                           |
 | `rightClickSquadCreate`          | `true`         | Right-click squad creation is active                                                                      |
 | `modifierRightClickCreatesSquad` | `false`        | Ctrl+right-click also creates a squad (click passes through)                                              |
-| `doubleClickMs`                  | `200`          | Max ms between two right-clicks for the double-click gesture (→ `squad_reassign`)                         |
-| `doubleClickPx`                  | `5`            | Max screen-pixel distance between the two right-clicks of a double-click                                  |
 | `viewselectionDoubleTapMs`       | `300`          | Max ms between two single-step replace selects for the double-tap → `viewselection` gesture; `0` disables |
 | `viewselectionDoubleTapPx`       | `5`            | Max screen-pixel distance between the two taps of the `viewselection` double-tap                          |
 | `mruSize`                        | `3`            | How many recent squads `squad_cycle_recent` cycles through                                                |

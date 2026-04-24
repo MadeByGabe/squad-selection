@@ -21,8 +21,6 @@ local config = {
 	cyclingToNextSquad = true, -- when full squad/type is selected, exclude it to cycle to next
 	rightClickSquadCreate = false, -- right-click creates squads; toggle with squad_create_toggle action
 	modifierRightClickCreatesSquad = false, -- Ctrl+right-click creates a squad (click still passes through, so the engine's move-in-formation runs too which can cause issues)
-	doubleClickMs = 200, -- double right-click window (ms) — triggers squad_reassign instead of create
-	doubleClickPx = 5, -- max screen-pixel distance between the two clicks of a double
 	viewselectionDoubleTapMs = 300, -- second rapid same-place non-append squad-select tap (single-step, or multi-step at the last step) calls viewselection on the just-selected squad (0 disables)
 	viewselectionDoubleTapPx = 5, -- max screen-pixel distance between the two taps
 	mruSize = 3, -- how many recent squads squad_cycle_recent cycles through
@@ -117,7 +115,6 @@ local is_combat = {} -- defID -> bool
 local is_factory = {} -- defID -> bool (immobile with buildOptions)
 local is_strafing_air = {} -- defID -> bool (air units that strafe/fly around while idle)
 
-local last_rmb_create = nil -- { t = Spring timer, x = screen_x, y = screen_y } of most recent RMB that called create_squad_from_selection
 local last_squad_select = nil -- { t, x, y } of most recent whole-squad replace do_squad_select; armed for the double-tap viewselection gesture
 
 -------------------------------------------------------------------------------
@@ -455,8 +452,23 @@ end
 -- Squad creation from selection
 -------------------------------------------------------------------------------
 
+-- Returns true if every unit in `sq` is present in `selected_set`.
+-- Empty squads return false to avoid vacuous matches.
+local function squad_fully_selected(sq, selected_set)
+	if #sq == 0 then
+		return false
+	end
+	for i = 1, #sq do
+		if not selected_set[sq[i]] then
+			return false
+		end
+	end
+	return true
+end
+
+
 -- Returns the squad if the selection's combat units exactly match one squad
--- (including reserves), nil otherwise. 
+-- (including reserves), nil otherwise.
 local function selection_is_existing_squad(selected)
 	local squad = nil
 	local combat_count = 0
@@ -570,6 +582,47 @@ local function create_squad_from_selection()
 	if existing and not existing.is_reserve then
 		push_to_mru(existing)
 		return
+	end
+
+	-- `existing` being nil here means the selection spans more than one squad
+	-- (or partial squads). If it fully contains a reserve squad in that mix,
+	-- merge the rest of the selection INTO that reserve instead of creating a
+	-- new manual squad. First match wins. When the selection is exactly one
+	-- reserve (`existing` set + is_reserve), we skip this branch and fall
+	-- through to new-squad creation — extracting the reserve into a manual
+	-- squad is the intended action in that case.
+	if not existing then
+		local selected_set = {}
+		for i = 1, #selected do
+			selected_set[selected[i]] = true
+		end
+		for _, sq in ipairs(squads) do
+			if sq.is_reserve and squad_fully_selected(sq, selected_set) then
+				local moved = 0
+				for i = 1, #selected do
+					local u = selected[i]
+					local def_id = get_defid(u)
+					if def_id and is_combat[def_id] and unit_squad[u] ~= sq then
+						remove_from_squad(u)
+						add_to_squad(u, sq)
+						moved = moved + 1
+					end
+				end
+				prune_empty_squads()
+				selection_dirty = true
+				push_to_mru(sq)
+
+				local units = {}
+				for i = 1, #sq do
+					units[i] = sq[i]
+				end
+				spSelectUnitArray(units)
+
+				log("Merged ", moved, " unit(s) → reserve squad [", sq.letter or "?", "]")
+				log_squads()
+				return
+			end
+		end
 	end
 
 	local new_squad = {}
@@ -1252,76 +1305,6 @@ local function squad_select_portion_group(_, _, args)
 end
 
 
--- Move all currently selected combat units into the squad closest to the cursor
--- (measured by nearest unit). When the cursor is already on the selected squad,
--- every move becomes a self-move — naturally a no-op.
-local function squad_reassign()
-	local selected = spGetSelectedUnits()
-	if #selected == 0 then
-		return
-	end
-
-	local wx, wz = get_mouse_world_pos()
-	if not wx then
-		return
-	end
-
-	local target_squad = find_closest_squad(nil, nil, nil, wx, wz)
-	if not target_squad then
-		return
-	end
-
-	-- If the selection is entirely inside target_squad, reassigning would be
-	-- a self-merge. Retry with that squad's units excluded to pick the next
-	-- closest instead; if none exists, we fall through and the main loop
-	-- harmlessly moves nothing.
-	local self_merge = true
-	for i = 1, #selected do
-		local sq = unit_squad[selected[i]]
-		if sq and sq ~= target_squad then
-			self_merge = false
-			break
-		end
-	end
-	if self_merge then
-		local exclude = {}
-		for i = 1, #target_squad do
-			exclude[target_squad[i]] = true
-		end
-		target_squad = find_closest_squad(nil, nil, exclude, wx, wz) or target_squad
-	end
-
-	local moved = 0
-	for i = 1, #selected do
-		local u = selected[i]
-		local def_id = get_defid(u)
-		if def_id and is_combat[def_id] and unit_squad[u] ~= target_squad then
-			remove_from_squad(u)
-			add_to_squad(u, target_squad)
-			moved = moved + 1
-		end
-	end
-
-	if moved > 0 then
-		prune_empty_squads()
-		-- Reassign changes squad membership under the current selection.
-		-- Recount selected units per squad before hull coloring.
-		selection_dirty = true
-		push_to_mru(target_squad)
-
-		-- Select the whole combined squad so the player can immediately act on it.
-		local units = {}
-		for i = 1, #target_squad do
-			units[i] = target_squad[i]
-		end
-		spSelectUnitArray(units)
-
-		log("Reassigned ", moved, " unit(s) → squad [", target_squad.letter or "?", "]")
-		log_squads()
-	end
-end
-
-
 -------------------------------------------------------------------------------
 -- GL4 hull rendering
 --
@@ -1595,14 +1578,13 @@ function widget:Initialize()
 	widgetHandler:AddAction("squad_select_portion", squad_select_portion, nil, "p")
 	widgetHandler:AddAction("squad_select_portion_filtered", squad_select_portion_filtered, nil, "p")
 	widgetHandler:AddAction("squad_select_portion_group", squad_select_portion_group, nil, "p")
-	widgetHandler:AddAction("squad_reassign", squad_reassign, nil, "p")
 	widgetHandler:AddAction("squad_setting", squad_setting, nil, "t")
 	widgetHandler:AddAction("squad_cycle_recent", squad_cycle_recent, nil, "p")
 	widgetHandler:AddAction("squad_cycle_idle", squad_cycle_idle, nil, "p")
 
 	-- WG interface for gui_options.lua integration. Auto-generates
 	-- get<Key>/set<Key> pairs for every exposed config key.
-	local exposed_settings = {"leftClickSelectsSquad", "leftClickSteps", "cyclingToNextSquad", "rightClickSquadCreate", "modifierRightClickCreatesSquad", "doubleClickMs", "doubleClickPx", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "visualizationMode", "convexHullPadding", "convexHullArcResolution", "convexHullFillOpacity", "convexHullBorderOpacity", "convexHullBorderThickness"}
+	local exposed_settings = {"leftClickSelectsSquad", "leftClickSteps", "cyclingToNextSquad", "rightClickSquadCreate", "modifierRightClickCreatesSquad", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "visualizationMode", "convexHullPadding", "convexHullArcResolution", "convexHullFillOpacity", "convexHullBorderOpacity", "convexHullBorderThickness"}
 	WG['squadselection'] = {}
 	for _, key in ipairs(exposed_settings) do
 		local cap = key:sub(1, 1):upper() .. key:sub(2)
@@ -1665,7 +1647,6 @@ function widget:Shutdown()
 	widgetHandler:RemoveAction("squad_select_portion")
 	widgetHandler:RemoveAction("squad_select_portion_filtered")
 	widgetHandler:RemoveAction("squad_select_portion_group")
-	widgetHandler:RemoveAction("squad_reassign")
 	widgetHandler:RemoveAction("squad_setting")
 	widgetHandler:RemoveAction("squad_cycle_recent")
 	widgetHandler:RemoveAction("squad_cycle_idle")
@@ -1702,23 +1683,16 @@ function widget:UnitCreated(unit_id, unit_def_id, unit_team, builder_id)
 
 	if unit_def_id and is_combat[unit_def_id] then
 		local sq = (builder_id and factory_squad[builder_id]) or uncategorized_reserve
-		local was_fully_selected = false
-		if sq.is_reserve and #sq > 0 then
-			local sel = spGetSelectedUnits()
+		local extend_selection = false
+		if sq.is_reserve then
 			local sel_set = {}
-			for _, u in ipairs(sel) do
+			for _, u in ipairs(spGetSelectedUnits()) do
 				sel_set[u] = true
 			end
-			was_fully_selected = true
-			for i = 1, #sq do
-				if not sel_set[sq[i]] then
-					was_fully_selected = false
-					break
-				end
-			end
+			extend_selection = squad_fully_selected(sq, sel_set)
 		end
 		add_to_squad(unit_id, sq)
-		if was_fully_selected then
+		if extend_selection then
 			spSelectUnitArray({unit_id}, true)
 		end
 		log("Unit ", unit_id, " created → squad [", sq.letter or "?", "] (", #sq, " units)")
@@ -1809,28 +1783,7 @@ function widget:MousePress(x, y, button)
 		local mod_combo = ctrl and not alt and not meta and not shift
 		local will_create = (config.rightClickSquadCreate and plain) or (config.modifierRightClickCreatesSquad and mod_combo)
 		if (will_create and cursor ~= "cursornormal") then
-			-- Double right-click within a small time/distance window becomes a
-			-- squad_reassign instead of a second create. The first click's
-			-- create still ran, but when the selection already matched an
-			-- existing squad it was a no-op; otherwise the transient squad
-			-- gets dissolved by the reassign.
-			if last_rmb_create then
-				local dt_ms = spDiffTimers(spGetTimer(), last_rmb_create.t, true)
-				local dx = x - last_rmb_create.x
-				local dy = y - last_rmb_create.y
-				local px = config.doubleClickPx
-				if dt_ms < config.doubleClickMs and (dx * dx + dy * dy) < (px * px) then
-					squad_reassign()
-					last_rmb_create = nil
-					return true
-				end
-			end
 			squad_create()
-			last_rmb_create = {
-				t = spGetTimer(),
-				x = x,
-				y = y,
-			}
 		end
 	elseif button == 1 and config.leftClickSelectsSquad then
 		-- A modifier is required to trigger; plain/Shift/Alt alone are not enough because then the ground click deselects the units.
