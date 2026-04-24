@@ -18,8 +18,8 @@ Every factory (lab) gets its own **reserve squad**, and the squad-eligible units
 
 When you have a **full reserve squad selected** and the factory produces a new unit into it, that unit is **automatically added to your selection**. This keeps your selection in sync as units roll off the production line without requiring any extra input.
 
-*Exception:* units with a wait command are NOT auto-added to your selection:
-- **Factory rally ending with wait** — new units sit at the rally waiting, and the widget remembers this on the reserve. While the wait is there, the reserve-merge behavior below is also disabled: pressing `squad_create` with the waiting reserve fully selected creates a new manual squad instead of swallowing your selection into the reserve.
+*Exception:* units are NOT auto-added to your selection in these cases:
+- **Factory rally ending with wait or patrol** — new units sit at the rally waiting or patrolling, and the widget remembers this on the reserve. While the trailing wait/patrol is there, the reserve-merge behavior below is also disabled: pressing `squad_create` with the reserve fully selected creates a new manual squad instead of swallowing your selection into the reserve.
 - **Freshly resurrected units still healing** — rez bots leave units in wait state until healed, so they don't extend the uncategorized reserve's selection.
 
 Squad-eligible means: unit can move and has no build options.
@@ -158,7 +158,7 @@ Typical use: dissolve a manual squad back into a factory's reserve. Select the m
 
 Selecting *only* a reserve squad and pressing `squad_create` still creates a new manual squad from those units so use this to promote reserve units into a tracked manual squad.
 
-**Opting out with a wait rally.** If the factory's rally ends with a wait command, the merge path is skipped for that reserve even when it's fully selected — `squad_create` falls back to creating a new manual squad. This is the explicit way to say "I'm still going to select this reserve a lot, but don't keep swallowing my new squads into it." Remove the trailing wait (or change the rally) to turn the merge behavior back on (takes effect on the next unit built at that factory).
+**Opting out with a wait or patrol rally.** If the factory's rally ends with a wait or patrol command, the merge path is skipped for that reserve even when it's fully selected — `squad_create` falls back to creating a new manual squad. This is the explicit way to say "I'm still going to select this reserve a lot, but don't keep swallowing my new squads into it." Remove the trailing wait/patrol (or change the rally) to turn the merge behavior back on (takes effect on the next unit built at that factory).
 
 ### Portion selection
 

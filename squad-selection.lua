@@ -470,14 +470,17 @@ local function unit_queue_has_wait(unit_id)
 end
 
 
--- Returns true if the factory's command queue ends with CMD_WAIT (i.e. the
--- rally's last waypoint is a wait).
-local function factory_rally_ends_with_wait(factory_id)
+-- Returns true if the factory's command queue ends with CMD_WAIT or
+-- CMD_PATROL — i.e. the rally's last waypoint is a "stay busy here" signal
+-- rather than a move-and-forget. Both opt the reserve out of auto-extend and
+-- out of the reserve-merge branch in create_squad_from_selection.
+local function factory_rally_ends_with_wait_or_patrol(factory_id)
 	local cmds = spGetUnitCommands(factory_id, -1)
 	if not cmds or #cmds == 0 then
 		return false
 	end
-	return cmds[#cmds].id == CMD.WAIT
+	local last_id = cmds[#cmds].id
+	return last_id == CMD.WAIT or last_id == CMD.PATROL
 end
 
 
@@ -626,13 +629,13 @@ local function create_squad_from_selection()
 			selected_set[selected[i]] = true
 		end
 		for _, sq in ipairs(squads) do
-			-- Skip reserves whose factory rally ends with a wait. In that flow
-			-- the player has already signalled "don't lump new units into this
-			-- selection" via the trailing wait; honoring that here means
-			-- squad_create on a selection that happens to include the whole
-			-- waiting reserve produces a new manual squad instead of quietly
-			-- merging everything into the reserve.
-			if sq.is_reserve and not sq.rally_ends_with_wait and squad_fully_selected(sq, selected_set) then
+			-- Skip reserves whose factory rally ends with a wait or patrol.
+			-- In that flow the player has already signalled "don't lump new
+			-- units into this selection" via the trailing command; honoring
+			-- that here means squad_create on a selection that happens to
+			-- include the whole waiting/patrolling reserve produces a new
+			-- manual squad instead of quietly merging everything into it.
+			if sq.is_reserve and not sq.rally_ends_with_wait_or_patrol and squad_fully_selected(sq, selected_set) then
 				local moved = 0
 				for i = 1, #selected do
 					local u = selected[i]
@@ -1736,18 +1739,17 @@ function widget:UnitCreated(unit_id, unit_def_id, unit_team, builder_id)
 			end
 			extend_selection = squad_fully_selected(sq, sel_set)
 		end
-		-- Wait-based opt-out for the selection auto-extend, split by reserve
-		-- kind:
-		--   Factory reserve → the rally's trailing wait is the signal. Refresh
-		--     the squad-level flag on every build (create_squad_from_selection
-		--     reads it to skip the merge branch) and suppress the extend here
-		--     when set.
+		-- Opt-out for the selection auto-extend, split by reserve kind:
+		--   Factory reserve → the rally's trailing CMD_WAIT or CMD_PATROL is
+		--     the signal. Refresh the squad-level flag on every build
+		--     (create_squad_from_selection reads it to skip the merge branch)
+		--     and suppress the extend here when set.
 		--   Uncategorized reserve → no rally to inspect; fall back to the
 		--     unit's own queue. Covers resurrection bots, which wake with
 		--     CMD_WAIT until fully healed.
 		if sq.from_factory and builder_id then
-			sq.rally_ends_with_wait = factory_rally_ends_with_wait(builder_id)
-			if sq.rally_ends_with_wait then
+			sq.rally_ends_with_wait_or_patrol = factory_rally_ends_with_wait_or_patrol(builder_id)
+			if sq.rally_ends_with_wait_or_patrol then
 				extend_selection = false
 			end
 		elseif extend_selection and unit_queue_has_wait(unit_id) then
