@@ -17,7 +17,7 @@ end
 
 local config = {
 	leftClickSelectsSquad = true, -- left-click can be used to select squads
-	leftClickSteps = {1}, -- step values for left-click selection; {1} = whole squad, {0.5, 1} = 50% then 100%, etc.
+	leftClickSteps = {1}, -- step values + optional distance cap for left-click selection; {1} = whole squad, {"distance_850", 0.5, 1} = 50% then 100% within 850 elmos
 	cyclingToNextSquad = true, -- when full squad/type is selected, exclude it to cycle to next
 	rightClickSquadCreate = false, -- right-click creates squads; toggle with squad_create_toggle action
 	modifierRightClickCreatesSquad = false, -- Ctrl+right-click creates a squad (click still passes through, so the engine's move-in-formation runs too which can cause issues)
@@ -1523,14 +1523,17 @@ local function squad_setting(_, _, args)
 			spEcho("[Squad] excludedUnitTypes = \"" .. config[key] .. "\" (takes effect on next widget load)")
 			return
 		end
-		-- Table-typed keys collect all remaining numeric args as a list.
-		-- Passing no values clears the list (e.g. `squad_setting set leftClickSteps`).
+		-- Table-typed keys collect all remaining args as a list of numbers and
+		-- distance_<N> tokens. Passing no values clears the list.
 		if type(config[key]) == "table" then
 			local list = {}
 			for i = 3, #args do
-				local n = tonumber(args[i])
+				local tok = args[i]
+				local n = tonumber(tok)
 				if n then
 					list[#list + 1] = n
+				elseif tok:match("^distance_%d+%.?%d*$") then
+					list[#list + 1] = tok
 				end
 			end
 			config[key] = list
@@ -1871,7 +1874,7 @@ function widget:MousePress(x, y, button)
 			return
 		end
 
-		local steps = config.leftClickSteps
+		local _, steps, max_distance = parse_portion_args(config.leftClickSteps)
 		if #steps == 0 then
 			steps = {1}
 		end
@@ -1886,6 +1889,7 @@ function widget:MousePress(x, y, button)
 		local opts = {
 			append = append,
 			steps = steps,
+			max_distance = max_distance,
 			cycle_when_full = append or (whole_squad and config.cyclingToNextSquad),
 		}
 
