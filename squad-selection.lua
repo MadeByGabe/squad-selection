@@ -530,6 +530,10 @@ local function make_reserve_squad(from_factory)
 	sq.color = {1, 1, 1}
 	sq.is_reserve = true
 	sq.from_factory = from_factory or false
+	-- Stripe phase shift in periods. Golden-ratio step over the squad tag spreads
+	-- consecutive squads ~0.618 of a period apart, so adjacent reserves can't align.
+	-- Multiplied by the period at draw time.
+	sq.stripe_offset = next_squad_tag * 0.6180339887
 	squads[#squads + 1] = sq
 	return sq
 end
@@ -1362,17 +1366,26 @@ end
 local HULL_MAX_VERTICES = 512 -- per squad; padded hull rarely approaches this
 local hull_shader = nil
 local hull_color_loc = nil
+local hull_stripe_loc = nil
 local hull_vbo = nil
 local hull_vao = nil
 local hull_ready = false
 local hull_init_failed = false -- so we don't spam retries after a failure
+
+-- Diagonal-stripe pattern for reserve squad fills. Period in world elmos;
+-- alphaMul is the opacity of the dim band relative to the bright band.
+local RESERVE_STRIPE_PERIOD = 64
+local RESERVE_STRIPE_ALPHA_MUL = 0.2
 
 local hull_vs_src = [[
 #version 330 compatibility
 
 layout(location = 0) in vec3 position;
 
+out vec3 worldPos;
+
 void main() {
+	worldPos = position;
 	gl_Position = gl_ModelViewProjectionMatrix * vec4(position, 1.0);
 }
 ]]
@@ -1381,11 +1394,22 @@ local hull_fs_src = [[
 #version 330 compatibility
 
 uniform vec4 color;
+// stripe.x = period in world units (0 disables stripes)
+// stripe.y = alpha multiplier for the dim band
+// stripe.z = phase offset in world units (per-squad, so overlapping hulls don't align)
+uniform vec3 stripe;
+
+in vec3 worldPos;
 
 out vec4 fragColor;
 
 void main() {
-	fragColor = color;
+	float a = color.a;
+	if (stripe.x > 0.0) {
+		float band = step(0.5, fract((worldPos.x + worldPos.z + stripe.z) / stripe.x));
+		a *= mix(stripe.y, 1.0, band);
+	}
+	fragColor = vec4(color.rgb, a);
 }
 ]]
 
@@ -1410,6 +1434,7 @@ local function init_gl_hull()
 		return false
 	end
 	hull_color_loc = glGetUniformLocation(hull_shader, "color")
+	hull_stripe_loc = glGetUniformLocation(hull_shader, "stripe")
 
 	hull_vbo = glGetVBO(GL.ARRAY_BUFFER, false)
 	if not hull_vbo then
@@ -1457,6 +1482,7 @@ local function cleanup_gl_hull()
 	hull_vbo = nil
 	hull_shader = nil
 	hull_color_loc = nil
+	hull_stripe_loc = nil
 	hull_ready = false
 	hull_init_failed = false
 end
@@ -2233,8 +2259,16 @@ function widget:DrawWorldPreUnit()
 								end
 
 								hull_vbo:Upload(scratch_flat, nil, nil, 1, fi)
+								if squad.is_reserve then
+									glUniform(hull_stripe_loc, RESERVE_STRIPE_PERIOD, RESERVE_STRIPE_ALPHA_MUL, (squad.stripe_offset or 0) * RESERVE_STRIPE_PERIOD)
+								else
+									glUniform(hull_stripe_loc, 0, 1, 0)
+								end
 								glUniform(hull_color_loc, cr, cg, cb, fill_opacity * alpha_scale)
 								hull_vao:DrawArrays(GL.TRIANGLE_FAN, n)
+								if squad.is_reserve then
+									glUniform(hull_stripe_loc, 0, 1, 0)
+								end
 								glUniform(hull_color_loc, cr, cg, cb, border_opacity * alpha_scale)
 								hull_vao:DrawArrays(GL.LINE_LOOP, n)
 							end
