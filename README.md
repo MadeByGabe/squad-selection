@@ -14,13 +14,13 @@ Jump straight to [installation](#installation) if you want to get going right aw
 
 ## How it works
 
-Every factory (lab) gets its own **reserve squad**, and the squad-eligible units it builds start there. Units that don't come from a factory you built (gifted, resurrected, alive at widget load, etc.) go into a single catch-all **uncategorized reserve**. Reserve squads are visible by default — turn them off with `/luaui squad_setting set showReserveSquads false` if you'd rather only see squads you created explicitly.
+Every factory (lab) gets its own **reserve squad**, and the squad-eligible units it builds start there. Units that don't come from a factory you built (gifted, resurrected, alive at widget load, etc.) go into domain-specific **uncategorized reserves** (`land`, `air`, `naval`). Reserve squads are hidden by default — turn them on with `/luaui squad_setting set showReserveSquads true` if you want to visualize reserves as squads.
 
 When you have a **full reserve squad selected** and the factory produces a new unit into it, that unit is **automatically added to your selection**. This keeps your selection in sync as units roll off the production line without requiring any extra input.
 
 *Exception:* units are NOT auto-added to your selection in these cases:
 - **Factory rally ending with wait or patrol** — new units sit at the rally waiting or patrolling, and the widget remembers this on the reserve. While the trailing wait/patrol is there, the reserve-merge behavior below is also disabled: pressing `squad_create` with the reserve fully selected creates a new manual squad instead of swallowing your selection into the reserve.
-- **Freshly resurrected units still healing** — rez bots leave units in wait state until healed, so they don't extend the uncategorized reserve's selection.
+- **Freshly resurrected units still healing** — rez bots leave units in wait state until healed, so they don't extend their reserve's selection.
 
 Squad-eligible means: unit can move and has no build options.
 
@@ -61,9 +61,9 @@ bind Alt+Shift+sc_x  squad_select_filtered append
 | `squad_create_toggle`                                | Toggles right-click squad creation on/off (see next section)                                                                                             |
 | `squad_create`                                       | Runs squad creation for the current selection                                                                                                            |
 | `squad_select_group N`                               | Select squad ∩ control group N closest to cursor                                                                                                         |
-| `squad_select_portion [append] [distance_<N>] <steps...>`           | Select a portion of the closest squad                                                                                                     |
-| `squad_select_portion_filtered [append] [distance_<N>] <steps...>`  | Same, but filtered by unit type                                                                                                           |
-| `squad_select_portion_group <N> [append] [distance_<N>] <steps...>` | Same, but limited to squad ∩ control group N (probably will be removed)                                                                   |
+| `squad_select_portion [append|append_domain] [distance_<N>] <steps...>`           | Select a portion of the closest squad                                                                                                     |
+| `squad_select_portion_filtered [append|append_domain] [distance_<N>] <steps...>`  | Same, but filtered by unit type                                                                                                           |
+| `squad_select_portion_group <N> [append|append_domain] [distance_<N>] <steps...>` | Same, but limited to squad ∩ control group N (probably will be removed)                                                                   |
 | `squad_cycle_recent`                                 | Select + focus camera on the most recently used squad; each press steps further back; wraps around (up to `mruSize` entries, default 3)                  |
 | `squad_cycle_idle`                                   | Select + focus camera on the next squad that's mostly idle; each press moves on to the next one                                                          |
 
@@ -274,14 +274,15 @@ These changes persist.
 | -------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------- |
 | `leftClickSelectsSquad`          | `true`         | Modifier+click on empty ground selects squads                                                             |
 | `leftClickSteps`                 | `1`            | Step values for left-click selection; `1` = whole squad, `0.5 1` = 50% then 100%; add `distance_<N>` anywhere in the list to cap selection to units within N elmos of the cursor |
+| `leftClickAppendFiltersDomain`   | `true`         | When enabled, left-click append (Ctrl+Shift / Alt+Shift) uses `append_domain`; when disabled, it uses plain `append` (on double click it switches mode) |
 | `cyclingToNextSquad`             | `true`         | Cycle to next squad when full squad is selected                                                           |
-| `rightClickSquadCreate`          | `true`         | Right-click squad creation is active                                                                      |
+| `rightClickSquadCreate`          | `false`        | Right-click squad creation is active                                                                      |
 | `modifierRightClickCreatesSquad` | `false`        | Ctrl+right-click also creates a squad (click passes through)                                              |
 | `viewselectionDoubleTapMs`       | `300`          | Max ms between two single-step replace selects for the double-tap → `viewselection` gesture; `0` disables |
 | `viewselectionDoubleTapPx`       | `5`            | Max screen-pixel distance between the two taps of the `viewselection` double-tap                          |
 | `mruSize`                        | `3`            | How many recent squads `squad_cycle_recent` cycles through                                                |
 | `visualizationMode`              | `"convexHull"` | `"coloredLabel"`, `"convexHull"`, (soon `"metaballs"`)                                                    |
-| `showReserveSquads`              | `true`         | Visualize per-factory and uncategorized reserves as squads                                                |
+| `showReserveSquads`              | `false`        | Visualize per-factory and uncategorized reserves as squads                                                |
 | `excludedUnitTypes`              | `""`           | Comma or space separated unit IDs to exclude from squad tracking (e.g. `"armrectr,cornecro,legrezbot"`). Takes effect on next widget load. To find a unit's name, open its page on [beyondallreason.info](https://www.beyondallreason.info) — the name is the last segment of the URL (e.g. `https://www.beyondallreason.info/unit/cornecro`, cornecro = Graverobber). |
 
 
