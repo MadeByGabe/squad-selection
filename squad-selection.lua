@@ -261,8 +261,6 @@ local SQUAD_COLORS = { -- should be removed, use hue rotation instead with one s
 local SQUAD_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ+#@!$=&"
 local next_squad_tag = 0
 
-local FACTORY_RESERVE_COLOR = {1, 1, 1}
-
 local function assign_squad_tag(squad)
 	next_squad_tag = next_squad_tag + 1
 	local ci = (next_squad_tag - 1) % #SQUAD_COLORS + 1
@@ -529,7 +527,7 @@ end
 local function make_reserve_squad(from_factory)
 	local sq = {}
 	assign_squad_tag(sq)
-	sq.color = FACTORY_RESERVE_COLOR
+	sq.color = {1, 1, 1}
 	sq.is_reserve = true
 	sq.from_factory = from_factory or false
 	squads[#squads + 1] = sq
@@ -1591,7 +1589,7 @@ function widget:Initialize()
 	local tr, tg, tb = spGetTeamColor(spGetMyTeamID())
 	team_color[1], team_color[2], team_color[3] = tr or 1, tg or 1, tb or 1
 	-- Derive idle tint from team color by rotating channels: R<-B, G<-R, B<-G and making it darker.
-	idle_color[1], idle_color[2], idle_color[3] = team_color[2] * 0.2, team_color[3] * 0.2, team_color[1] * 0.2
+	idle_color[1], idle_color[2], idle_color[3] = team_color[2] * 0.3, team_color[3] * 0.3, team_color[1] * 0.3
 
 	classify_unitdefs()
 
@@ -2172,6 +2170,10 @@ function widget:DrawWorldPreUnit()
 						cr = team_color[1] + (idle_color[1] - team_color[1]) * idle_blend
 						cg = team_color[2] + (idle_color[2] - team_color[2]) * idle_blend
 						cb = team_color[3] + (idle_color[3] - team_color[3]) * idle_blend
+					end
+					if squad.is_reserve then
+						alpha_scale = alpha_scale * 0.6
+						cr, cg, cb = cr * 1.5, cg * 1.5, cb * 1.5
 					end
 
 					-- fill scratch_world in place (reuse {x,y} tables) and track
