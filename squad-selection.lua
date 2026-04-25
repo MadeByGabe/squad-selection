@@ -98,7 +98,7 @@ local squads = {} -- ordered list of squad arrays
 local unit_squad = {} -- unitID -> the squad array it belongs to
 local unit_slot = {} -- unitID -> index within that squad (for O(1) removal)
 local factory_squad = {} -- factoryUnitID -> squad (every factory gets an auto-created squad)
-local uncategorized_reserve = nil -- catch-all reserve for units with no factory origin (gifted, resurrected, etc.)
+local uncategorized_reserve = {} -- domain -> reserve squad ("land" | "air" | "naval") for units with no factory origin
 
 local mru = {} -- most-recently-used squads, newest at index 1
 
@@ -148,8 +148,8 @@ local function log_squads()
 	log("  ", #squads, " squad(s):")
 	for _, squad in ipairs(squads) do
 		local label = squad.letter or "?"
-		if squad == uncategorized_reserve then
-			label = label .. ":uncat"
+		if squad.uncat_domain then
+			label = label .. ":uncat-" .. squad.uncat_domain
 		elseif squad.from_factory then
 			label = label .. ":fac"
 		end
@@ -328,6 +328,15 @@ local function classify_unitdefs()
 	end
 end
 
+local function reserve_domain_for_def(def_id)
+	return unit_domain[def_id] or "land"
+end
+
+local function get_uncategorized_reserve_for_def(def_id)
+	local d = reserve_domain_for_def(def_id)
+	return uncategorized_reserve[d] or uncategorized_reserve.land
+end
+
 
 -------------------------------------------------------------------------------
 -- Squad operations
@@ -427,7 +436,7 @@ local function is_prunable(sq)
 	if #sq ~= 0 then
 		return false
 	end
-	if sq == uncategorized_reserve then
+	if sq.uncat_domain then
 		return false
 	end
 	if sq.from_factory then
@@ -1680,7 +1689,12 @@ function widget:Initialize()
 
 	classify_unitdefs()
 
-	uncategorized_reserve = make_reserve_squad(false)
+	uncategorized_reserve = {}
+	for _, d in ipairs({"land", "air", "naval"}) do
+		local sq = make_reserve_squad(false)
+		sq.uncat_domain = d
+		uncategorized_reserve[d] = sq
+	end
 
 	local team_id = spGetMyTeamID()
 	local all = spGetTeamUnits(team_id)
@@ -1696,12 +1710,12 @@ function widget:Initialize()
 	end
 
 	-- Combat units: at init we have no builder info, so everything goes to
-	-- the uncategorized reserve. Future builds will route via UnitCreated.
+	-- domain-specific uncategorized reserves. Future builds will route via UnitCreated.
 	for i = 1, #all do
 		local u = all[i]
 		local def_id = get_defid(u)
 		if def_id and is_combat[def_id] then
-			add_to_squad(u, uncategorized_reserve)
+			add_to_squad(u, get_uncategorized_reserve_for_def(def_id))
 			count = count + 1
 		end
 	end
@@ -1736,7 +1750,7 @@ function widget:Initialize()
 
 	end
 
-	log("Initialized — ", count, " combat units in uncategorized reserve")
+	log("Initialized — ", count, " combat units in domain uncategorized reserves")
 	log_squads()
 end
 
@@ -1818,7 +1832,7 @@ function widget:UnitCreated(unit_id, unit_def_id, unit_team, builder_id)
 	end
 
 	if unit_def_id and is_combat[unit_def_id] then
-		local sq = (builder_id and factory_squad[builder_id]) or uncategorized_reserve
+		local sq = (builder_id and factory_squad[builder_id]) or get_uncategorized_reserve_for_def(unit_def_id)
 		local extend_selection = false
 		if sq.is_reserve then
 			local sel_set = {}
@@ -1898,8 +1912,9 @@ function widget:UnitGiven(unit_id, unit_def_id, unit_team, old_team)
 	end
 
 	if unit_def_id and is_combat[unit_def_id] then
-		add_to_squad(unit_id, uncategorized_reserve)
-		log("Unit ", unit_id, " given to us → uncategorized reserve (", #uncategorized_reserve, " units)")
+		local sq = get_uncategorized_reserve_for_def(unit_def_id)
+		add_to_squad(unit_id, sq)
+		log("Unit ", unit_id, " given to us → uncategorized-", (sq.uncat_domain or "?"), " reserve (", #sq, " units)")
 	end
 end
 
