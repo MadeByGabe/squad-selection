@@ -115,6 +115,18 @@ Append calls are skipped (their repeat semantics is "keep growing"). Tunables: `
 
 Filtered selection is useful with some playstyles but unnecessary for others. If your main goal is to just create squads based on unit types (thugs, grunts, etc.), then you could just use autogroups or any kind of selection method to select the thugs, then right-click to create a squad for them, same with grunts. Then you can use the normal closest squad select to get the squad of thugs or grunts, or better yet, cycle between them.
 
+### Domain filtering (`append_domain`)
+
+In long games it's easy to accidentally pull a nearby air squad into your land selection when you're shift-spamming nearby squads together for a squad merge. `append_domain` is an alternative to the `append` keyword that prevents this: it appends like normal but only from squads whose **domain** matches your current selection. Domains are `land`, `air`, and `naval`.
+
+With a pure-land selection, mixed land+air squads are skipped entirely (not just their air units): a squad is either fully compatible or rejected at the squad level, so no air units leak in when you later `squad_create`. With nothing selected the filter is bypassed, so the first append works normally.
+
+`append_domain` is accepted in place of `append` in every action that takes the append keyword — `squad_select`, `squad_select_filtered`, `squad_select_group`, and the three portion variants.
+
+**Left-click default.** Ctrl+Shift+click (and Alt+Shift+click) use domain filtering by default. Turn off with `/luaui squad_setting toggle leftClickAppendFiltersDomain` if you'd rather have unrestricted append on the mouse.
+
+**Double-tap flip.** Tap any append twice in quick succession at the same screen spot and the second tap flips the domain filter: `append` becomes `append_domain` and `append_domain` becomes `append`. So if your usual hotkey/click is plain append, double-tap to constrain by domain on demand; if it's `append_domain`, double-tap to broaden out of the filter and pull in a cross-domain squad. Uses the same window as the camera-focus double-tap (`viewselectionDoubleTapMs` / `viewselectionDoubleTapPx`).
+
 ### Squad creation toggle + hotkey
 
 Right-click squad creation can be toggled on/off. (Detailed explanation for the why soon). 
@@ -194,9 +206,9 @@ bind Ctrl+Shift+c_c squad_select_portion 0.5 distance_800 append
 
 | Action                                               | What it does                                 |
 | ---------------------------------------------------- | -------------------------------------------- |
-| `squad_select_portion [append] [distance_<N>] <steps...>`           | Select a portion of the closest squad        |
-| `squad_select_portion_filtered [append] [distance_<N>] <steps...>`  | Same, but filtered by unit type              |
-| `squad_select_portion_group <N> [append] [distance_<N>] <steps...>` | Same, but limited to squad ∩ control group N |
+| `squad_select_portion [append|append_domain] [distance_<N>] <steps...>`           | Select a portion of the closest squad        |
+| `squad_select_portion_filtered [append|append_domain] [distance_<N>] <steps...>`  | Same, but filtered by unit type              |
+| `squad_select_portion_group <N> [append|append_domain] [distance_<N>] <steps...>` | Same, but limited to squad ∩ control group N |
 
 ### Recent-squad cycling (MRU)
 
@@ -293,7 +305,7 @@ Open that file with any text editor and add the following lines to the end of th
 
 
 ```
-bind Shift+Meta+1 squad_select_group 1 append
+bind Shift+Meta+1 squad_select_group 1 append_domain
 bind Meta+1 squad_select_group 1
 //...
 
@@ -305,9 +317,9 @@ bind Shift+sc_c gridmenu_key 1 3
 
 bind Alt+sc_c squad_create
 bind sc_c squad_select
-bind shift+sc_c squad_select append
+bind shift+sc_c squad_select append_domain
 bind Ctrl+sc_c squad_select_portion 0 0.5
-bind Ctrl+shift+sc_c squad_select_portion 3 10 append
+bind Ctrl+shift+sc_c squad_select_portion 3 10 append_domain
 bind Ctrl+Meta+sc_c squad_create_toggle
 
 

@@ -18,6 +18,7 @@ end
 local config = {
 	leftClickSelectsSquad = true, -- left-click can be used to select squads
 	leftClickSteps = {1}, -- step values + optional distance cap for left-click selection; {1} = whole squad, {"distance_850", 0.5, 1} = 50% then 100% within 850 elmos
+	leftClickAppendFiltersDomain = true, -- when true, left-click Shift-append only cycles into squads whose domains ⊆ the selection's; when false, append behaves like the plain `append` keyword
 	cyclingToNextSquad = true, -- when full squad/type is selected, exclude it to cycle to next
 	rightClickSquadCreate = false, -- right-click creates squads; toggle with squad_create_toggle action
 	modifierRightClickCreatesSquad = false, -- Ctrl+right-click creates a squad (click still passes through, so the engine's move-in-formation runs too which can cause issues)
@@ -114,8 +115,9 @@ local defid_of = {} -- unitID -> defID (false when lookup fails)
 local is_combat = {} -- defID -> bool
 local is_factory = {} -- defID -> bool (immobile with buildOptions)
 local is_strafing_air = {} -- defID -> bool (air units that strafe/fly around while idle)
+local unit_domain = {} -- defID -> "land" | "air" | "naval"
 
-local last_squad_select = nil -- { t, x, y } of most recent whole-squad replace do_squad_select; armed for the double-tap viewselection gesture
+local last_squad_select = nil -- { t, x, y, append } of most recent successful do_squad_select; powers two same-mode double-tap gestures: replace→replace fires viewselection, append→append upgrades plain append to append_domain
 
 -------------------------------------------------------------------------------
 -- Debug
@@ -302,6 +304,14 @@ local function classify_unitdefs()
 		end
 
 		is_strafing_air[defID] = def.isStrafingAirUnit and true or false
+
+		if def.canFly then
+			unit_domain[defID] = "air"
+		elseif def.minWaterDepth and def.minWaterDepth > 0 then
+			unit_domain[defID] = "naval"
+		else
+			unit_domain[defID] = "land"
+		end
 	end
 
 	-- Apply user exclusions.
@@ -761,23 +771,38 @@ end
 -- Optional filter_defs (defID set), group_set (unitID set), and exclude
 -- (unitID set) narrow the search. A unit is a candidate only if it passes all
 -- three filters.
-local function find_closest_squad(filter_defs, group_set, exclude, wx, wz)
+-- domain_filter (set of allowed domain strings) rejects entire squads whose
+-- units include any domain not in the set — so e.g. a pure-land filter skips
+-- mixed land+air squads, not just their air units.
+local function find_closest_squad(filter_defs, group_set, exclude, wx, wz, domain_filter)
 	local best_unit = nil
 	local best_dist_sq = math.huge
 
 	for _, squad in ipairs(squads) do
-		for j = 1, #squad do
-			local u = squad[j]
-			if not (exclude and exclude[u]) and not (group_set and not group_set[u]) then
-				if not filter_defs or (defid_of[u] and filter_defs[defid_of[u]]) then
-					local x, _, z = spGetUnitPosition(u)
-					if x then
-						local dx = x - wx
-						local dz = z - wz
-						local dist_sq = dx * dx + dz * dz
-						if dist_sq < best_dist_sq then
-							best_dist_sq = dist_sq
-							best_unit = u
+		local squad_ok = true
+		if domain_filter then
+			for j = 1, #squad do
+				local d = unit_domain[defid_of[squad[j]]]
+				if d and not domain_filter[d] then
+					squad_ok = false
+					break
+				end
+			end
+		end
+		if squad_ok then
+			for j = 1, #squad do
+				local u = squad[j]
+				if not (exclude and exclude[u]) and not (group_set and not group_set[u]) then
+					if not filter_defs or (defid_of[u] and filter_defs[defid_of[u]]) then
+						local x, _, z = spGetUnitPosition(u)
+						if x then
+							local dx = x - wx
+							local dz = z - wz
+							local dist_sq = dx * dx + dz * dz
+							if dist_sq < best_dist_sq then
+								best_dist_sq = dist_sq
+								best_unit = u
+							end
 						end
 					end
 				end
@@ -796,17 +821,21 @@ end
 --- Inspect the current selection and return a summary used by squad-select actions.
 --
 -- Returns a table with:
---   selected_set      — set (unitID → true) for O(1) membership tests
---   selected_type_set — set of defIDs present in the selection (only from
---                        tracked squad units). Used to filter squads by unit
---                        type, e.g. "select all Grunts in the closest squad".
---   has_tracked_units — true when at least one selected unit is a tracked
---                        squad unit with a known type. When false, callers
---                        fall back to type-agnostic behavior.
+--   selected_set        — set (unitID → true) for O(1) membership tests
+--   selected_type_set   — set of defIDs present in the selection (only from
+--                          tracked squad units). Used to filter squads by unit
+--                          type, e.g. "select all Grunts in the closest squad".
+--   selected_domain_set — set of domains ("land"/"air"/"naval") in the
+--                          selection. Used by append_domain to constrain
+--                          cycling to compatible squads.
+--   has_tracked_units   — true when at least one selected unit is a tracked
+--                          squad unit with a known type. When false, callers
+--                          fall back to type-agnostic behavior.
 local function analyze_selection()
 	local selected = spGetSelectedUnits()
 	local selected_set = {}
 	local selected_type_set = {}
+	local selected_domain_set = {}
 	local has_tracked_units = false
 
 	for i = 1, #selected do
@@ -816,6 +845,10 @@ local function analyze_selection()
 			local def_id = defid_of[u]
 			if def_id then
 				selected_type_set[def_id] = true
+				local d = unit_domain[def_id]
+				if d then
+					selected_domain_set[d] = true
+				end
 				has_tracked_units = true
 			end
 		end
@@ -824,6 +857,7 @@ local function analyze_selection()
 	return {
 		selected_set = selected_set,
 		selected_type_set = selected_type_set,
+		selected_domain_set = selected_domain_set,
 		has_tracked_units = has_tracked_units,
 	}
 end
@@ -858,20 +892,26 @@ local function step_to_count(step, pool_size)
 end
 
 
---- Parse portion action args: optional "append" keyword, optional
--- "distance_<N>" modifier that caps selection to units within N world-distance
--- of the cursor, plus step numbers.
+--- Parse portion action args: optional "append"/"append_domain" keyword,
+-- optional "distance_<N>" modifier that caps selection to units within N
+-- world-distance of the cursor, plus step numbers. "append_domain" implies
+-- append and additionally restricts squad cycling to domains present in the
+-- current selection.
 local function parse_portion_args(args)
 	if not args then
-		return false, {}, nil
+		return false, false, {}, nil
 	end
 	local append = false
+	local use_domain_filter = false
 	local steps = {}
 	local max_distance
 	for i = 1, #args do
 		local arg = args[i]
 		if arg == "append" then
 			append = true
+		elseif arg == "append_domain" then
+			append = true
+			use_domain_filter = true
 		elseif type(arg) == "string" and arg:sub(1, 9) == "distance_" then
 			local d = tonumber(arg:sub(10))
 			if d and d > 0 then
@@ -884,7 +924,7 @@ local function parse_portion_args(args)
 			end
 		end
 	end
-	return append, steps, max_distance
+	return append, use_domain_filter, steps, max_distance
 end
 
 
@@ -1048,14 +1088,17 @@ end
 -- Unified squad selection core
 --
 -- opts = {
---   append           bool,
---   steps            array of step values; nil → {1} (whole pool),
---   filter_defs      nil or defID set (narrow pool to matching types),
---   group_set        nil or unitID set (narrow pool to group members),
---   max_distance     nil or number — cap pool to units within that world
---                    distance from the cursor,
---   cycle_when_full  bool — when the closest squad's pool is already fully
---                    selected, re-pick a squad with those units excluded
+--   append             bool,
+--   steps              array of step values; nil → {1} (whole pool),
+--   filter_defs        nil or defID set (narrow pool to matching types),
+--   group_set          nil or unitID set (narrow pool to group members),
+--   max_distance       nil or number — cap pool to units within that world
+--                      distance from the cursor,
+--   cycle_when_full    bool — when the closest squad's pool is already fully
+--                      selected, re-pick a squad with those units excluded,
+--   use_domain_filter  bool — restrict squad cycling to domains
+--                      ("land"/"air"/"naval") present in the selection.
+--                      Ignored when no tracked units are selected.
 -- }
 -------------------------------------------------------------------------------
 
@@ -1072,32 +1115,49 @@ local function do_squad_select(opts)
 
 	local mx, my = spGetMouseState()
 
-	-- Compute the double-tap window match once — used by the early (single-
-	-- step) and late (multi-step at last step) trigger checks below.
+	-- Compute the double-tap window match against the *previous* tap, then
+	-- snapshot its append flag before we overwrite last_squad_select below.
 	local in_double_tap_window = false
+	local prev_append = false
 	if last_squad_select and config.viewselectionDoubleTapMs > 0 then
 		local dt_ms = spDiffTimers(spGetTimer(), last_squad_select.t, true)
 		local dx = mx - last_squad_select.x
 		local dy = my - last_squad_select.y
 		local px = config.viewselectionDoubleTapPx
 		in_double_tap_window = dt_ms < config.viewselectionDoubleTapMs and (dx * dx + dy * dy) < (px * px)
+		prev_append = last_squad_select.append
 	end
 
-	-- Double-tap viewselection (early): single-step replace always fires.
-	-- There's no step progression to preserve, so we can bail before the
-	-- expensive find_closest_squad work.
-	if in_double_tap_window and #steps == 1 and not opts.append then
-		spSendCommands("viewselection")
-		last_squad_select = nil
-		return
+	-- Arm now (not at the end) so subsequent taps detect this one even when the selection ends up a no-op
+	last_squad_select = {
+		t = spGetTimer(),
+		x = mx,
+		y = my,
+		append = opts.append,
+	}
+
+	-- Single-step same-mode double-tap dispatch. Replace→replace fires
+	-- viewselection. Append→append flips the domain
+	-- filter — `append` upgrades to `append_domain`, `append_domain`
+	-- downgrades to `append`. Same flip happens regardless of how the action
+	-- was invoked (hotkey or left-click)
+	if in_double_tap_window and #steps == 1 and prev_append == opts.append then
+		if opts.append then
+			opts.use_domain_filter = not opts.use_domain_filter
+		else
+			spSendCommands("viewselection")
+			last_squad_select = nil
+			return
+		end
 	end
 
 	local sel = analyze_selection()
 	local filter_defs = opts.filter_defs
 	local group_set = opts.group_set
 	local max_distance_sq = opts.max_distance and opts.max_distance * opts.max_distance or nil
+	local domain_filter = opts.use_domain_filter and sel.has_tracked_units and sel.selected_domain_set or nil
 
-	local target_squad = find_closest_squad(filter_defs, group_set, nil, wx, wz)
+	local target_squad = find_closest_squad(filter_defs, group_set, nil, wx, wz, domain_filter)
 	if not target_squad then
 		return
 	end
@@ -1118,8 +1178,9 @@ local function do_squad_select(opts)
 
 	-- Double-tap viewselection (late): multi-step replace fires only when the
 	-- player has already reached the last step (no progression left), so
-	-- intermediate taps still advance through steps as normal.
-	if in_double_tap_window and #steps > 1 and not opts.append and #pool > 0 and current_in_step_pool >= step_to_count(steps[#steps], #step_pool) then
+	-- intermediate taps still advance through steps as normal. Same same-mode
+	-- gating as the early check — only replace→replace triggers.
+	if in_double_tap_window and #steps > 1 and not opts.append and not prev_append and #pool > 0 and current_in_step_pool >= step_to_count(steps[#steps], #step_pool) then
 		spSendCommands("viewselection")
 		last_squad_select = nil
 		return
@@ -1131,7 +1192,7 @@ local function do_squad_select(opts)
 		-- original target so a replace tap still replaces with the closest
 		-- squad instead of silently doing nothing. For append, the empty
 		-- pick_units result later short-circuits to a no-op.
-		local cycled_target = find_closest_squad(filter_defs, group_set, sel.selected_set, wx, wz)
+		local cycled_target = find_closest_squad(filter_defs, group_set, sel.selected_set, wx, wz, domain_filter)
 		if cycled_target then
 			target_squad = cycled_target
 			pool, step_pool = build_pools(target_squad, filter_defs, group_set, max_distance_sq, wx, wz)
@@ -1162,18 +1223,6 @@ local function do_squad_select(opts)
 	spSelectUnitArray(to_select, opts.append)
 	push_to_mru(target_squad)
 
-	-- Arm the gesture for any non-append call so the next tap can detect a
-	-- double-tap. Cleared on append.
-	if not opts.append then
-		last_squad_select = {
-			t = spGetTimer(),
-			x = mx,
-			y = my,
-		}
-	else
-		last_squad_select = nil
-	end
-
 	log("Squad select [", target_squad.letter or "?", "]: ", #to_select, "/", #pool, opts.append and " +append" or "")
 end
 
@@ -1183,9 +1232,12 @@ end
 -------------------------------------------------------------------------------
 
 local function squad_select(_, _, args)
-	local append = args and args[1] == "append"
+	local arg = args and args[1]
+	local append = arg == "append" or arg == "append_domain"
+	local use_domain_filter = arg == "append_domain"
 	do_squad_select({
 		append = append,
+		use_domain_filter = use_domain_filter,
 		cycle_when_full = append or config.cyclingToNextSquad,
 	})
 	return true
@@ -1270,9 +1322,12 @@ local function squad_select_filtered(_, _, args)
 	if not filter_defs then
 		return true
 	end
-	local append = args and args[1] == "append"
+	local arg = args and args[1]
+	local append = arg == "append" or arg == "append_domain"
+	local use_domain_filter = arg == "append_domain"
 	do_squad_select({
 		append = append,
+		use_domain_filter = use_domain_filter,
 		filter_defs = filter_defs,
 		cycle_when_full = append or config.cyclingToNextSquad,
 	})
@@ -1288,9 +1343,12 @@ local function squad_select_group(_, _, args)
 	if not group_num then
 		return true
 	end
-	local append = args[2] == "append"
+	local arg = args[2]
+	local append = arg == "append" or arg == "append_domain"
+	local use_domain_filter = arg == "append_domain"
 	do_squad_select({
 		append = append,
+		use_domain_filter = use_domain_filter,
 		group_set = build_group_set(group_num),
 		cycle_when_full = append or config.cyclingToNextSquad,
 	})
@@ -1299,9 +1357,10 @@ end
 
 
 local function squad_select_portion(_, _, args)
-	local append, steps, max_distance = parse_portion_args(args)
+	local append, use_domain_filter, steps, max_distance = parse_portion_args(args)
 	do_squad_select({
 		append = append,
+		use_domain_filter = use_domain_filter,
 		steps = steps,
 		max_distance = max_distance,
 		cycle_when_full = append,
@@ -1311,7 +1370,7 @@ end
 
 
 local function squad_select_portion_filtered(_, _, args)
-	local append, steps, max_distance = parse_portion_args(args)
+	local append, use_domain_filter, steps, max_distance = parse_portion_args(args)
 	local wx, wz = get_mouse_world_pos()
 	if not wx then
 		return true
@@ -1322,6 +1381,7 @@ local function squad_select_portion_filtered(_, _, args)
 	end
 	do_squad_select({
 		append = append,
+		use_domain_filter = use_domain_filter,
 		steps = steps,
 		filter_defs = filter_defs,
 		max_distance = max_distance,
@@ -1343,9 +1403,10 @@ local function squad_select_portion_group(_, _, args)
 	for i = 2, #args do
 		remaining[#remaining + 1] = args[i]
 	end
-	local append, steps, max_distance = parse_portion_args(remaining)
+	local append, use_domain_filter, steps, max_distance = parse_portion_args(remaining)
 	do_squad_select({
 		append = append,
+		use_domain_filter = use_domain_filter,
 		steps = steps,
 		group_set = build_group_set(group_num),
 		max_distance = max_distance,
@@ -1659,7 +1720,7 @@ function widget:Initialize()
 
 	-- WG interface for gui_options.lua integration. Auto-generates
 	-- get<Key>/set<Key> pairs for every exposed config key.
-	local exposed_settings = {"leftClickSelectsSquad", "leftClickSteps", "cyclingToNextSquad", "rightClickSquadCreate", "modifierRightClickCreatesSquad", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "visualizationMode", "convexHullPadding", "convexHullArcResolution", "convexHullFillOpacity", "convexHullBorderOpacity", "convexHullBorderThickness"}
+	local exposed_settings = {"leftClickSelectsSquad", "leftClickSteps", "leftClickAppendFiltersDomain", "cyclingToNextSquad", "rightClickSquadCreate", "modifierRightClickCreatesSquad", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "visualizationMode", "convexHullPadding", "convexHullArcResolution", "convexHullFillOpacity", "convexHullBorderOpacity", "convexHullBorderThickness"}
 	WG['squadselection'] = {}
 	for _, key in ipairs(exposed_settings) do
 		local cap = key:sub(1, 1):upper() .. key:sub(2)
@@ -1898,7 +1959,7 @@ function widget:MousePress(x, y, button)
 			return
 		end
 
-		local _, steps, max_distance = parse_portion_args(config.leftClickSteps)
+		local _, _, steps, max_distance = parse_portion_args(config.leftClickSteps)
 		if #steps == 0 then
 			steps = {1}
 		end
@@ -1910,8 +1971,13 @@ function widget:MousePress(x, y, button)
 		-- Append always cycles across squads (grow-the-selection semantics).
 		-- Whole-squad replace cycles per user config. Portion replace never
 		-- cycles — step progression takes the place of cycling.
+		-- Left-click append uses domain filtering by default — the typical
+		-- frontline-merge use case wants land squads to stay land-only when
+		-- you Shift-click together a wedge of nearby units. Toggle off via
+		-- `config.leftClickAppendFiltersDomain` for plain append behavior.
 		local opts = {
 			append = append,
+			use_domain_filter = append and config.leftClickAppendFiltersDomain,
 			steps = steps,
 			max_distance = max_distance,
 			cycle_when_full = append or (whole_squad and config.cyclingToNextSquad),
