@@ -20,6 +20,7 @@ local config = {
 	leftClickSteps = {1, 0.5, "distance_850"}, -- step values + optional distance cap for left-click selection; {1} = whole squad, {"distance_850", 0.5, 1} = 50% then 100% within 850 elmos
 	leftClickStepsEnabled = false, -- when true, left-click (replace and append) uses leftClickSteps; when false (default), both use {1} (whole squad, no distance cap). Bind a hotkey via `squad_setting toggle leftClickStepsEnabled` to flip on demand
 	leftClickAppendFiltersDomain = true, -- when true, left-click Shift-append only cycles into squads whose domains ⊆ the selection's; when false, append behaves like the plain `append` keyword
+	leftClickFilteredRetargets = false, -- when true, Alt+Ctrl-click (replace-mode filtered) acts like the `retarget` keyword: if the closest unit's type isn't in the current selection, treat the click as a fresh selection on that new type instead of using the selection's types as the filter. Append mode is unaffected.
 	cyclingToNextSquad = true, -- when full squad/type is selected, exclude it to cycle to next
 	rightClickSquadCreate = false, -- right-click creates squads; bind a hotkey via `squad_setting toggle rightClickSquadCreate` to flip on demand
 	modifierRightClickCreatesSquad = false, -- Ctrl+right-click creates a squad (click still passes through, so the engine's move-in-formation runs too which can cause issues)
@@ -913,10 +914,11 @@ end
 -- current selection.
 local function parse_portion_args(args)
 	if not args then
-		return false, false, {}, nil
+		return false, false, {}, nil, false
 	end
 	local append = false
 	local use_domain_filter = false
+	local retarget = false
 	local steps = {}
 	local max_distance
 	for i = 1, #args do
@@ -926,6 +928,8 @@ local function parse_portion_args(args)
 		elseif arg == "append_domain" then
 			append = true
 			use_domain_filter = true
+		elseif arg == "retarget" then
+			retarget = true
 		elseif type(arg) == "string" and arg:sub(1, 9) == "distance_" then
 			local d = tonumber(arg:sub(10))
 			if d and d > 0 then
@@ -938,7 +942,7 @@ local function parse_portion_args(args)
 			end
 		end
 	end
-	return append, use_domain_filter, steps, max_distance
+	return append, use_domain_filter, steps, max_distance, retarget
 end
 
 
@@ -1064,6 +1068,29 @@ local function resolve_filter_defs(sel, wx, wz)
 	local def_id = defid_of[closest]
 	if not def_id then
 		return nil
+	end
+	return {
+		[def_id] = true,
+	}
+end
+
+
+--- Retarget variant: in replace mode, always peek the closest unit. If its
+-- type is in the current selection's types, behave like resolve_filter_defs
+-- (use the selection). If not, treat the click as a fresh selection on that
+-- single new type — letting the player swing the filter to a different unit
+-- type without first deselecting.
+local function resolve_retarget_filter_defs(sel, wx, wz)
+	local _, closest = find_closest_squad(nil, nil, nil, wx, wz)
+	if not closest then
+		return resolve_filter_defs(sel, wx, wz)
+	end
+	local def_id = defid_of[closest]
+	if not def_id then
+		return resolve_filter_defs(sel, wx, wz)
+	end
+	if sel.has_tracked_units and sel.selected_type_set[def_id] then
+		return sel.selected_type_set
 	end
 	return {
 		[def_id] = true,
@@ -1329,13 +1356,15 @@ local function squad_select_filtered(_, _, args)
 	if not wx then
 		return true
 	end
-	local filter_defs = resolve_filter_defs(analyze_selection(), wx, wz)
-	if not filter_defs then
-		return true
-	end
 	local arg = args and args[1]
 	local append = arg == "append" or arg == "append_domain"
 	local use_domain_filter = arg == "append_domain"
+	local retarget = arg == "retarget"
+	local sel = analyze_selection()
+	local filter_defs = (retarget and not append) and resolve_retarget_filter_defs(sel, wx, wz) or resolve_filter_defs(sel, wx, wz)
+	if not filter_defs then
+		return true
+	end
 	do_squad_select({
 		append = append,
 		use_domain_filter = use_domain_filter,
@@ -1381,12 +1410,13 @@ end
 
 
 local function squad_select_portion_filtered(_, _, args)
-	local append, use_domain_filter, steps, max_distance = parse_portion_args(args)
+	local append, use_domain_filter, steps, max_distance, retarget = parse_portion_args(args)
 	local wx, wz = get_mouse_world_pos()
 	if not wx then
 		return true
 	end
-	local filter_defs = resolve_filter_defs(analyze_selection(), wx, wz)
+	local sel = analyze_selection()
+	local filter_defs = (retarget and not append) and resolve_retarget_filter_defs(sel, wx, wz) or resolve_filter_defs(sel, wx, wz)
 	if not filter_defs then
 		return true
 	end
@@ -1735,7 +1765,7 @@ function widget:Initialize()
 
 	-- WG interface for gui_options.lua integration. Auto-generates
 	-- get<Key>/set<Key> pairs for every exposed config key.
-	local exposed_settings = {"leftClickSelectsSquad", "leftClickSteps", "leftClickStepsEnabled", "leftClickAppendFiltersDomain", "cyclingToNextSquad", "rightClickSquadCreate", "modifierRightClickCreatesSquad", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "visualizationMode", "convexHullPadding", "convexHullArcResolution", "convexHullFillOpacity", "convexHullBorderOpacity", "convexHullBorderThickness"}
+	local exposed_settings = {"leftClickSelectsSquad", "leftClickSteps", "leftClickStepsEnabled", "leftClickAppendFiltersDomain", "leftClickFilteredRetargets", "cyclingToNextSquad", "rightClickSquadCreate", "modifierRightClickCreatesSquad", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "visualizationMode", "convexHullPadding", "convexHullArcResolution", "convexHullFillOpacity", "convexHullBorderOpacity", "convexHullBorderThickness"}
 	WG['squadselection'] = {}
 	for _, key in ipairs(exposed_settings) do
 		local cap = key:sub(1, 1):upper() .. key:sub(2)
@@ -2001,7 +2031,8 @@ function widget:MousePress(x, y, button)
 			if not wx then
 				return
 			end
-			opts.filter_defs = resolve_filter_defs(analyze_selection(), wx, wz)
+			local sel = analyze_selection()
+			opts.filter_defs = (config.leftClickFilteredRetargets and not append) and resolve_retarget_filter_defs(sel, wx, wz) or resolve_filter_defs(sel, wx, wz)
 			if not opts.filter_defs then
 				return
 			end

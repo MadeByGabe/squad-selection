@@ -57,10 +57,11 @@ bind Alt+Shift+sc_x  squad_select_filtered append
 | `squad_select append`                        | Appends the closest squad to the current selection                                                                                                       |
 | `squad_select_filtered`                      | Selects only the unit types (from your current selection or closest unit if nothing is selected) in the closest squad                                    |
 | `squad_select_filtered append`               | Same, but appends to selection                                                                                                                           |
+| `squad_select_filtered retarget`             | Replace-mode only. Always peeks the closest unit: if its type is in your current selection it filters by the selection's types (same as plain), otherwise it uses the closest unit's type as the new type. Lets you swing the filter to a different unit type without first deselecting. |
 | `squad_create`                                       | Runs squad creation for the current selection                                                                                                            |
 | `squad_select_group N`                               | Select squad ∩ control group N closest to cursor                                                                                                         |
 | `squad_select_portion [append|append_domain] [distance_<N>] <steps...>`           | Select a portion of the closest squad                                                                                                     |
-| `squad_select_portion_filtered [append|append_domain] [distance_<N>] <steps...>`  | Same, but filtered by unit type                                                                                                           |
+| `squad_select_portion_filtered [append|append_domain|retarget] [distance_<N>] <steps...>`  | Same, but filtered by unit type (`retarget` works the same as on `squad_select_filtered`)                                        |
 | `squad_select_portion_group <N> [append|append_domain] [distance_<N>] <steps...>` | Same, but limited to squad ∩ control group N (probably will be removed)                                                                   |
 | `squad_cycle_recent`                                 | Select + focus camera on the most recently used squad; each press steps further back; wraps around (up to `mruSize` entries, default 3)                  |
 | `squad_cycle_idle`                                   | Select + focus camera on the next squad that's mostly idle; each press moves on to the next one                                                          |
@@ -114,6 +115,26 @@ Append calls are skipped (their repeat semantics is "keep growing"). Tunables: `
 ### Filtered selection
 
 Filtered selection is useful with some playstyles but unnecessary for others. If your main goal is to just create squads based on unit types (thugs, grunts, etc.), then you could just use autogroups or any kind of selection method to select the thugs, then right-click to create a squad for them, same with grunts. Then you can use the normal closest squad select to get the squad of thugs or grunts, or better yet, cycle between them.
+
+### Retargeting filtered selection (`retarget`)
+
+By default `squad_select_filtered` (and the portion variant) keeps the existing selection's unit types as the filter when you have one. That's great when you're pulling in more of the same, but if you have tanks selected and click near artillery, replace-mode does nothing useful: there are no tanks there. The simple workaround is to deselect first, then click.
+
+Or you can add the `retarget` keyword and the action checks the closest unit on every press:
+
+- If its type is already in your selection, it filters by the selection's types (same as plain filtered).
+- If not, it ignores the selection entirely and treats the click as a fresh filtered selection on that one new type.
+
+So with `retarget` bound, you can move tanks forward, then point at the artillery and tap once to grab them, without deselecting first.
+
+`retarget` is **replace-mode only** — it's incompatible with `append`/`append_domain`. If both keywords are present `retarget` is silently ignored, so it's safe to put on the same hotkey root as your append variant.
+
+```
+bind sc_x squad_select_filtered retarget
+bind Ctrl+sc_x squad_select_portion_filtered retarget 0.5 1
+```
+
+The same behavior is available on Alt+Ctrl-click (replace-mode left-click filtered) via `/luaui squad_setting toggle leftClickFilteredRetargets` — default off.
 
 ### Domain filtering (`append_domain`)
 
@@ -276,6 +297,7 @@ These changes persist.
 | `leftClickSteps`                 | `1 distance_850` | Step values for left-click selection (only honored when `leftClickStepsEnabled` is true); `1` = whole squad, `0.5 1` = 50% then 100%; add `distance_<N>` anywhere in the list to cap selection to units within N elmos of the cursor |
 | `leftClickStepsEnabled`          | `false`        | When enabled, left-click (replace and append) uses `leftClickSteps`; when disabled, both use whole-squad with no distance cap. Toggle with `squad_setting toggle leftClickStepsEnabled` (bind to a hotkey for on-the-fly flipping) |
 | `leftClickAppendFiltersDomain`   | `true`         | When enabled, left-click append (Ctrl+Shift / Alt+Shift) uses `append_domain`; when disabled, it uses plain `append` (on double click it switches mode) |
+| `leftClickFilteredRetargets`     | `false`        | When enabled, replace-mode left-click filtered (Alt+Ctrl-click) acts like the `retarget` keyword — peeks the closest unit and uses its type as the filter when it isn't already in the selection. Append left-click is unaffected. |
 | `cyclingToNextSquad`             | `true`         | Cycle to next squad when full squad is selected                                                           |
 | `rightClickSquadCreate`          | `false`        | Right-click squad creation is active                                                                      |
 | `modifierRightClickCreatesSquad` | `false`        | Ctrl+right-click also creates a squad (click passes through)                                              |
@@ -330,9 +352,9 @@ unbind Any+sc_x gridmenu_key 1 2
 bind sc_x gridmenu_key 1 2
 bind Shift+sc_x gridmenu_key 1 2
 
-bind sc_x squad_select_filtered
+bind sc_x squad_select_filtered retarget
 bind shift+sc_x squad_select_filtered append
-bind Ctrl+sc_x squad_select_portion_filtered 0 0.25 0.5 0.75 1
+bind Ctrl+sc_x squad_select_portion_filtered 0 0.25 0.5 0.75 1 retarget
 bind Ctrl+shift+sc_x squad_select_portion_filtered 5 10 append
 
 
