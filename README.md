@@ -79,7 +79,7 @@ With `leftClickSelectsSquad` enabled (default), clicking on empty ground trigger
 
 Mouse squad selections are skipped when clicking directly on a unit or when an active command is pending (fight, patrol, build placement, etc.).
 
-**Portion-mode left-click.** `leftClickSteps` controls how many units each click selects when enabled. Default is `1 distance_850` (= whole squad capped to 850 elmos around the cursor). Set anything else like `0.5` or `5` and the four combos above switch to portion selection: closest N units, re-sorted by cursor proximity on each press. Filter/append flags still come from the modifiers. A `distance_<N>` token anywhere in the list caps selection to units within N world-distance of the cursor, the same way it works for hotkey actions. Examples:
+**Portion-mode left-click.** `leftClickSteps` controls how many units each click selects when enabled. Default is `1 0.5 distance_850` (= whole squad capped to 850 elmos around the cursor, half the squad if the whole squad is already selected). Set anything else like `0.5` or `5` and the four combos above switch to portion selection: closest N units, re-sorted by cursor proximity on each press. Filter/append flags still come from the modifiers. A `distance_<N>` token anywhere in the list caps selection to units within N world-distance of the cursor, the same way it works for hotkey actions. Examples:
 
 ```
 /luaui squad_setting set leftClickSteps 0.25 0.5 1          # 25% → 50% → 100% on successive clicks
