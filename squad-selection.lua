@@ -17,7 +17,7 @@ end
 
 local config = {
 	leftClickSelectsSquad = true, -- left-click can be used to select squads
-	leftClickSteps = {1, "distance_850"}, -- step values + optional distance cap for left-click selection; {1} = whole squad, {"distance_850", 0.5, 1} = 50% then 100% within 850 elmos
+	leftClickSteps = {1, 0.5, "distance_850"}, -- step values + optional distance cap for left-click selection; {1} = whole squad, {"distance_850", 0.5, 1} = 50% then 100% within 850 elmos
 	leftClickStepsEnabled = false, -- when true, left-click (replace and append) uses leftClickSteps; when false (default), both use {1} (whole squad, no distance cap). Bind a hotkey via `squad_setting toggle leftClickStepsEnabled` to flip on demand
 	leftClickAppendFiltersDomain = true, -- when true, left-click Shift-append only cycles into squads whose domains ⊆ the selection's; when false, append behaves like the plain `append` keyword
 	cyclingToNextSquad = true, -- when full squad/type is selected, exclude it to cycle to next
@@ -2021,7 +2021,7 @@ function widget:SetConfigData(data)
 	-- Migrate existing users from the previous default {1} to the new {1, "distance_850"}.
 	-- Anyone who deliberately customized leftClickSteps already has something other than {1}.
 	if type(config.leftClickSteps) == "table" and #config.leftClickSteps == 1 and config.leftClickSteps[1] == 1 then
-		config.leftClickSteps = {1, "distance_850"}
+		config.leftClickSteps = {1, 0.5, "distance_850"}
 	end
 end
 
