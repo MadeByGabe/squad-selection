@@ -91,6 +91,11 @@ local glUniform = gl.Uniform
 local glGetVBO = gl.GetVBO
 local glGetVAO = gl.GetVAO
 
+local LuaShader = gl.LuaShader
+local InstanceVBOTable = gl.InstanceVBOTable
+local pushElementInstance = InstanceVBOTable and InstanceVBOTable.pushElementInstance
+local popElementInstance = InstanceVBOTable and InstanceVBOTable.popElementInstance
+
 -------------------------------------------------------------------------------
 -- State
 -------------------------------------------------------------------------------
@@ -367,39 +372,33 @@ end
 -- enforced by rebuild_markers() which runs on showReserveSquads toggle.
 -------------------------------------------------------------------------------
 
--- InstanceVBOTable is a GL4 helper for per-instance data with engine SSBO
--- unit-ID slots. Resolved lazily because some builds don't expose it on `gl`
--- at widget-file-load time.
-local InstanceVBOTable
-
 local MARKER_SIZE_PX = 8 -- half-extent in screen pixels
-local MARKER_Y_OFFSET = 40 -- world units above unit center
 local MARKER_OPACITY = 0.85
 
 local marker_ready = false
 local marker_init_failed = false
 local marker_fail_reason = nil
 local marker_shader = nil
-local marker_u_viewport = nil
-local marker_u_yOffset = nil
-local marker_u_opacity = nil
-local marker_u_size = nil
 local markerInstanceVBO = nil
 local markerQuadVBO = nil
 local marker_instance_cache = {0, 0, 0,  0, 0, 0, 0}
 local last_show_reserves = nil
 
--- Compatibility profile gives us gl_ModelViewProjectionMatrix without needing
--- LuaShader's engine-preprocessing directives. SSBO binding number is just a
--- GLSL layout qualifier — no engine preprocessing required.
+-- The engine UBO defs (cameraViewProj etc.) are spliced in where the
+-- //__ENGINEUNIFORMBUFFERDEFS__ marker sits. The per-unit drawPos SSBO at
+-- binding=1 is a separate, hand-written declaration — it's not part of the
+-- engine UBO defs.
 local marker_vs_src = [[
-#version 430 compatibility
+#version 430
+#extension GL_ARB_uniform_buffer_object : require
 #extension GL_ARB_shader_storage_buffer_object : require
 #extension GL_ARB_shading_language_420pack : require
 
 layout (location = 0) in vec2 quadVertex;
 layout (location = 1) in vec3 color;
 layout (location = 2) in uvec4 instData;
+
+//__ENGINEUNIFORMBUFFERDEFS__
 
 struct SUniformsBuffer {
 	uint composite;
@@ -422,7 +421,6 @@ layout(std140, binding=1) readonly buffer UniformsBuffer {
 };
 
 uniform vec2 viewport;
-uniform float yOffset;
 uniform float size;
 
 out vec3 v_color;
@@ -430,9 +428,8 @@ out vec2 v_localPos;
 
 void main() {
 	vec3 worldPos = uni[instData.y].drawPos.xyz;
-	worldPos.y += yOffset;
 
-	vec4 clip = gl_ModelViewProjectionMatrix * vec4(worldPos, 1.0);
+	vec4 clip = cameraViewProj * vec4(worldPos, 1.0);
 	vec2 ndcScale = vec2(2.0 / viewport.x, 2.0 / viewport.y) * size;
 	clip.xy += quadVertex * ndcScale * clip.w;
 
@@ -443,7 +440,7 @@ void main() {
 ]]
 
 local marker_fs_src = [[
-#version 430 compatibility
+#version 430
 
 in vec3 v_color;
 in vec2 v_localPos;
@@ -465,37 +462,36 @@ local function init_gl_marker()
 	if marker_ready or marker_init_failed then
 		return marker_ready
 	end
-	InstanceVBOTable = InstanceVBOTable or gl.InstanceVBOTable
-	if not InstanceVBOTable then
-		local ok, mod = pcall(VFS.Include, "LuaUI/Include/InstanceVBOTable.lua")
-		if ok then InstanceVBOTable = mod end
-	end
-	if not glCreateShader or not InstanceVBOTable then
-		marker_fail_reason = "GL4 unavailable — createShader=" .. tostring(glCreateShader ~= nil)
+	if not LuaShader or not InstanceVBOTable then
+		marker_fail_reason = "GL4 unavailable — LuaShader=" .. tostring(LuaShader ~= nil)
 			.. " InstanceVBOTable=" .. tostring(InstanceVBOTable ~= nil)
 		marker_init_failed = true
 		return false
 	end
 
-	marker_shader = glCreateShader({
-		vertex = marker_vs_src,
+	local engineUniformBufferDefs = LuaShader.GetEngineUniformBufferDefs()
+	local vsSrc = marker_vs_src:gsub("//__ENGINEUNIFORMBUFFERDEFS__", engineUniformBufferDefs)
+
+	marker_shader = LuaShader({
+		vertex = vsSrc,
 		fragment = marker_fs_src,
-	})
-	if not marker_shader then
-		local shaderLog = gl.GetShaderLog and gl.GetShaderLog() or "(no log)"
-		marker_fail_reason = "shader compile failed: " .. tostring(shaderLog)
+		uniformFloat = {
+			viewport = {1.0, 1.0},
+			opacity = MARKER_OPACITY,
+			size = MARKER_SIZE_PX,
+		},
+	}, "Squad Marker GL4")
+
+	if not marker_shader:Initialize() then
+		marker_fail_reason = "shader compile failed"
+		marker_shader = nil
 		marker_init_failed = true
 		return false
 	end
-	marker_u_viewport = glGetUniformLocation(marker_shader, "viewport")
-	marker_u_yOffset = glGetUniformLocation(marker_shader, "yOffset")
-	marker_u_opacity = glGetUniformLocation(marker_shader, "opacity")
-	marker_u_size = glGetUniformLocation(marker_shader, "size")
 
 	-- 4-vertex quad in [-1,1]^2 for TRIANGLE_STRIP
 	markerQuadVBO = glGetVBO(GL.ARRAY_BUFFER, false)
 	if not markerQuadVBO then
-		glDeleteShader(marker_shader)
 		marker_shader = nil
 		marker_init_failed = true
 		marker_fail_reason = "Marker quad VBO creation failed"
@@ -528,16 +524,12 @@ local function cleanup_gl_marker()
 	if markerQuadVBO then
 		markerQuadVBO:Delete()
 	end
-	if marker_shader then
-		glDeleteShader(marker_shader)
+	if marker_shader and marker_shader.Finalize then
+		marker_shader:Finalize()
 	end
 	markerInstanceVBO = nil
 	markerQuadVBO = nil
 	marker_shader = nil
-	marker_u_viewport = nil
-	marker_u_yOffset = nil
-	marker_u_opacity = nil
-	marker_u_size = nil
 	marker_ready = false
 	marker_init_failed = false
 	last_show_reserves = nil
@@ -561,7 +553,7 @@ local function push_marker_instance(unit_id)
 	marker_instance_cache[1] = c[1]
 	marker_instance_cache[2] = c[2]
 	marker_instance_cache[3] = c[3]
-	InstanceVBOTable.pushElementInstance(markerInstanceVBO, marker_instance_cache, unit_id, true, false, unit_id)
+	pushElementInstance(markerInstanceVBO, marker_instance_cache, unit_id, true, false, unit_id)
 end
 
 
@@ -570,7 +562,7 @@ local function pop_marker_instance(unit_id)
 		return
 	end
 	if markerInstanceVBO.instanceIDtoIndex[unit_id] then
-		InstanceVBOTable.popElementInstance(markerInstanceVBO, unit_id)
+		popElementInstance(markerInstanceVBO, unit_id)
 	end
 end
 
@@ -2338,13 +2330,12 @@ function widget:DrawWorld()
 	glDepthTest(false)
 	glDepthMask(false)
 	glBlending(GL.SRC_ALPHA, GL.ONE_MINUS_SRC_ALPHA)
-	glUseShader(marker_shader)
-	glUniform(marker_u_viewport, vsx, vsy)
-	glUniform(marker_u_yOffset, MARKER_Y_OFFSET)
-	glUniform(marker_u_opacity, MARKER_OPACITY)
-	glUniform(marker_u_size, MARKER_SIZE_PX)
+	marker_shader:Activate()
+	marker_shader:SetUniform("viewport", vsx, vsy)
+	marker_shader:SetUniform("opacity", MARKER_OPACITY)
+	marker_shader:SetUniform("size", MARKER_SIZE_PX)
 	markerInstanceVBO.VAO:DrawArrays(GL.TRIANGLE_STRIP, 4, 0, markerInstanceVBO.usedElements, 0)
-	glUseShader(0)
+	marker_shader:Deactivate()
 	glBlending(false)
 	glDepthMask(true)
 	glDepthTest(true)
