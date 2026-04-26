@@ -2036,6 +2036,11 @@ function widget:SetConfigData(data)
 			config[key] = value
 		end
 	end
+	-- Migrate existing users from the previous default {1} to the new {1, "distance_850"}.
+	-- Anyone who deliberately customized leftClickSteps already has something other than {1}.
+	if type(config.leftClickSteps) == "table" and #config.leftClickSteps == 1 and config.leftClickSteps[1] == 1 then
+		config.leftClickSteps = {1, "distance_850"}
+	end
 end
 
 
