@@ -171,7 +171,7 @@ Typical use: dissolve a manual squad back into a factory's reserve. Select the m
 
 Selecting *only* a reserve squad and pressing `squad_create` still creates a new manual squad from those units so use this to promote reserve units into a tracked manual squad.
 
-**Opting out with a wait or patrol rally.** If the factory's rally ends with a wait or patrol command, the merge path is skipped for that reserve even when it's fully selected — `squad_create` falls back to creating a new manual squad. This is the explicit way to say "I'm still going to select this reserve a lot, but don't keep swallowing my new squads into it." Remove the trailing wait/patrol (or change the rally) to turn the merge behavior back on (takes effect on the next unit built at that factory).
+**Opting out with a wait or patrol rally.** If the factory's rally ends with a wait or patrol command, the merge path is skipped for that reserve even when it's fully selected, `squad_create` falls back to creating a new manual squad. This is the explicit way to say "I'm still going to select this reserve a lot, but don't keep swallowing my new squads into it." Remove the trailing wait/patrol (or change the rally) to turn the merge behavior back on (takes effect on the next unit built at that factory).
 
 ### Portion selection
 
@@ -283,7 +283,7 @@ These changes persist.
 | `mruSize`                        | `3`            | How many recent squads `squad_cycle_recent` cycles through                                                |
 | `visualizationMode`              | `"convexHull"` | `"coloredLabel"`, `"convexHull"`, (soon `"metaballs"`)                                                    |
 | `showReserveSquads`              | `false`        | Visualize per-factory and uncategorized reserves as squads                                                |
-| `excludedUnitTypes`              | `""`           | Comma or space separated unit IDs to exclude from squad tracking (e.g. `"armrectr,cornecro,legrezbot"`). Takes effect on next widget load. To find a unit's name, open its page on [beyondallreason.info](https://www.beyondallreason.info) — the name is the last segment of the URL (e.g. `https://www.beyondallreason.info/unit/cornecro`, cornecro = Graverobber). |
+| `excludedUnitTypes`              | `""`           | Comma or space separated unit IDs to exclude from squad tracking (e.g. `"armrectr,cornecro,legrezbot"`). Takes effect on next widget load. To find a unit's name, open its page on [beyondallreason.info](https://www.beyondallreason.info) — the name is the last segment of the URL (e.g. `https://www.beyondallreason.info/unit/cornecro`, cornecro = Graverobber). Note, there is a chat message limit to set a setting so you might want to edit this setting in *data/LuaUi/Config/BYAR.lua* while you're not in game.  |
 
 
 
