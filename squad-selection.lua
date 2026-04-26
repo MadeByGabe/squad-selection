@@ -118,7 +118,7 @@ local is_factory = {} -- defID -> bool (immobile with buildOptions)
 local is_strafing_air = {} -- defID -> bool (air units that strafe/fly around while idle)
 local unit_domain = {} -- defID -> "land" | "air" | "naval"
 
-local last_squad_select = nil -- { t, x, y, append } of most recent successful do_squad_select; powers two same-mode double-tap gestures: replace→replace fires viewselection, append→append upgrades plain append to append_domain
+local last_squad_select = nil -- { t, x, y, append, squad } of most recent successful do_squad_select; powers two same-mode double-tap gestures (replace→replace fires viewselection, append→append upgrades plain append to append_domain) and gates the reserve-merge branch of create_squad_from_selection on `squad`
 
 -------------------------------------------------------------------------------
 -- Debug
@@ -490,8 +490,8 @@ end
 
 -- Returns true if the factory's command queue ends with CMD_WAIT or
 -- CMD_PATROL — i.e. the rally's last waypoint is a "stay busy here" signal
--- rather than a move-and-forget. Both opt the reserve out of auto-extend and
--- out of the reserve-merge branch in create_squad_from_selection.
+-- rather than a move-and-forget. Used to opt the reserve out of the
+-- selection auto-extend in UnitCreated.
 local function factory_rally_ends_with_wait_or_patrol(factory_id)
 	local cmds = spGetUnitCommands(factory_id, -1)
 	if not cmds or #cmds == 0 then
@@ -639,25 +639,29 @@ local function create_squad_from_selection()
 	end
 
 	-- `existing` being nil here means the selection spans more than one squad
-	-- (or partial squads). If it fully contains a reserve squad in that mix,
+	-- (or partial squads). If it fully contains a reserve squad in that mix
+	-- AND the player's last widget squad-select targeted that same reserve,
 	-- merge the rest of the selection INTO that reserve instead of creating a
 	-- new manual squad. First match wins. When the selection is exactly one
 	-- reserve (`existing` set + is_reserve), we skip this branch and fall
 	-- through to new-squad creation — extracting the reserve into a manual
 	-- squad is the intended action in that case.
-	if not existing then
+	--
+	-- The `last_squad_select.squad == sq` gate captures player intent: merging
+	-- only happens when the player explicitly squad-selected the reserve via
+	-- the widget. Manual selections that happen to include all of a (possibly
+	-- one-unit) reserve don't trigger merges — common case is selecting a
+	-- fresh factory output to reinforce a manual squad, where the new unit's
+	-- reserve being trivially "fully selected" used to swallow the manual
+	-- squad on squad_create.
+	local target_reserve = last_squad_select and last_squad_select.squad
+	if not existing and target_reserve and target_reserve.is_reserve then
 		local selected_set = {}
 		for i = 1, #selected do
 			selected_set[selected[i]] = true
 		end
 		for _, sq in ipairs(squads) do
-			-- Skip reserves whose factory rally ends with a wait or patrol.
-			-- In that flow the player has already signalled "don't lump new
-			-- units into this selection" via the trailing command; honoring
-			-- that here means squad_create on a selection that happens to
-			-- include the whole waiting/patrolling reserve produces a new
-			-- manual squad instead of quietly merging everything into it.
-			if sq.is_reserve and not sq.rally_ends_with_wait_or_patrol and squad_fully_selected(sq, selected_set) then
+			if sq == target_reserve and squad_fully_selected(sq, selected_set) then
 				local moved = 0
 				for i = 1, #selected do
 					local u = selected[i]
@@ -1138,12 +1142,15 @@ local function do_squad_select(opts)
 		prev_append = last_squad_select.append
 	end
 
-	-- Arm now (not at the end) so subsequent taps detect this one even when the selection ends up a no-op
+	-- Arm now (not at the end) so subsequent taps detect this one even when the selection ends up a no-op.
+	-- `squad` is filled in below once the final target is known; staying nil on no-ops is the correct
+	-- signal for create_squad_from_selection's reserve-merge gate (no widget selection happened).
 	last_squad_select = {
 		t = spGetTimer(),
 		x = mx,
 		y = my,
 		append = opts.append,
+		squad = nil,
 	}
 
 	-- Single-step same-mode double-tap dispatch. Replace→replace fires
@@ -1232,6 +1239,7 @@ local function do_squad_select(opts)
 	end
 	spSelectUnitArray(to_select, opts.append)
 	push_to_mru(target_squad)
+	last_squad_select.squad = target_squad
 
 	log("Squad select [", target_squad.letter or "?", "]: ", #to_select, "/", #pool, opts.append and " +append" or "")
 end
@@ -1835,15 +1843,12 @@ function widget:UnitCreated(unit_id, unit_def_id, unit_team, builder_id)
 		end
 		-- Opt-out for the selection auto-extend, split by reserve kind:
 		--   Factory reserve → the rally's trailing CMD_WAIT or CMD_PATROL is
-		--     the signal. Refresh the squad-level flag on every build
-		--     (create_squad_from_selection reads it to skip the merge branch)
-		--     and suppress the extend here when set.
+		--     the signal — suppress the extend when set.
 		--   Uncategorized reserve → no rally to inspect; fall back to the
 		--     unit's own queue. Covers resurrection bots, which wake with
 		--     CMD_WAIT until fully healed.
 		if sq.from_factory and builder_id then
-			sq.rally_ends_with_wait_or_patrol = factory_rally_ends_with_wait_or_patrol(builder_id)
-			if sq.rally_ends_with_wait_or_patrol then
+			if factory_rally_ends_with_wait_or_patrol(builder_id) then
 				extend_selection = false
 			end
 		elseif extend_selection and unit_queue_has_wait(unit_id) then

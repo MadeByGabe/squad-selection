@@ -18,8 +18,7 @@ Every factory (lab) gets its own **reserve squad**, and the squad-eligible units
 
 When you have a **full reserve squad selected** and the factory produces a new unit into it, that unit is **automatically added to your selection**. This keeps your selection in sync as units roll off the production line without requiring any extra input.
 
-*Exception:* units are NOT auto-added to your selection in these cases:
-- **Factory rally ending with wait or patrol** — new units sit at the rally waiting or patrolling, and the widget remembers this on the reserve. While the trailing wait/patrol is there, the reserve-merge behavior below is also disabled: pressing `squad_create` with the reserve fully selected creates a new manual squad instead of swallowing your selection into the reserve.
+*Exception:* units are NOT auto-added to your selection when **Factory rally ending with wait or patrol**: new units sit at the rally waiting or patrolling, so the widget doesn't pull them into your selection. 
 - **Freshly resurrected units still healing** — rez bots leave units in wait state until healed, so they don't extend their reserve's selection.
 
 Squad-eligible means: unit can move and has no build options.
@@ -165,13 +164,14 @@ Every factory starts out with its own hidden reserve squad, and its units go the
 
 ### Merging units into a reserve squad
 
-When your selection spans multiple squads AND fully contains a reserve squad (every one of its units is selected), `squad_create` moves the rest of the selection INTO that reserve instead of creating a new manual squad. First matching reserve wins when multiple qualify.
+`squad_create` can move your selection INTO a reserve squad instead of creating a new manual squad. Two conditions must hold:
 
-Typical use: dissolve a manual squad back into a factory's reserve. Select the manual squad together with that factory's reserve units, then press `squad_create` (hotkey or right-click). All of the manual squad's units are merged into the reserve and the combined reserve is left selected.
+1. Your **last widget squad-select** targeted that reserve.
+2. Every unit of that reserve is in your current selection.
 
-Selecting *only* a reserve squad and pressing `squad_create` still creates a new manual squad from those units so use this to promote reserve units into a tracked manual squad.
+Typical flow: select your manual squad first (however you like), then squad-select the reserve in append mode so the manual squad stays in the selection. Press `squad_create` (hotkey or right-click). The manual squad's units are moved into the reserve and the reserve is left selected.
 
-**Opting out with a wait or patrol rally.** If the factory's rally ends with a wait or patrol command, the merge path is skipped for that reserve even when it's fully selected, `squad_create` falls back to creating a new manual squad. This is the explicit way to say "I'm still going to select this reserve a lot, but don't keep swallowing my new squads into it." Remove the trailing wait/patrol (or change the rally) to turn the merge behavior back on (takes effect on the next unit built at that factory).
+Selecting *only* a reserve squad and pressing `squad_create` still creates a new manual squad from those units, so use this to promote reserve units into a tracked manual squad.
 
 ### Portion selection
 
