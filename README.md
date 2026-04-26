@@ -59,7 +59,6 @@ bind Alt+Shift+sc_x  squad_select_filtered append
 | `squad_select_filtered`                      | Selects only the unit types (from your current selection or closest unit if nothing is selected) in the closest squad                                    |
 | `squad_select_filtered append`               | Same, but appends to selection                                                                                                                           |
 | `squad_create_toggle`                                | Toggles right-click squad creation on/off (see next section)                                                                                             |
-| `squad_left_click_steps_toggle`                      | Toggles whether left-click selection uses `leftClickSteps` (configured shape, distance cap) or falls back to whole-squad with no cap                     |
 | `squad_create`                                       | Runs squad creation for the current selection                                                                                                            |
 | `squad_select_group N`                               | Select squad ∩ control group N closest to cursor                                                                                                         |
 | `squad_select_portion [append|append_domain] [distance_<N>] <steps...>`           | Select a portion of the closest squad                                                                                                     |
@@ -91,7 +90,7 @@ Mouse squad selections are skipped when clicking directly on a unit or when an a
 /luaui squad_setting set leftClickSteps                     # clear → back to whole-squad (equivalent to 1)
 ```
 
-`leftClickSteps` is gated by `leftClickStepsEnabled` (default `false`). Out of the box left-click selects the whole squad with no distance cap. Bind the `squad_left_click_steps_toggle` action to a hotkey to flip your configured `leftClickSteps` (and any distance cap) on and off without losing the keyboard-only path to full-map selection. 
+`leftClickSteps` is gated by `leftClickStepsEnabled` (default `false`). Out of the box left-click selects the whole squad with no distance cap. Bind `squad_setting toggle leftClickStepsEnabled` to a hotkey (e.g. `bind capslock squad_setting toggle leftClickStepsEnabled`) to flip your configured `leftClickSteps` (and any distance cap) on and off without losing the keyboard-only path to full-map selection. 
 
 Append (Ctrl+Shift+click) always keeps growing the selection and extends into the next squad once the current one is exhausted. Replace (Ctrl+click) in portion mode snaps to the closest N each time. See [Portion selection](#portion-selection) for how step values work.
 
@@ -277,7 +276,7 @@ These changes persist.
 | -------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------- |
 | `leftClickSelectsSquad`          | `true`         | Modifier+click on empty ground selects squads                                                             |
 | `leftClickSteps`                 | `1 distance_850` | Step values for left-click selection (only honored when `leftClickStepsEnabled` is true); `1` = whole squad, `0.5 1` = 50% then 100%; add `distance_<N>` anywhere in the list to cap selection to units within N elmos of the cursor |
-| `leftClickStepsEnabled`          | `false`        | When enabled, left-click (replace and append) uses `leftClickSteps`; when disabled, both use whole-squad with no distance cap. Toggle with the `squad_left_click_steps_toggle` action |
+| `leftClickStepsEnabled`          | `false`        | When enabled, left-click (replace and append) uses `leftClickSteps`; when disabled, both use whole-squad with no distance cap. Toggle with `squad_setting toggle leftClickStepsEnabled` (bind to a hotkey for on-the-fly flipping) |
 | `leftClickAppendFiltersDomain`   | `true`         | When enabled, left-click append (Ctrl+Shift / Alt+Shift) uses `append_domain`; when disabled, it uses plain `append` (on double click it switches mode) |
 | `cyclingToNextSquad`             | `true`         | Cycle to next squad when full squad is selected                                                           |
 | `rightClickSquadCreate`          | `false`        | Right-click squad creation is active                                                                      |
@@ -353,7 +352,7 @@ bind Shift+sc_d squad_cycle_idle
 bind Alt selectbox_same
 
 keysym capslock sc_0x039
-bind capslock squad_left_click_steps_toggle
+bind capslock squad_setting toggle leftClickStepsEnabled
 ```
 
 Then in game write `/keyreload` in chat to apply the changes if the game is already running.

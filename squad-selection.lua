@@ -18,7 +18,7 @@ end
 local config = {
 	leftClickSelectsSquad = true, -- left-click can be used to select squads
 	leftClickSteps = {1, "distance_850"}, -- step values + optional distance cap for left-click selection; {1} = whole squad, {"distance_850", 0.5, 1} = 50% then 100% within 850 elmos
-	leftClickStepsEnabled = false, -- when true, left-click (replace and append) uses leftClickSteps; when false (default), both use {1} (whole squad, no distance cap). Toggle with squad_left_click_steps_toggle action
+	leftClickStepsEnabled = false, -- when true, left-click (replace and append) uses leftClickSteps; when false (default), both use {1} (whole squad, no distance cap). Bind a hotkey via `squad_setting toggle leftClickStepsEnabled` to flip on demand
 	leftClickAppendFiltersDomain = true, -- when true, left-click Shift-append only cycles into squads whose domains ⊆ the selection's; when false, append behaves like the plain `append` keyword
 	cyclingToNextSquad = true, -- when full squad/type is selected, exclude it to cycle to next
 	rightClickSquadCreate = false, -- right-click creates squads; toggle with squad_create_toggle action
@@ -1261,13 +1261,6 @@ local function squad_create_toggle()
 end
 
 
-local function squad_left_click_steps_toggle()
-	config.leftClickStepsEnabled = not config.leftClickStepsEnabled
-	spEcho("[Squad] Left-click steps " .. (config.leftClickStepsEnabled and "enabled" or "disabled"))
-	return true
-end
-
-
 local function squad_create()
 	assign_factory_squad()
 	create_squad_from_selection()
@@ -1731,7 +1724,6 @@ function widget:Initialize()
 	widgetHandler:AddAction("squad_select", squad_select, nil, "pt")
 	widgetHandler:AddAction("squad_select_filtered", squad_select_filtered, nil, "pt")
 	widgetHandler:AddAction("squad_create_toggle", squad_create_toggle, nil, "pt")
-	widgetHandler:AddAction("squad_left_click_steps_toggle", squad_left_click_steps_toggle, nil, "pt")
 	widgetHandler:AddAction("squad_create", squad_create, nil, "pt")
 	widgetHandler:AddAction("squad_select_group", squad_select_group, nil, "pt")
 	widgetHandler:AddAction("squad_select_portion", squad_select_portion, nil, "pt")
@@ -1801,7 +1793,6 @@ function widget:Shutdown()
 	widgetHandler:RemoveAction("squad_select")
 	widgetHandler:RemoveAction("squad_select_filtered")
 	widgetHandler:RemoveAction("squad_create_toggle")
-	widgetHandler:RemoveAction("squad_left_click_steps_toggle")
 	widgetHandler:RemoveAction("squad_create")
 	widgetHandler:RemoveAction("squad_select_group")
 	widgetHandler:RemoveAction("squad_select_portion")
