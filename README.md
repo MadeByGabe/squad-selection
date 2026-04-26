@@ -58,7 +58,6 @@ bind Alt+Shift+sc_x  squad_select_filtered append
 | `squad_select append`                        | Appends the closest squad to the current selection                                                                                                       |
 | `squad_select_filtered`                      | Selects only the unit types (from your current selection or closest unit if nothing is selected) in the closest squad                                    |
 | `squad_select_filtered append`               | Same, but appends to selection                                                                                                                           |
-| `squad_create_toggle`                                | Toggles right-click squad creation on/off (see next section)                                                                                             |
 | `squad_create`                                       | Runs squad creation for the current selection                                                                                                            |
 | `squad_select_group N`                               | Select squad ∩ control group N closest to cursor                                                                                                         |
 | `squad_select_portion [append|append_domain] [distance_<N>] <steps...>`           | Select a portion of the closest squad                                                                                                     |
@@ -131,7 +130,7 @@ With a pure-land selection, mixed land+air squads are skipped entirely (not just
 
 ### Squad creation toggle + hotkey
 
-Right-click squad creation can be toggled on/off. (Detailed explanation for the why soon). 
+Right-click squad creation can be toggled on/off via `squad_setting toggle rightClickSquadCreate` (bind it to a hotkey for on-the-fly flipping). (Detailed explanation for the why soon).
 
 There's also an action to create a squad on demand (without needing right-click).
 
@@ -139,7 +138,6 @@ There's also an action to create a squad on demand (without needing right-click)
 | Action                | What it does                                                                                           |
 | --------------------- | ------------------------------------------------------------------------------------------------------ |
 | `squad_create`        | Same create behavior as right-click, including factory reserve merge/split for factory-only selections |
-| `squad_create_toggle` | Toggles right-click squad creation on/off                                                              |
 
 ### Control group intersection
 
@@ -324,7 +322,7 @@ bind sc_c squad_select
 bind shift+sc_c squad_select append_domain
 bind Ctrl+sc_c squad_select_portion 0 0.5
 bind Ctrl+shift+sc_c squad_select_portion 3 10 append_domain
-bind Ctrl+Meta+sc_c squad_create_toggle
+bind Ctrl+Meta+sc_c squad_setting toggle rightClickSquadCreate
 
 
 unbind Any+sc_x gridmenu_key 1 2
