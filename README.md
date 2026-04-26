@@ -322,8 +322,9 @@ bind sc_c squad_select
 bind shift+sc_c squad_select append_domain
 bind Ctrl+sc_c squad_select_portion 0 0.5
 bind Ctrl+shift+sc_c squad_select_portion 3 10 append_domain
-bind Ctrl+Meta+sc_c squad_setting toggle rightClickSquadCreate
 
+keysym scrollock sc_0x047
+bind scrollock squad_setting toggle rightClickSquadCreate
 
 unbind Any+sc_x gridmenu_key 1 2
 bind sc_x gridmenu_key 1 2
