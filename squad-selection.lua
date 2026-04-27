@@ -271,6 +271,10 @@ local function assign_squad_tag(squad)
 	local li = (next_squad_tag - 1) % #SQUAD_LETTERS + 1
 	squad.color = SQUAD_COLORS[ci]
 	squad.letter = SQUAD_LETTERS:sub(li, li)
+	-- Golden-ratio step over the squad tag spreads consecutive squads
+	-- ~0.618 of a period apart. Reused as the seed for stripe phase
+	-- and breathing pulse phase.
+	squad.tag_seed = next_squad_tag * 0.6180339887
 end
 
 
@@ -551,10 +555,6 @@ local function make_reserve_squad(from_factory)
 	sq.color = {1, 1, 1}
 	sq.is_reserve = true
 	sq.from_factory = from_factory or false
-	-- Stripe phase shift in periods. Golden-ratio step over the squad tag spreads
-	-- consecutive squads ~0.618 of a period apart, so adjacent reserves can't align.
-	-- Multiplied by the period at draw time.
-	sq.stripe_offset = next_squad_tag * 0.6180339887
 	squads[#squads + 1] = sq
 	return sq
 end
@@ -1544,15 +1544,25 @@ local HULL_MAX_VERTICES = 512 -- per squad; padded hull rarely approaches this
 local hull_shader = nil
 local hull_color_loc = nil
 local hull_stripe_loc = nil
+local hull_centroid_loc = nil
+local hull_pulse_loc = nil
 local hull_vbo = nil
 local hull_vao = nil
 local hull_ready = false
 local hull_init_failed = false -- so we don't spam retries after a failure
+local hull_time_origin = nil   -- wall-clock origin for stripe/pulse animation
 
 -- Diagonal-stripe pattern for reserve squad fills. Period in world elmos;
 -- alphaMul is the opacity of the dim band relative to the bright band.
 local RESERVE_STRIPE_PERIOD = 64
 local RESERVE_STRIPE_ALPHA_MUL = 0.2
+
+-- Center→edge alpha gradient: alpha at the centroid as a fraction of the edge.
+local HULL_GRADIENT_CENTER = 0.2
+
+-- Breathing pulse on hull alpha. Period ≈ 2π / PULSE_RATE seconds.
+local HULL_PULSE_AMPLITUDE = 0.25
+local HULL_PULSE_RATE = 1.5
 
 local hull_vs_src = [[
 #version 330 compatibility
@@ -1575,6 +1585,13 @@ uniform vec4 color;
 // stripe.y = alpha multiplier for the dim band
 // stripe.z = phase offset in world units (per-squad, so overlapping hulls don't align)
 uniform vec3 stripe;
+// centroidRadius.xy = squad centroid in world XZ
+// centroidRadius.z  = max distance from centroid to a perimeter vertex (gradient norm)
+uniform vec3 centroidRadius;
+// breathing alpha multiplier (per-squad phase, computed CPU-side)
+uniform float pulse;
+// alpha at the centroid as a fraction of the edge alpha
+uniform float gradientCenter;
 
 in vec3 worldPos;
 
@@ -1582,10 +1599,19 @@ out vec4 fragColor;
 
 void main() {
 	float a = color.a;
+
 	if (stripe.x > 0.0) {
 		float band = step(0.5, fract((worldPos.x + worldPos.z + stripe.z) / stripe.x));
 		a *= mix(stripe.y, 1.0, band);
 	}
+
+	// soft center→edge alpha gradient
+	vec2 toCenter = worldPos.xz - centroidRadius.xy;
+	float dist = length(toCenter) / max(centroidRadius.z, 1.0);
+	a *= mix(gradientCenter, 1.0, smoothstep(0.0, 1.0, dist));
+
+	a *= pulse;
+
 	fragColor = vec4(color.rgb, a);
 }
 ]]
@@ -1612,6 +1638,15 @@ local function init_gl_hull()
 	end
 	hull_color_loc = glGetUniformLocation(hull_shader, "color")
 	hull_stripe_loc = glGetUniformLocation(hull_shader, "stripe")
+	hull_centroid_loc = glGetUniformLocation(hull_shader, "centroidRadius")
+	hull_pulse_loc = glGetUniformLocation(hull_shader, "pulse")
+	local gradient_loc = glGetUniformLocation(hull_shader, "gradientCenter")
+	-- gradientCenter is a constant for the lifetime of the shader; bind once.
+	if gradient_loc then
+		glUseShader(hull_shader)
+		glUniform(gradient_loc, HULL_GRADIENT_CENTER)
+		glUseShader(0)
+	end
 
 	hull_vbo = glGetVBO(GL.ARRAY_BUFFER, false)
 	if not hull_vbo then
@@ -1660,6 +1695,8 @@ local function cleanup_gl_hull()
 	hull_shader = nil
 	hull_color_loc = nil
 	hull_stripe_loc = nil
+	hull_centroid_loc = nil
+	hull_pulse_loc = nil
 	hull_ready = false
 	hull_init_failed = false
 end
@@ -2364,6 +2401,11 @@ function widget:DrawWorldPreUnit()
 	local arc_res = config.convexHullArcResolution
 	local show_reserves = config.showReserveSquads
 
+	if not hull_time_origin then
+		hull_time_origin = spGetTimer()
+	end
+	local now = spDiffTimers(spGetTimer(), hull_time_origin)
+
 	glDepthTest(false)
 	glUseShader(hull_shader)
 	glLineWidth(border_thickness)
@@ -2441,18 +2483,46 @@ function widget:DrawWorldPreUnit()
 						if visible then
 							local n = get_padded_hull(n_world, padding, arc_res)
 							if n >= 3 and n <= HULL_MAX_VERTICES then
+								local seed = squad.tag_seed or 0
+
+								-- Centroid (average of padded vertices) and max radius
+								-- are uploaded as a uniform to drive the fragment-shader
+								-- center→edge alpha gradient. The hull stays convex so
+								-- TRIANGLE_FAN can still pivot on vertex 0.
+								local pcx, pcy = 0, 0
 								local fi = 0
 								for i = 1, n do
 									local p = scratch_padded[i]
+									pcx = pcx + p.x
+									pcy = pcy + p.y
 									scratch_flat[fi + 1] = p.x
 									scratch_flat[fi + 2] = spGetGroundHeight(p.x, p.y)
 									scratch_flat[fi + 3] = p.y
 									fi = fi + 3
 								end
+								pcx = pcx / n
+								pcy = pcy / n
+
+								local max_r2 = 0
+								for i = 1, n do
+									local p = scratch_padded[i]
+									local rdx = p.x - pcx
+									local rdy = p.y - pcy
+									local r2 = rdx * rdx + rdy * rdy
+									if r2 > max_r2 then
+										max_r2 = r2
+									end
+								end
+								local hull_radius_norm = math.sqrt(max_r2)
 
 								hull_vbo:Upload(scratch_flat, nil, nil, 1, fi)
+
+								local pulse_val = 1 + HULL_PULSE_AMPLITUDE * math.sin(now * HULL_PULSE_RATE + seed * 6.2831853)
+								glUniform(hull_centroid_loc, pcx, pcy, hull_radius_norm)
+								glUniform(hull_pulse_loc, pulse_val)
+
 								if squad.is_reserve then
-									glUniform(hull_stripe_loc, RESERVE_STRIPE_PERIOD, RESERVE_STRIPE_ALPHA_MUL, (squad.stripe_offset or 0) * RESERVE_STRIPE_PERIOD)
+									glUniform(hull_stripe_loc, RESERVE_STRIPE_PERIOD, RESERVE_STRIPE_ALPHA_MUL, seed * RESERVE_STRIPE_PERIOD)
 								else
 									glUniform(hull_stripe_loc, 0, 1, 0)
 								end
