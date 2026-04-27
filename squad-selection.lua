@@ -1457,6 +1457,81 @@ local function squad_select_portion_group(_, _, args)
 end
 
 
+-- Limits the current selection to a single squad's slice, or flips within that
+-- squad if the selection is already contained by it. Replace-only.
+--   Multi-squad selection → narrow to (selection ∩ closest selected unit's squad).
+--   Single-squad selection (all tracked units in one squad) → flip: select that
+--     squad's other units. Fully-selected squad flips to empty.
+--   No tracked units selected → fall back to plain closest-squad-select.
+-- Untracked units in the selection are ignored (they don't influence the
+-- target squad or the flip/narrow decision, and they don't survive into the
+-- result — replace-mode SelectUnitArray drops them).
+local function squad_limit_flip()
+	local wx, wz = get_mouse_world_pos()
+	if not wx then
+		return true
+	end
+
+	local sel = analyze_selection()
+	if not sel.has_tracked_units then
+		do_squad_select({ cycle_when_full = config.cyclingToNextSquad })
+		return true
+	end
+
+	local target_squad
+	local closest_d2 = math.huge
+	for u in pairs(sel.selected_set) do
+		local sq = unit_squad[u]
+		if sq then
+			local x, _, z = spGetUnitPosition(u)
+			if x then
+				local dx, dz = x - wx, z - wz
+				local d2 = dx * dx + dz * dz
+				if d2 < closest_d2 then
+					closest_d2 = d2
+					target_squad = sq
+				end
+			end
+		end
+	end
+
+	if not target_squad then
+		return true
+	end
+
+	local flip = true
+	for u in pairs(sel.selected_set) do
+		local sq = unit_squad[u]
+		if sq and sq ~= target_squad then
+			flip = false
+			break
+		end
+	end
+
+	local result = {}
+	if flip then
+		for i = 1, #target_squad do
+			local u = target_squad[i]
+			if not sel.selected_set[u] then
+				result[#result + 1] = u
+			end
+		end
+	else
+		for i = 1, #target_squad do
+			local u = target_squad[i]
+			if sel.selected_set[u] then
+				result[#result + 1] = u
+			end
+		end
+	end
+
+	spSelectUnitArray(result)
+	push_to_mru(target_squad)
+	log(flip and "Flip" or "Limit", " squad [", target_squad.letter or "?", "]: ", #result, "/", #target_squad)
+	return true
+end
+
+
 -------------------------------------------------------------------------------
 -- GL4 hull rendering
 --
@@ -1759,6 +1834,7 @@ function widget:Initialize()
 	widgetHandler:AddAction("squad_select_portion", squad_select_portion, nil, "pt")
 	widgetHandler:AddAction("squad_select_portion_filtered", squad_select_portion_filtered, nil, "pt")
 	widgetHandler:AddAction("squad_select_portion_group", squad_select_portion_group, nil, "pt")
+	widgetHandler:AddAction("squad_limit_flip", squad_limit_flip, nil, "pt")
 	widgetHandler:AddAction("squad_setting", squad_setting, nil, "t")
 	widgetHandler:AddAction("squad_cycle_recent", squad_cycle_recent, nil, "pt")
 	widgetHandler:AddAction("squad_cycle_idle", squad_cycle_idle, nil, "pt")
@@ -1827,6 +1903,7 @@ function widget:Shutdown()
 	widgetHandler:RemoveAction("squad_select_portion")
 	widgetHandler:RemoveAction("squad_select_portion_filtered")
 	widgetHandler:RemoveAction("squad_select_portion_group")
+	widgetHandler:RemoveAction("squad_limit_flip")
 	widgetHandler:RemoveAction("squad_setting")
 	widgetHandler:RemoveAction("squad_cycle_recent")
 	widgetHandler:RemoveAction("squad_cycle_idle")

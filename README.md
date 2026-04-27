@@ -59,6 +59,7 @@ bind Alt+Shift+sc_x  squad_select_filtered append
 | `squad_select_filtered append`               | Same, but appends to selection                                                                                                                           |
 | `squad_select_filtered retarget`             | Replace-mode only. Always peeks the closest unit: if its type is in your current selection it filters by the selection's types (same as plain), otherwise it uses the closest unit's type as the new type. Lets you swing the filter to a different unit type without first deselecting. |
 | `squad_create`                                       | Runs squad creation for the current selection                                                                                                            |
+| `squad_limit_flip`                                   | Limits a multi-squad selection to one squad's slice, or flips within a single squad if it's already contained by one                                     |
 | `squad_select_group N`                               | Select squad ∩ control group N closest to cursor                                                                                                         |
 | `squad_select_portion [append|append_domain] [distance_<N>] <steps...>`           | Select a portion of the closest squad                                                                                                     |
 | `squad_select_portion_filtered [append|append_domain|retarget] [distance_<N>] <steps...>`  | Same, but filtered by unit type (`retarget` works the same as on `squad_select_filtered`)                                        |
@@ -135,6 +136,24 @@ bind Ctrl+sc_x squad_select_portion_filtered retarget 0.5 1
 ```
 
 The same behavior is available on Alt+Ctrl-click (replace-mode left-click filtered) via `/luaui squad_setting toggle leftClickFilteredRetargets` — default off.
+
+### Limit-or-flip selection
+
+`squad_limit_flip` shapes your *existing* selection rather than picking units from squads by cursor proximity. It's the answer to two related problems:
+
+1. You used another selection method (autogroup, control group, custom select hotkey, box-select) and ended up with units across multiple squads. You want to keep only the ones in a particular squad. Point at that squad then tap the action so the selection narrows to that squad's slice.
+2. You select the damaged units of a squad and retreat them. Now you want the rest of the squad (the healthy ones still on the line). Tap the action: since your selection is contained by a single squad, it flips: the damaged units are deselected and the squad's other units are selected.
+
+Behavior:
+
+- **Multi-squad selection** → narrow: result = `selection ∩ target_squad`. Target squad = the squad that owns the tracked-selected unit closest to your cursor.
+- **Single-squad selection** (every tracked unit in your selection belongs to one squad) → flip: result = `target_squad \ selection`. A fully-selected squad flips to empty; tap again to re-select the closest squad via the fallback.
+- **No tracked units selected** (empty, or only untracked units like Commander/scouts) → falls back to a plain squad_select.
+
+Suggested keybind:
+```
+bind sc_v squad_limit_flip
+```
 
 ### Domain filtering (`append_domain`)
 
