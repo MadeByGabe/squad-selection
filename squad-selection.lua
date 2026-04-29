@@ -74,7 +74,6 @@ local spIsReplay = Spring.IsReplay
 local spGetGroundHeight = Spring.GetGroundHeight
 local spGetUnitCommands = Spring.GetUnitCommands
 local spGetUnitCommandCount = Spring.GetUnitCommandCount
-local spGetFactoryCommands = Spring.GetFactoryCommands
 local spGetTeamColor = Spring.GetTeamColor
 local spSendCommands = Spring.SendCommands
 local spGetMiniMapGeometry = Spring.GetMiniMapGeometry
@@ -503,7 +502,7 @@ end
 -- rather than a move-and-forget. Used to opt the reserve out of the
 -- selection auto-extend in UnitCreated.
 local function factory_rally_ends_with_wait_or_patrol(factory_id)
-	local cmds = spGetFactoryCommands(factory_id, -1)
+	local cmds = spGetUnitCommands(factory_id, -1)
 	if not cmds or #cmds == 0 then
 		return false
 	end
