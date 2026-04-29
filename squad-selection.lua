@@ -1185,13 +1185,15 @@ local function do_squad_select(opts)
 	-- filter — `append` upgrades to `append_domain`, `append_domain`
 	-- downgrades to `append`. Same flip happens regardless of how the action
 	-- was invoked (hotkey or left-click)
-	if in_double_tap_window and #steps == 1 and prev_append == opts.append then
+	if in_double_tap_window and prev_append == opts.append then
 		if opts.append then
 			opts.use_domain_filter = not opts.use_domain_filter
 		else
-			spSendCommands("viewselection")
-			last_squad_select = nil
-			return
+			if #steps == 1 then
+				spSendCommands("viewselection")
+				last_squad_select = nil
+				return
+			end
 		end
 	end
 
