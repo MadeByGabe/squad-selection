@@ -334,9 +334,11 @@ local function classify_unitdefs()
 	end
 end
 
+
 local function reserve_domain_for_def(def_id)
 	return unit_domain[def_id] or "land"
 end
+
 
 local function get_uncategorized_reserve_for_def(def_id)
 	local d = reserve_domain_for_def(def_id)
@@ -1476,7 +1478,9 @@ local function squad_limit_flip()
 
 	local sel = analyze_selection()
 	if not sel.has_tracked_units then
-		do_squad_select({ cycle_when_full = config.cyclingToNextSquad })
+		do_squad_select({
+			cycle_when_full = config.cyclingToNextSquad,
+		})
 		return true
 	end
 
@@ -1552,7 +1556,7 @@ local hull_vbo = nil
 local hull_vao = nil
 local hull_ready = false
 local hull_init_failed = false -- so we don't spam retries after a failure
-local hull_time_origin = nil   -- wall-clock origin for stripe/pulse animation
+local hull_time_origin = nil -- wall-clock origin for stripe/pulse animation
 
 -- Diagonal-stripe pattern for reserve squad fills. Period in world elmos;
 -- alphaMul is the opacity of the dim band relative to the bright band.
@@ -1723,50 +1727,42 @@ local OPTION_SPECS = {
 		name = "Cycle to next squad on retap",
 		description = "When the closest squad is fully selected, retap swaps to the next-closest squad.",
 		type = "bool",
-	},
-	{
+	}, {
 		configVariable = "leftClickSelectsSquad",
 		name = "Modifier+left-click selects squad",
 		description = "Ctrl-click empty ground triggers squad select. Ctrl+Shift = append, +Alt = filtered.",
 		type = "bool",
-	},
-	{
+	}, {
 		configVariable = "leftClickStepsEnabled",
 		name = "Use portion steps on left-click",
 		description = "When enabled, left-click selection uses leftClickSteps. Configure the step list via the squad_setting console action. (default steps value: '1 0.5 distance_850')",
 		type = "bool",
-	},
-	{
+	}, {
 		configVariable = "leftClickAppendFiltersDomain",
 		name = "Left-click append filters by domain",
 		description = "Shift-click squad merges stick to the squad's domain ( nearby air squads are skipped if you have a land squad selected).",
 		type = "bool",
-	},
-	{
+	}, {
 		configVariable = "leftClickFilteredRetargets",
 		name = "Left-click filtered retargets",
 		description = "Alt+Ctrl-click swings the active filter to the closest unit's type when it's not in the current selection.",
 		type = "bool",
-	},
-	{
+	}, {
 		configVariable = "rightClickSquadCreate",
 		name = "Right-click creates squad",
 		description = "Plain right-click groups the current selection into a new squad. Move command still issues.",
 		type = "bool",
-	},
-	{
+	}, {
 		configVariable = "modifierRightClickCreatesSquad",
 		name = "Ctrl+right-click creates squad",
 		description = "Ctrl+right-click groups the current selection into a new squad. Move in formation command still issues if the action is not a click drag.",
 		type = "bool",
-	},
-	{
+	}, {
 		configVariable = "showReserveSquads",
 		name = "Show reserve squads",
 		description = "Visualize per-factory reserves and the uncategorized domain reserves.",
 		type = "bool",
-	},
-	{
+	}, {
 		configVariable = "viewselectionDoubleTapMs",
 		name = "Double-tap window (ms)",
 		description = "Max time between two same-place taps for the viewselection / domain-flip gesture. 0 disables.",
@@ -1774,8 +1770,7 @@ local OPTION_SPECS = {
 		min = 0,
 		max = 600,
 		step = 25,
-	},
-	{
+	}, {
 		configVariable = "viewselectionDoubleTapPx",
 		name = "Double-tap distance (px)",
 		description = "Max screen-pixel distance between the two taps.",
@@ -1783,8 +1778,7 @@ local OPTION_SPECS = {
 		min = 0,
 		max = 30,
 		step = 1,
-	},
-	{
+	}, {
 		configVariable = "mruSize",
 		name = "Recent-squad cycle size",
 		description = "How many recent squads squad_cycle_recent cycles through.",
@@ -1792,15 +1786,13 @@ local OPTION_SPECS = {
 		min = 1,
 		max = 9,
 		step = 1,
-	},
-	{
+	}, {
 		configVariable = "visualizationMode",
 		name = "Squad visualization",
 		description = "Convex hull around units, or a colored letter label.",
 		type = "select",
-		options = { "convexHull", "coloredLabel" },
-	},
-	{
+		options = {"convexHull", "coloredLabel"},
+	}, {
 		configVariable = "convexHullPadding",
 		name = "Hull padding",
 		description = "Distance (in elmos) between units and the hull boundary.",
@@ -1808,8 +1800,7 @@ local OPTION_SPECS = {
 		min = 0,
 		max = 200,
 		step = 5,
-	},
-	{
+	}, {
 		configVariable = "convexHullArcResolution",
 		name = "Hull arc resolution",
 		description = "Angle each chord of the rounded corners spans, in radians. Smaller is smoother but more expensive.",
@@ -1817,32 +1808,28 @@ local OPTION_SPECS = {
 		min = 0.05,
 		max = 1.0,
 		step = 0.05,
-	},
-	{
+	}, {
 		configVariable = "convexHullFillOpacity",
 		name = "Hull fill opacity",
 		type = "slider",
 		min = 0,
 		max = 1,
 		step = 0.05,
-	},
-	{
+	}, {
 		configVariable = "convexHullBorderOpacity",
 		name = "Hull border opacity",
 		type = "slider",
 		min = 0,
 		max = 1,
 		step = 0.05,
-	},
-	{
+	}, {
 		configVariable = "convexHullBorderThickness",
 		name = "Hull border thickness",
 		type = "slider",
 		min = 0.5,
 		max = 5,
 		step = 0.5,
-	},
-}
+	}}
 
 local OPTION_SPECS_BY_KEY = {}
 for i = 1, #OPTION_SPECS do
@@ -1855,6 +1842,7 @@ local panel_options_by_key = {}
 local function get_option_id(spec)
 	return "squad_selection__" .. spec.configVariable
 end
+
 
 -- Single config-write entry point. Writes config[key], then mirrors onto the
 -- panel option (if registered). For selects, translates the stored string to
@@ -1877,6 +1865,7 @@ local function set_option_value(key, value)
 		option.value = value
 	end
 end
+
 
 local function build_option(spec)
 	local option = {}
@@ -1906,8 +1895,10 @@ local function build_option(spec)
 		end
 		set_option_value(spec.configVariable, config_value)
 	end
+
 	return option
 end
+
 
 local function register_options()
 	if not (WG['options'] and WG['options'].addOptions) then
@@ -1922,6 +1913,7 @@ local function register_options()
 	end
 	WG['options'].addOptions(options)
 end
+
 
 local function unregister_options()
 	panel_options_by_key = {}
@@ -2112,7 +2104,8 @@ function widget:Initialize()
 
 	-- WG interface. Auto-generates
 	-- get<Key>/set<Key> pairs for every exposed config key.
-	local exposed_settings = {"leftClickSelectsSquad", "leftClickSteps", "leftClickStepsEnabled", "leftClickAppendFiltersDomain", "leftClickFilteredRetargets", "cyclingToNextSquad", "rightClickSquadCreate", "modifierRightClickCreatesSquad", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "visualizationMode", "convexHullPadding", "convexHullArcResolution", "convexHullFillOpacity", "convexHullBorderOpacity", "convexHullBorderThickness"}
+	local exposed_settings = {
+		"leftClickSelectsSquad", "leftClickSteps", "leftClickStepsEnabled", "leftClickAppendFiltersDomain", "leftClickFilteredRetargets", "cyclingToNextSquad", "rightClickSquadCreate", "modifierRightClickCreatesSquad", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "visualizationMode", "convexHullPadding", "convexHullArcResolution", "convexHullFillOpacity", "convexHullBorderOpacity", "convexHullBorderThickness"}
 	WG['squadselection'] = {}
 	for _, key in ipairs(exposed_settings) do
 		local cap = key:sub(1, 1):upper() .. key:sub(2)
