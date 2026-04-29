@@ -73,6 +73,8 @@ local spGetMouseCursor = Spring.GetMouseCursor
 local spIsReplay = Spring.IsReplay
 local spGetGroundHeight = Spring.GetGroundHeight
 local spGetUnitCommands = Spring.GetUnitCommands
+local spGetUnitCommandCount = Spring.GetUnitCommandCount
+local spGetFactoryCommands = Spring.GetFactoryCommands
 local spGetTeamColor = Spring.GetTeamColor
 local spSendCommands = Spring.SendCommands
 local spGetMiniMapGeometry = Spring.GetMiniMapGeometry
@@ -184,7 +186,7 @@ local function refresh_squad_idle_state(sq)
 	local idle = 0
 	local idle_reached = false
 	for i = 1, size do
-		if spGetUnitCommands(sq[i], 0) == 0 then
+		if spGetUnitCommandCount(sq[i]) == 0 then
 			idle = idle + 1
 			if idle >= threshold then
 				idle_reached = true
@@ -501,7 +503,7 @@ end
 -- rather than a move-and-forget. Used to opt the reserve out of the
 -- selection auto-extend in UnitCreated.
 local function factory_rally_ends_with_wait_or_patrol(factory_id)
-	local cmds = spGetUnitCommands(factory_id, -1)
+	local cmds = spGetFactoryCommands(factory_id, -1)
 	if not cmds or #cmds == 0 then
 		return false
 	end
@@ -1256,6 +1258,7 @@ local function do_squad_select(opts)
 	-- player has already reached the last step (no progression left), so
 	-- intermediate taps still advance through steps as normal. Same same-mode
 	-- gating as the early check — only replace→replace triggers.
+	-- TODO: should work even with distance filter.
 	if in_double_tap_window and #steps > 1 and not opts.append and not prev_append and #pool > 0 and current_in_step_pool >= step_to_count(steps[#steps], #step_pool) then
 		spSendCommands("viewselection")
 		last_squad_select = nil
