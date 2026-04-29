@@ -110,6 +110,7 @@ local squad_idle_state = {} -- squad table -> true when >=50% of the squad is id
 local squad_idle_blend = {} -- squad table -> 0..1 blend between team color and idle color
 local squad_hide_idle_air_hull = {} -- squad table -> true when an idle squad is entirely airborne air units
 local idle_scan_index = 0 -- round-robin index into squads for incremental idle-state updates
+local before_squad_select_callback = nil -- optional WG hook: return false to cancel a do_squad_select call
 
 -- Unit classification caches (declared early so utility helpers capture locals,
 -- not globals).
@@ -1146,10 +1147,7 @@ end
 -------------------------------------------------------------------------------
 
 local function do_squad_select(opts)
-	local steps = opts.steps or {1}
-	if #steps == 0 then
-		return
-	end
+	opts = opts or {}
 
 	local wx, wz = get_mouse_world_pos()
 	if not wx then
@@ -1157,6 +1155,34 @@ local function do_squad_select(opts)
 	end
 
 	local mx, my = spGetMouseState()
+
+	-- External hook for companion widgets.
+	-- Return false to veto selection.
+	-- Return a table to shallow-override opts for this call.
+	if before_squad_select_callback then
+		local ok, hook_result = pcall(before_squad_select_callback, {
+			opts = opts,
+			mx = mx,
+			my = my,
+			wx = wx,
+			wz = wz,
+			selected = spGetSelectedUnits(),
+		})
+		if not ok then
+			log("before_squad_select callback error: ", hook_result)
+		elseif hook_result == false then
+			return
+		elseif type(hook_result) == "table" then
+			for k, v in pairs(hook_result) do
+				opts[k] = v
+			end
+		end
+	end
+
+	local steps = opts.steps or {1}
+	if #steps == 0 then
+		return
+	end
 
 	-- Compute the double-tap window match against the *previous* tap, then
 	-- snapshot its append flag before we overwrite last_squad_select below.
@@ -1896,6 +1922,7 @@ local function build_option(spec)
 		set_option_value(spec.configVariable, config_value)
 	end
 
+
 	return option
 end
 
@@ -2121,6 +2148,16 @@ function widget:Initialize()
 
 	end
 
+	WG['squadselection'].setBeforeSquadSelectCallback = function(fn)
+		if fn ~= nil and type(fn) ~= "function" then
+			spEcho("[Squad] setBeforeSquadSelectCallback expects function or nil")
+			return false
+		end
+		before_squad_select_callback = fn
+		return true
+	end
+
+
 	register_options()
 
 	log("Initialized — ", count, " combat units in domain uncategorized reserves")
@@ -2162,6 +2199,7 @@ end
 
 function widget:Shutdown()
 	unregister_options()
+	before_squad_select_callback = nil
 	WG['squadselection'] = nil
 	widgetHandler:RemoveAction("squad_select")
 	widgetHandler:RemoveAction("squad_select_filtered")
