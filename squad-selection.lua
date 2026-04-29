@@ -1143,6 +1143,8 @@ end
 --   use_domain_filter  bool — restrict squad cycling to domains
 --                      ("land"/"air"/"naval") present in the selection.
 --                      Ignored when no tracked units are selected.
+--   isMousePress       bool — true for left-click initiated selection,
+--                      false for action/hotkey initiated selection.
 -- }
 -------------------------------------------------------------------------------
 
@@ -2405,6 +2407,7 @@ function widget:MousePress(x, y, button)
 			use_domain_filter = append and config.leftClickAppendFiltersDomain,
 			steps = steps,
 			max_distance = max_distance,
+			isMousePress = true,
 			cycle_when_full = append or (whole_squad and config.cyclingToNextSquad),
 		}
 
