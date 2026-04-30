@@ -1,7 +1,7 @@
 function widget:GetInfo()
 	return {
 		name = "Squad Selection Colored Labels (example)",
-		desc = "Squad Selection companion widget: draws squad letters above units using getSquadState()",
+		desc = "Squad Selection companion widget: draws squad letters above units using getSquadState(). Note: this is not GPU accelerated and is meant as an example of using the API, not as a polished visualization.",
 		author = "Baldric",
 		date = "2026",
 		license = "GNU GPL, v2 or later",
