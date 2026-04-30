@@ -29,7 +29,7 @@ local config = {
 	viewselectionDoubleTapPx = 5, -- max screen-pixel distance between the two taps
 	mruSize = 3, -- how many recent squads squad_cycle_recent cycles through
 	excludedUnitTypes = "", -- comma-separated unit names to exclude from squad tracking (e.g. "armrectr,cornecro")
-	visualizationMode = "convexHull", -- "convexHull" or "coloredLabel"
+	visualizationMode = "convexHull", -- "convexHull" or "none"
 	convexHullPadding = 60, -- space (in elmos) between the units and the hull boundary
 	convexHullArcResolution = 0.4, -- angle that each chord of the arc spans in radians; smaller = smoother but more expensive
 	convexHullFillOpacity = 0.1,
@@ -61,7 +61,6 @@ local spGetSelectedUnits = Spring.GetSelectedUnits
 local spSelectUnitArray = Spring.SelectUnitArray
 local spGetMouseState = Spring.GetMouseState
 local spTraceScreenRay = Spring.TraceScreenRay
-local spWorldToScreenCoords = Spring.WorldToScreenCoords
 local spIsGUIHidden = Spring.IsGUIHidden
 local spGetModKeyState = Spring.GetModKeyState
 local spGetSpectatingState = Spring.GetSpectatingState
@@ -82,7 +81,6 @@ local spGetTimer = Spring.GetTimer
 local spDiffTimers = Spring.DiffTimers
 
 local glColor = gl.Color
-local glText = gl.Text
 local glDepthTest = gl.DepthTest
 local glLineWidth = gl.LineWidth
 local glCreateShader = gl.CreateShader
@@ -151,7 +149,7 @@ local function log_squads()
 	end
 	log("  ", #squads, " squad(s):")
 	for _, squad in ipairs(squads) do
-		local label = squad.letter or "?"
+		local label = squad.index or "?"
 		if squad.uncat_domain then
 			label = label .. ":uncat-" .. squad.uncat_domain
 		elseif squad.from_factory then
@@ -245,37 +243,21 @@ end
 
 
 -------------------------------------------------------------------------------
--- Squad appearance
+-- Squad identity
 --
--- Each squad gets a color and a letter, assigned on
--- creation.  These are stored directly on the squad table as string-keyed
--- fields (squad.color, squad.letter) which don't interfere with the integer-
--- keyed unit list or #squad.
+-- Each squad gets a monotonically increasing integer index on creation,
+-- stored as squad.index. Companion widgets use this to derive their own
+-- colors, letters, or other visuals. squad.tag_seed (golden-ratio step
+-- over index) is used internally for hull animation phase offsets.
 -------------------------------------------------------------------------------
 
-local SQUAD_COLORS = { -- should be removed, use hue rotation instead with one sat/val combo
-	{1.0, 0.3, 0.3}, -- red
-	{0.3, 1.0, 0.3}, -- green
-	{0.3, 0.5, 1.0}, -- blue
-	{1.0, 1.0, 0.3}, -- yellow
-	{1.0, 0.3, 1.0}, -- magenta
-	{0.3, 1.0, 1.0}, -- cyan
-	{1.0, 0.6, 0.2}, -- orange
-	{0.7, 0.3, 1.0} -- purple
-}
-
-local SQUAD_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ+#@!$=&"
 local next_squad_tag = 0
 
 local function assign_squad_tag(squad)
 	next_squad_tag = next_squad_tag + 1
-	local ci = (next_squad_tag - 1) % #SQUAD_COLORS + 1
-	local li = (next_squad_tag - 1) % #SQUAD_LETTERS + 1
-	squad.color = SQUAD_COLORS[ci]
-	squad.letter = SQUAD_LETTERS:sub(li, li)
-	-- Golden-ratio step over the squad tag spreads consecutive squads
-	-- ~0.618 of a period apart. Reused as the seed for stripe phase
-	-- and breathing pulse phase.
+	squad.index = next_squad_tag
+	-- Golden-ratio step spreads consecutive squads ~0.618 of a period apart.
+	-- Used as seed for stripe phase and breathing pulse phase.
 	squad.tag_seed = next_squad_tag * 0.6180339887
 end
 
@@ -465,7 +447,7 @@ local function prune_empty_squads()
 	for i = #squads, 1, -1 do
 		local sq = squads[i]
 		if is_prunable(sq) then
-			log("Squad [", sq.letter or "?", "] emptied and removed")
+			log("Squad [", sq.index or "?", "] emptied and removed")
 			squad_sel_count[sq] = nil
 			table.remove(squads, i)
 		end
@@ -556,7 +538,6 @@ end
 local function make_reserve_squad(from_factory)
 	local sq = {}
 	assign_squad_tag(sq)
-	sq.color = {1, 1, 1}
 	sq.is_reserve = true
 	sq.from_factory = from_factory or false
 	squads[#squads + 1] = sq
@@ -568,7 +549,7 @@ end
 local function create_factory_squad(factory_id)
 	local sq = make_reserve_squad(true)
 	factory_squad[factory_id] = sq
-	log("Factory ", factory_id, " → auto squad [", sq.letter, "]")
+	log("Factory ", factory_id, " → auto squad [", sq.index, "]")
 	return sq
 end
 
@@ -626,7 +607,7 @@ local function assign_factory_squad()
 
 	prune_empty_squads()
 
-	log("Factory squad [", new_squad.letter, "] assigned to ", #factories, " factory(s)")
+	log("Factory squad [", new_squad.index, "] assigned to ", #factories, " factory(s)")
 	log_squads()
 end
 
@@ -687,7 +668,7 @@ local function create_squad_from_selection()
 				end
 				spSelectUnitArray(units)
 
-				log("Merged ", moved, " unit(s) → reserve squad [", sq.letter or "?", "]")
+				log("Merged ", moved, " unit(s) → reserve squad [", sq.index or "?", "]")
 				log_squads()
 				return
 			end
@@ -710,7 +691,7 @@ local function create_squad_from_selection()
 
 	-- A non-reserve source squad fully consumed by the selection is now
 	-- empty; inherit its identity so the player's "real" squad carries on
-	-- under the same color/letter instead of getting a fresh one.
+	-- under the same index instead of getting a fresh one.
 	local donor
 	for _, sq in ipairs(squads) do
 		if #sq == 0 and not sq.is_reserve then
@@ -720,7 +701,7 @@ local function create_squad_from_selection()
 	end
 
 	if donor then
-		new_squad.color, new_squad.letter = donor.color, donor.letter
+		new_squad.index, new_squad.tag_seed = donor.index, donor.tag_seed
 	else
 		assign_squad_tag(new_squad)
 	end
@@ -731,7 +712,7 @@ local function create_squad_from_selection()
 	selection_dirty = true
 	push_to_mru(new_squad)
 
-	log("New squad [", new_squad.letter, "]: ", #new_squad, " units")
+	log("New squad [", new_squad.index, "]: ", #new_squad, " units")
 	log_squads()
 end
 
@@ -1302,7 +1283,7 @@ local function do_squad_select(opts)
 	push_to_mru(target_squad)
 	last_squad_select.squad = target_squad
 
-	log("Squad select [", target_squad.letter or "?", "]: ", #to_select, "/", #pool, opts.append and " +append" or "")
+	log("Squad select [", target_squad.index or "?", "]: ", #to_select, "/", #pool, opts.append and " +append" or "")
 end
 
 
@@ -1375,7 +1356,7 @@ local function squad_cycle_idle()
 			end
 			spSelectUnitArray(units)
 			spSendCommands("viewselection")
-			log("Idle squad [", sq.letter or "?", "]")
+			log("Idle squad [", sq.index or "?", "]")
 			return true
 		end
 	end
@@ -1563,7 +1544,7 @@ local function squad_limit_flip()
 
 	spSelectUnitArray(result)
 	push_to_mru(target_squad)
-	log(flip and "Flip" or "Limit", " squad [", target_squad.letter or "?", "]: ", #result, "/", #target_squad)
+	log(flip and "Flip" or "Limit", " squad [", target_squad.index or "?", "]: ", #result, "/", #target_squad)
 	return true
 end
 
@@ -1819,9 +1800,9 @@ local OPTION_SPECS = {
 	}, {
 		configVariable = "visualizationMode",
 		name = "Squad visualization",
-		description = "Convex hull around units, or a colored letter label.",
+		description = "Convex hull around units, or none.",
 		type = "select",
-		options = {"convexHull", "coloredLabel"},
+		options = {"convexHull", "none"},
 	}, {
 		configVariable = "convexHullPadding",
 		name = "Hull padding",
@@ -1966,7 +1947,7 @@ end
 --   /luaui squad_setting toggle modifierRightClickCreatesSquad
 --   /luaui squad_setting toggle cyclingToNextSquad
 --   /luaui squad_setting set visualizationMode convexHull
---   /luaui squad_setting set visualizationMode coloredLabel
+--   /luaui squad_setting set visualizationMode none
 --   /luaui squad_setting get cyclingToNextSquad
 --   /luaui squad_setting reload
 -------------------------------------------------------------------------------
@@ -2162,6 +2143,23 @@ function widget:Initialize()
 	end
 
 
+	-- Read-only snapshot of all squad state for companion visualization widgets.
+	-- Returns live references — do not mutate the tables.
+	-- Fields on each squad array: .index (number, monotonically increasing),
+	--   .tag_seed (number, golden-ratio phase offset for animation),
+	--   .is_reserve (bool), .from_factory (bool), integer keys are unitIDs.
+	WG['squadselection'].getSquadState = function()
+		return {
+			squads = squads,
+			unit_squad = unit_squad,
+			factory_squad = factory_squad,
+			uncategorized_reserve = uncategorized_reserve,
+			squad_idle_state = squad_idle_state,
+			squad_idle_blend = squad_idle_blend,
+		}
+	end
+
+
 	register_options()
 
 	log("Initialized — ", count, " combat units in domain uncategorized reserves")
@@ -2274,7 +2272,7 @@ function widget:UnitCreated(unit_id, unit_def_id, unit_team, builder_id)
 		if extend_selection then
 			spSelectUnitArray({unit_id}, true)
 		end
-		log("Unit ", unit_id, " created → squad [", sq.letter or "?", "] (", #sq, " units)")
+		log("Unit ", unit_id, " created → squad [", sq.index or "?", "] (", #sq, " units)")
 	end
 end
 
@@ -2457,49 +2455,6 @@ end
 -------------------------------------------------------------------------------
 -- Drawing
 -------------------------------------------------------------------------------
-
-function widget:DrawScreenEffects()
-	if spIsGUIHidden() or config.visualizationMode ~= "coloredLabel" then
-		return
-	end
-
-	local show_reserves = config.showReserveSquads
-
-	for _, squad in ipairs(squads) do
-		if #squad > 0 and squad.color and squad.letter and (not squad.is_reserve or show_reserves) then
-			local c = squad.color
-			glColor(c[1], c[2], c[3], 0.75)
-			for j = 1, #squad do
-				local _, _, _, x, y, z = spGetUnitPosition(squad[j], true)
-				if x then
-					local sx, sy = spWorldToScreenCoords(x, y, z - 40)
-					if sx then
-						glText(squad.letter, sx, sy, 10, "co")
-					end
-				end
-			end
-		end
-		glColor(1, 1, 1, 1)
-	end
-
-	-- Draw labels on factory buildings (all factories are reserves now).
-	if show_reserves then
-		for fid, sq in pairs(factory_squad) do
-			local c = sq.color
-			glColor(c[1], c[2], c[3], 0.75)
-			local _, _, _, x, y, z = spGetUnitPosition(fid, true)
-			if x then
-				local sx, sy = spWorldToScreenCoords(x, y, z)
-				if sx then
-					glText(sq.letter, sx, sy + 14, 16, "co")
-				end
-			end
-		end
-	end
-
-	glColor(1, 1, 1, 1)
-end
-
 
 -------------------------------------------------------------------------------
 -- Convex hull
