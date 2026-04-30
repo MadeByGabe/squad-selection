@@ -105,7 +105,7 @@ local mru = {} -- most-recently-used squads, newest at index 1
 
 local squad_sel_count = {} -- squad table -> number of selected units in it
 local selection_dirty = true -- forces a full recount on the first draw frame
-local squad_idle_state = {} -- squad table -> true when >=50% of the squad is idle
+local squad_idle_state = {} -- squad table -> true when >50% of the squad is idle
 local squad_idle_blend = {} -- squad table -> 0..1 blend between team color and idle color
 local squad_hide_idle_air_hull = {} -- squad table -> true when an idle squad is entirely airborne air units
 local idle_scan_index = 0 -- round-robin index into squads for incremental idle-state updates
@@ -170,7 +170,7 @@ local function constrain(x, min, max)
 end
 
 
--- Recompute whether a squad is "idle" (>=50% units with no commands).
+-- Recompute whether a squad is "idle" (>50% units with no commands).
 local function refresh_squad_idle_state(sq)
 	local size = #sq
 	if size == 0 then
@@ -179,7 +179,7 @@ local function refresh_squad_idle_state(sq)
 		return false
 	end
 
-	local threshold = math.ceil(size * 0.5)
+	local threshold = math.floor(size * 0.5) + 1
 	local idle = 0
 	local idle_reached = false
 	for i = 1, size do

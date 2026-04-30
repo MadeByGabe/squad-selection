@@ -267,7 +267,7 @@ bind Shift+sc_s squad_cycle_recent
 
 Squads you left behind (e.g. defenders you parked during an attack and forgot) are easy to lose track of. `squad_cycle_idle` walks your squads in order and selects the next one that's mostly idle, centering the camera on it. Press again to step to the next idle squad.
 
-A squad counts as idle when at least 50% of its units have no commands queued. 
+A squad counts as idle when more than 50% of its units have no commands queued. 
 
 Idle squads also get a distinct visualization color in convex-hull mode so they stand out when you're scanning the map.
 
