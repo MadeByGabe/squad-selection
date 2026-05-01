@@ -36,7 +36,9 @@ local config = {
 	convexHullBorderOpacity = 0.2,
 	convexHullBorderThickness = 2,
 	convexHullColorMode = "team", -- "team" (team color), "custom" (single custom RGB), "squad" (per-squad golden-ratio hue)
-	convexHullCustomColor = {0, 0.3, 0.7}, -- RGB used when colorMode is "custom"
+	convexHullCustomColorR = 0, -- Red component of custom hull color (0–1)
+	convexHullCustomColorG = 0.3, -- Green component
+	convexHullCustomColorB = 0.7, -- Blue component
 	debug = false,
 }
 
@@ -1916,6 +1918,27 @@ local OPTION_SPECS = {
 		description = "Team color, a single custom color, or a unique color per squad.",
 		type = "select",
 		options = {"team", "custom", "squad"},
+	}, {
+		configVariable = "convexHullCustomColorR",
+		name = "Custom color Red",
+		type = "slider",
+		min = 0,
+		max = 1,
+		step = 0.05,
+	}, {
+		configVariable = "convexHullCustomColorG",
+		name = "Custom color Green",
+		type = "slider",
+		min = 0,
+		max = 1,
+		step = 0.05,
+	}, {
+		configVariable = "convexHullCustomColorB",
+		name = "Custom color Blue",
+		type = "slider",
+		min = 0,
+		max = 1,
+		step = 0.05,
 	}}
 
 local OPTION_SPECS_BY_KEY = {}
@@ -2194,7 +2217,7 @@ function widget:Initialize()
 	-- get<Key>/set<Key> pairs for every exposed config key.
 	local exposed_settings = {
 		"leftClickSelectsSquad", "leftClickSteps", "leftClickStepsEnabled", "leftClickAppendFiltersDomain", "leftClickFilteredRetargets", "cyclingToNextSquad", "rightClickSquadCreate", "modifierRightClickCreatesSquad", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "visualizationMode", "convexHullPadding", "convexHullArcResolution", "convexHullFillOpacity", "convexHullBorderOpacity", "convexHullBorderThickness",
-			"convexHullColorMode", "convexHullCustomColor"}
+			"convexHullColorMode", "convexHullCustomColorR", "convexHullCustomColorG", "convexHullCustomColorB"}
 	WG['squadselection'] = {}
 	for _, key in ipairs(exposed_settings) do
 		local cap = key:sub(1, 1):upper() .. key:sub(2)
@@ -2790,8 +2813,7 @@ function widget:DrawWorldPreUnit()
 					if fully_selected then
 						cr, cg, cb = 1, 1, 1
 					elseif color_mode == "custom" then
-						local cc = config.convexHullCustomColor
-						cr, cg, cb = cc[1] or 1, cc[2] or 1, cc[3] or 1
+						cr, cg, cb = config.convexHullCustomColorR, config.convexHullCustomColorG, config.convexHullCustomColorB
 					elseif color_mode == "squad" and squad.color then
 						cr, cg, cb = squad.color[1], squad.color[2], squad.color[3]
 					else
