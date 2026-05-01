@@ -248,10 +248,10 @@ local function init_gl()
 		uniformInt = {
 			heightmapTex = 0,
 		},
-	}, "Squad Circles Stencil GL4")
+	}, "Squad Metaballs Stencil GL4")
 
 	if not stencilShader:Initialize() then
-		spEcho("[Squad Circles] stencil shader compile failed")
+		spEcho("[Squad Metaballs] stencil shader compile failed")
 		stencilShader = nil
 		init_failed = true
 		return false
@@ -263,10 +263,10 @@ local function init_gl()
 		uniformInt = {
 			stencilTex = 0,
 		},
-	}, "Squad Circles Fullscreen GL4")
+	}, "Squad Metaballs Fullscreen GL4")
 
 	if not fullscreenShader:Initialize() then
-		spEcho("[Squad Circles] fullscreen shader compile failed")
+		spEcho("[Squad Metaballs] fullscreen shader compile failed")
 		stencilShader:Finalize()
 		stencilShader = nil
 		fullscreenShader = nil
@@ -275,7 +275,7 @@ local function init_gl()
 	end
 
 	if not create_stencil_texture() then
-		spEcho("[Squad Circles] stencil texture creation failed")
+		spEcho("[Squad Metaballs] stencil texture creation failed")
 		stencilShader:Finalize()
 		fullscreenShader:Finalize()
 		stencilShader = nil
@@ -433,7 +433,7 @@ end
 
 function widget:Initialize()
 	if not LuaShader or not InstanceVBOTable then
-		spEcho("[Squad Circles] GL4 not available, removing widget")
+		spEcho("[Squad Metaballs] GL4 not available, removing widget")
 		widgetHandler:RemoveWidget()
 		return
 	end
@@ -450,7 +450,7 @@ function widget:Initialize()
 			listener_fn = on_squad_change
 			api.addSquadChangeListener(listener_fn)
 		else
-			spEcho("[Squad Circles] GL init failed, removing widget")
+			spEcho("[Squad Metaballs] GL init failed, removing widget")
 			widgetHandler:RemoveWidget()
 		end
 	end
