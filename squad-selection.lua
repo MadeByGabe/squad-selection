@@ -110,6 +110,7 @@ local squad_idle_blend = {} -- squad table -> 0..1 blend between team color and 
 local squad_hide_idle_air_hull = {} -- squad table -> true when an idle squad is entirely airborne air units
 local idle_scan_index = 0 -- round-robin index into squads for incremental idle-state updates
 local before_squad_select_callback = nil -- optional WG hook: return false to cancel a do_squad_select call
+local squad_change_listeners = {} -- array of callback functions
 
 -- Unit classification caches (declared early so utility helpers capture locals,
 -- not globals).
@@ -331,6 +332,28 @@ end
 
 
 -------------------------------------------------------------------------------
+-- Squad change listeners
+--
+-- Companion widgets register via WG['squadselection'].addSquadChangeListener(fn).
+-- Callbacks receive (event, unitID, squad):
+--   "add"     — unitID was added to squad
+--   "remove"  — unitID was removed from squad (fired before internal cleanup)
+--   "rebuild" — wholesale state change; unitID and squad are nil.
+--               Listeners should re-read getSquadState() and rebuild from scratch.
+-- Registering a listener immediately fires "rebuild" so the companion can sync.
+-------------------------------------------------------------------------------
+
+local function notify_squad_change(event, unit_id, squad)
+	for i = 1, #squad_change_listeners do
+		local ok, err = pcall(squad_change_listeners[i], event, unit_id, squad)
+		if not ok then
+			spEcho("[Squad] listener error: " .. tostring(err))
+		end
+	end
+end
+
+
+-------------------------------------------------------------------------------
 -- Squad operations
 -------------------------------------------------------------------------------
 
@@ -339,6 +362,9 @@ local function add_to_squad(unit_id, squad)
 	squad[slot] = unit_id
 	unit_squad[unit_id] = squad
 	unit_slot[unit_id] = slot
+	if squad.index then
+		notify_squad_change("add", unit_id, squad)
+	end
 	squad_idle_state[squad] = false
 	squad_hide_idle_air_hull[squad] = false
 end
@@ -350,6 +376,8 @@ local function remove_from_squad(unit_id)
 	if not squad then
 		return
 	end
+
+	notify_squad_change("remove", unit_id, squad)
 
 	local slot = unit_slot[unit_id]
 	local last = squad[#squad]
@@ -707,6 +735,7 @@ local function create_squad_from_selection()
 	end
 	squads[#squads + 1] = new_squad
 	prune_empty_squads()
+	notify_squad_change("rebuild", nil, nil)
 	-- Selection itself didn't change, but selected units moved between squads.
 	-- Force DrawWorldPreUnit to rebuild per-squad selected counts.
 	selection_dirty = true
@@ -2160,6 +2189,27 @@ function widget:Initialize()
 	end
 
 
+	WG['squadselection'].addSquadChangeListener = function(fn)
+		if type(fn) ~= "function" then
+			return false
+		end
+		squad_change_listeners[#squad_change_listeners + 1] = fn
+		pcall(fn, "rebuild", nil, nil)
+		return true
+	end
+
+
+	WG['squadselection'].removeSquadChangeListener = function(fn)
+		for i = #squad_change_listeners, 1, -1 do
+			if squad_change_listeners[i] == fn then
+				table.remove(squad_change_listeners, i)
+				return true
+			end
+		end
+		return false
+	end
+
+
 	register_options()
 
 	log("Initialized — ", count, " combat units in domain uncategorized reserves")
@@ -2202,6 +2252,7 @@ end
 function widget:Shutdown()
 	unregister_options()
 	before_squad_select_callback = nil
+	squad_change_listeners = {}
 	WG['squadselection'] = nil
 	widgetHandler:RemoveAction("squad_select")
 	widgetHandler:RemoveAction("squad_select_filtered")
