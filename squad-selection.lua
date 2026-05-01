@@ -687,6 +687,7 @@ local function create_squad_from_selection()
 					end
 				end
 				prune_empty_squads()
+				notify_squad_change("rebuild", nil, nil)
 				selection_dirty = true
 				push_to_mru(sq)
 
