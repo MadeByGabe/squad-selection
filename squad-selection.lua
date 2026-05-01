@@ -2211,6 +2211,40 @@ function widget:Initialize()
 	end
 
 
+	-- Create a new manual squad from an explicit list of unit IDs. 
+	-- Returns the new squad's .index on success, nil if no eligible units were found.
+	-- Does not touch the player's selection or the reserve-merge gate.
+	WG['squadselection'].createSquadFromUnits = function(unit_ids)
+		if not unit_ids or #unit_ids == 0 then
+			return nil
+		end
+
+		local new_squad = {}
+		for i = 1, #unit_ids do
+			local u = unit_ids[i]
+			local def_id = get_defid(u)
+			if def_id and is_combat[def_id] and unit_squad[u] then
+				remove_from_squad(u)
+				add_to_squad(u, new_squad)
+			end
+		end
+
+		if #new_squad == 0 then
+			return nil
+		end
+
+		assign_squad_tag(new_squad)
+		squads[#squads + 1] = new_squad
+		prune_empty_squads()
+		notify_squad_change("rebuild", nil, nil)
+		selection_dirty = true
+		push_to_mru(new_squad)
+
+		log("WG createSquadFromUnits: squad [", new_squad.index, "] with ", #new_squad, " units")
+		return new_squad.index
+	end
+
+
 	register_options()
 
 	log("Initialized — ", count, " combat units in domain uncategorized reserves")

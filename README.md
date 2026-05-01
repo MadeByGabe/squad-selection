@@ -464,7 +464,7 @@ There's also a **pre-select hook example** ([pre-select-hook-example.lua](pre-se
 
 Companion widgets access squad state through `WG['squadselection']`, which exposes:
 
-**`getSquadState()`** — Returns live references to internal state:
+**`getSquadState()`** which returns live references to internal state:
 
 ```lua
 local state = WG['squadselection'].getSquadState()
@@ -478,15 +478,15 @@ local state = WG['squadselection'].getSquadState()
 
 Each squad array carries metadata on string keys: `.index` (monotonic ID), `.tag_seed` (golden-ratio phase offset), `.is_reserve`, `.from_factory`.
 
-**`addSquadChangeListener(fn)` / `removeSquadChangeListener(fn)`** — Register for incremental notifications. The callback receives `(event, unitID, squad)`:
+**`addSquadChangeListener(fn)` / `removeSquadChangeListener(fn)`**: Register for incremental notifications. The callback receives `(event, unitID, squad)`:
 
-- `"add"` — unitID was added to squad
-- `"remove"` — unitID is about to be removed from squad
-- `"rebuild"` — wholesale state change; unitID and squad are nil — re-read `getSquadState()`
+- `"add"`: unitID was added to squad
+- `"remove"`: unitID is about to be removed from squad
+- `"rebuild"`: wholesale state change; unitID and squad are nil — re-read `getSquadState()`
 
 Registering a listener immediately fires `"rebuild"` so the companion can sync with existing state.
 
-**`setBeforeSquadSelectCallback(fn)`** — Install a hook that fires before every squad selection. The callback receives a context table:
+**`setBeforeSquadSelectCallback(fn)`**: Install a hook that fires before every squad selection. The callback receives a context table:
 
 ```lua
 function my_hook(ctx)
@@ -499,6 +499,8 @@ function my_hook(ctx)
     -- return nil              -- proceed normally
 end
 ```
+
+**`createSquadFromUnits(unit_ids)`**: Create a new manual squad from an explicit list of unit IDs. 
 
 There are also exposed settings such as **`getShowReserveSquads()`**. Every config key has `get<Key>()` / `set<Key>(value)` pairs (e.g. `getCyclingToNextSquad()`, `setCyclingToNextSquad(true)`).
 
