@@ -35,6 +35,8 @@ local config = {
 	convexHullFillOpacity = 0.1,
 	convexHullBorderOpacity = 0.2,
 	convexHullBorderThickness = 2,
+	convexHullColorMode = "team", -- "team" (team color), "custom" (single custom RGB), "squad" (per-squad golden-ratio hue)
+	convexHullCustomColor = {0, 0.3, 0.7}, -- RGB used when colorMode is "custom"
 	debug = false,
 }
 
@@ -254,12 +256,50 @@ end
 
 local next_squad_tag = 0
 
+-------------------------------------------------------------------------------
+-- Per-squad color helpers (matches companion widgets' coloring scheme)
+-------------------------------------------------------------------------------
+
+local GOLDEN_HUE_STEP = 0.381966
+local SQUAD_SAT = 0.75
+local SQUAD_VAL = 0.7
+
+local function hsv_to_rgb(h, s, v)
+	local i = math.floor(h * 6)
+	local f = h * 6 - i
+	local p = v * (1 - s)
+	local q = v * (1 - f * s)
+	local t = v * (1 - (1 - f) * s)
+	i = i % 6
+	if i == 0 then
+		return v, t, p
+	elseif i == 1 then
+		return q, v, p
+	elseif i == 2 then
+		return p, v, t
+	elseif i == 3 then
+		return p, q, v
+	elseif i == 4 then
+		return t, p, v
+	else
+		return v, p, q
+	end
+end
+
+
+local function index_to_color(idx)
+	local h = ((idx - 1) * GOLDEN_HUE_STEP) % 1
+	return hsv_to_rgb(h, SQUAD_SAT, SQUAD_VAL)
+end
+
+
 local function assign_squad_tag(squad)
 	next_squad_tag = next_squad_tag + 1
 	squad.index = next_squad_tag
 	-- Golden-ratio step spreads consecutive squads ~0.618 of a period apart.
 	-- Used as seed for stripe phase and breathing pulse phase.
 	squad.tag_seed = next_squad_tag * 0.6180339887
+	squad.color = {index_to_color(next_squad_tag)}
 end
 
 
@@ -730,7 +770,7 @@ local function create_squad_from_selection()
 	end
 
 	if donor then
-		new_squad.index, new_squad.tag_seed = donor.index, donor.tag_seed
+		new_squad.index, new_squad.tag_seed, new_squad.color = donor.index, donor.tag_seed, donor.color
 	else
 		assign_squad_tag(new_squad)
 	end
@@ -1870,6 +1910,12 @@ local OPTION_SPECS = {
 		min = 0.5,
 		max = 5,
 		step = 0.5,
+	}, {
+		configVariable = "convexHullColorMode",
+		name = "Hull color mode",
+		description = "Team color, a single custom color, or a unique color per squad.",
+		type = "select",
+		options = {"team", "custom", "squad"},
 	}}
 
 local OPTION_SPECS_BY_KEY = {}
@@ -2147,7 +2193,8 @@ function widget:Initialize()
 	-- WG interface. Auto-generates
 	-- get<Key>/set<Key> pairs for every exposed config key.
 	local exposed_settings = {
-		"leftClickSelectsSquad", "leftClickSteps", "leftClickStepsEnabled", "leftClickAppendFiltersDomain", "leftClickFilteredRetargets", "cyclingToNextSquad", "rightClickSquadCreate", "modifierRightClickCreatesSquad", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "visualizationMode", "convexHullPadding", "convexHullArcResolution", "convexHullFillOpacity", "convexHullBorderOpacity", "convexHullBorderThickness"}
+		"leftClickSelectsSquad", "leftClickSteps", "leftClickStepsEnabled", "leftClickAppendFiltersDomain", "leftClickFilteredRetargets", "cyclingToNextSquad", "rightClickSquadCreate", "modifierRightClickCreatesSquad", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "visualizationMode", "convexHullPadding", "convexHullArcResolution", "convexHullFillOpacity", "convexHullBorderOpacity", "convexHullBorderThickness",
+			"convexHullColorMode", "convexHullCustomColor"}
 	WG['squadselection'] = {}
 	for _, key in ipairs(exposed_settings) do
 		local cap = key:sub(1, 1):upper() .. key:sub(2)
@@ -2714,6 +2761,7 @@ function widget:DrawWorldPreUnit()
 	local padding = config.convexHullPadding
 	local arc_res = config.convexHullArcResolution
 	local show_reserves = config.showReserveSquads
+	local color_mode = config.convexHullColorMode
 
 	if not hull_time_origin then
 		hull_time_origin = spGetTimer()
@@ -2738,12 +2786,26 @@ function widget:DrawWorldPreUnit()
 					-- Fully hidden for idle flying-air squads.
 				else
 					local cr, cg, cb
-					if (squad_sel_count[squad] or 0) >= size then
+					local fully_selected = (squad_sel_count[squad] or 0) >= size
+					if fully_selected then
 						cr, cg, cb = 1, 1, 1
+					elseif color_mode == "custom" then
+						local cc = config.convexHullCustomColor
+						cr, cg, cb = cc[1] or 1, cc[2] or 1, cc[3] or 1
+					elseif color_mode == "squad" and squad.color then
+						cr, cg, cb = squad.color[1], squad.color[2], squad.color[3]
 					else
-						cr = team_color[1] + (idle_color[1] - team_color[1]) * idle_blend
-						cg = team_color[2] + (idle_color[2] - team_color[2]) * idle_blend
-						cb = team_color[3] + (idle_color[3] - team_color[3]) * idle_blend
+						cr = team_color[1]
+						cg = team_color[2]
+						cb = team_color[3]
+					end
+					if idle_blend > 0 and not fully_selected then
+						local ir = cg * 0.3
+						local ig = cb * 0.3
+						local ib = cr * 0.3
+						cr = cr + (ir - cr) * idle_blend
+						cg = cg + (ig - cg) * idle_blend
+						cb = cb + (ib - cb) * idle_blend
 					end
 					if squad.is_reserve then
 						alpha_scale = alpha_scale * 0.6

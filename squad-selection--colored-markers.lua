@@ -27,10 +27,6 @@ local popElementInstance = InstanceVBOTable and InstanceVBOTable.popElementInsta
 local MARKER_SIZE_PX = 12
 local MARKER_OPACITY = 0.5
 
-local GOLDEN_HUE_STEP = 0.381966
-local SQUAD_SAT = 0.75
-local SQUAD_VAL = 0.7
-
 local marker_ready = false
 local marker_init_failed = false
 local marker_fail_reason = nil
@@ -41,35 +37,6 @@ local marker_instance_cache = {0, 0, 0, 0, 0, 0, 0}
 
 local listener_fn = nil
 local show_reserves_cache = false
-
-local function hsv_to_rgb(h, s, v)
-	local i = math.floor(h * 6)
-	local f = h * 6 - i
-	local p = v * (1 - s)
-	local q = v * (1 - f * s)
-	local t = v * (1 - (1 - f) * s)
-	i = i % 6
-	if i == 0 then
-		return v, t, p
-	elseif i == 1 then
-		return q, v, p
-	elseif i == 2 then
-		return p, v, t
-	elseif i == 3 then
-		return p, q, v
-	elseif i == 4 then
-		return t, p, v
-	else
-		return v, p, q
-	end
-end
-
-
-local function index_to_color(idx)
-	local h = ((idx - 1) * GOLDEN_HUE_STEP) % 1
-	return hsv_to_rgb(h, SQUAD_SAT, SQUAD_VAL)
-end
-
 
 local marker_vs_src = [[
 #version 430
@@ -241,13 +208,12 @@ end
 
 
 local function push_unit(unit_id, sq)
-	if not marker_ready or not sq.index then
+	if not marker_ready or not sq.color then
 		return
 	end
-	local r, g, b = index_to_color(sq.index)
-	marker_instance_cache[1] = r
-	marker_instance_cache[2] = g
-	marker_instance_cache[3] = b
+	marker_instance_cache[1] = sq.color[1]
+	marker_instance_cache[2] = sq.color[2]
+	marker_instance_cache[3] = sq.color[3]
 	pushElementInstance(markerInstanceVBO, marker_instance_cache, unit_id, true, false, unit_id)
 end
 
@@ -406,4 +372,5 @@ function widget:Shutdown()
 	end
 	cleanup_gl_marker()
 end
+
 

@@ -22,42 +22,9 @@ local glText = gl.Text
 
 local LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ+#@!$=&"
 
-local GOLDEN_HUE_STEP = 0.381966
-local SQUAD_SAT = 0.75
-local SQUAD_VAL = 0.7
-
 local function index_to_letter(idx)
 	local i = (idx - 1) % #LETTERS + 1
 	return LETTERS:sub(i, i)
-end
-
-
-local function hsv_to_rgb(h, s, v)
-	local i = math.floor(h * 6)
-	local f = h * 6 - i
-	local p = v * (1 - s)
-	local q = v * (1 - f * s)
-	local t = v * (1 - (1 - f) * s)
-	i = i % 6
-	if i == 0 then
-		return v, t, p
-	elseif i == 1 then
-		return q, v, p
-	elseif i == 2 then
-		return p, v, t
-	elseif i == 3 then
-		return p, q, v
-	elseif i == 4 then
-		return t, p, v
-	else
-		return v, p, q
-	end
-end
-
-
-local function index_to_color(idx)
-	local h = ((idx - 1) * GOLDEN_HUE_STEP) % 1
-	return hsv_to_rgb(h, SQUAD_SAT, SQUAD_VAL)
 end
 
 
@@ -90,7 +57,8 @@ function widget:DrawScreenEffects()
 		local sq = squads[i]
 		if #sq > 0 and (not sq.is_reserve or show_reserves) then
 			local idx = sq.index
-			local r, g, b = index_to_color(idx)
+			local sc = sq.color
+			local r, g, b = sc and sc[1] or 1, sc and sc[2] or 1, sc and sc[3] or 1
 			local blend = (squad_idle_blend and squad_idle_blend[sq]) or 0
 			local dim = 1 - blend * 0.5
 			r, g, b = r * dim, g * dim, b * dim
@@ -112,7 +80,8 @@ function widget:DrawScreenEffects()
 	if show_reserves and factory_squad then
 		for fid, sq in pairs(factory_squad) do
 			local idx = sq.index
-			local r, g, b = index_to_color(idx)
+			local sc = sq.color
+			local r, g, b = sc and sc[1] or 1, sc and sc[2] or 1, sc and sc[3] or 1
 			local label = index_to_letter(idx)
 			local _, _, _, x, y, z = spGetUnitPosition(fid, true)
 			if x then

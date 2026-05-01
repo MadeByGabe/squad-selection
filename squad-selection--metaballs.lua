@@ -20,10 +20,6 @@ local InstanceVBOTable = gl.InstanceVBOTable
 local pushElementInstance = InstanceVBOTable and InstanceVBOTable.pushElementInstance
 local popElementInstance = InstanceVBOTable and InstanceVBOTable.popElementInstance
 
-local GOLDEN_HUE_STEP = 0.381966
-local SQUAD_SAT = 0.75
-local SQUAD_VAL = 0.7
-
 local CIRCLE_RADIUS = 170
 local CIRCLE_OPACITY = 1
 local CIRCLE_SEGMENTS = 32
@@ -45,35 +41,6 @@ local show_reserves_cache = false
 
 local is_air = {} -- defID -> bool
 local defid_cache = {} -- unitID -> defID or false
-
-local function hsv_to_rgb(h, s, v)
-	local i = math.floor(h * 6)
-	local f = h * 6 - i
-	local p = v * (1 - s)
-	local q = v * (1 - f * s)
-	local t = v * (1 - (1 - f) * s)
-	i = i % 6
-	if i == 0 then
-		return v, t, p
-	elseif i == 1 then
-		return q, v, p
-	elseif i == 2 then
-		return p, v, t
-	elseif i == 3 then
-		return p, q, v
-	elseif i == 4 then
-		return t, p, v
-	else
-		return v, p, q
-	end
-end
-
-
-local function index_to_color(idx)
-	local h = ((idx - 1) * GOLDEN_HUE_STEP) % 1
-	return hsv_to_rgb(h, SQUAD_SAT, SQUAD_VAL)
-end
-
 
 local function get_defid(unit_id)
 	local v = defid_cache[unit_id]
@@ -366,15 +333,14 @@ end
 
 
 local function push_unit(unit_id, sq)
-	if not ready or not sq.index then
+	if not ready or not sq.color then
 		return
 	end
-	local r, g, b = index_to_color(sq.index)
 	local def_id = get_defid(unit_id)
 	circleInstanceCache[1] = (def_id and is_air[def_id]) and -CIRCLE_RADIUS or CIRCLE_RADIUS
-	circleInstanceCache[2] = r
-	circleInstanceCache[3] = g
-	circleInstanceCache[4] = b
+	circleInstanceCache[2] = sq.color[1]
+	circleInstanceCache[3] = sq.color[2]
+	circleInstanceCache[4] = sq.color[3]
 	pushElementInstance(circleInstanceVBO, circleInstanceCache, unit_id, true, false, unit_id)
 end
 
