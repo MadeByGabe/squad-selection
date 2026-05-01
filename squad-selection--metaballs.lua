@@ -21,7 +21,7 @@ local pushElementInstance = InstanceVBOTable and InstanceVBOTable.pushElementIns
 local popElementInstance = InstanceVBOTable and InstanceVBOTable.popElementInstance
 
 local GOLDEN_HUE_STEP = 0.381966
-local SQUAD_SAT = 0.65
+local SQUAD_SAT = 0.75
 local SQUAD_VAL = 0.7
 
 local CIRCLE_RADIUS = 170
@@ -46,7 +46,6 @@ local show_reserves_cache = false
 local is_air = {} -- defID -> bool
 local defid_cache = {} -- unitID -> defID or false
 
-
 local function hsv_to_rgb(h, s, v)
 	local i = math.floor(h * 6)
 	local f = h * 6 - i
@@ -54,12 +53,19 @@ local function hsv_to_rgb(h, s, v)
 	local q = v * (1 - f * s)
 	local t = v * (1 - (1 - f) * s)
 	i = i % 6
-	if     i == 0 then return v, t, p
-	elseif i == 1 then return q, v, p
-	elseif i == 2 then return p, v, t
-	elseif i == 3 then return p, q, v
-	elseif i == 4 then return t, p, v
-	else               return v, p, q end
+	if i == 0 then
+		return v, t, p
+	elseif i == 1 then
+		return q, v, p
+	elseif i == 2 then
+		return p, v, t
+	elseif i == 3 then
+		return p, q, v
+	elseif i == 4 then
+		return t, p, v
+	else
+		return v, p, q
+	end
 end
 
 
@@ -208,7 +214,6 @@ void main() {
 }
 ]]
 
-
 -------------------------------------------------------------------------------
 -- GL init / cleanup
 -------------------------------------------------------------------------------
@@ -286,9 +291,16 @@ local function init_gl()
 
 	local circleVBO, numVertices = InstanceVBOTable.makeCircleVBO(CIRCLE_SEGMENTS, nil, true, "SquadCirclesCompanion")
 	local instanceLayout = {
-		{id = 1, name = "radius_color", size = 4},
-		{id = 2, name = "instData", size = 4, type = GL.UNSIGNED_INT},
-	}
+		{
+			id = 1,
+			name = "radius_color",
+			size = 4,
+		}, {
+			id = 2,
+			name = "instData",
+			size = 4,
+			type = GL.UNSIGNED_INT,
+		}}
 
 	circleInstanceVBO = InstanceVBOTable.makeInstanceVBOTable(instanceLayout, 128, "squadCirclesCompanionVBO", 2)
 	circleInstanceVBO.numVertices = numVertices
@@ -296,8 +308,13 @@ local function init_gl()
 	circleInstanceVBO.VAO = InstanceVBOTable.makeVAOandAttach(circleVBO, circleInstanceVBO.instanceVBO)
 
 	fullscreenVBO = gl.GetVBO(GL.ARRAY_BUFFER, false)
-	fullscreenVBO:Define(3, {{id = 0, name = "position", size = 2}})
-	fullscreenVBO:Upload({-1, -1,   3, -1,   -1, 3})
+	fullscreenVBO:Define(3, {
+		{
+			id = 0,
+			name = "position",
+			size = 2,
+		}})
+	fullscreenVBO:Upload({-1, -1, 3, -1, -1, 3})
 	fullscreenVAO = gl.GetVAO()
 	fullscreenVAO:AttachVertexBuffer(fullscreenVBO)
 
@@ -546,3 +563,5 @@ function widget:Shutdown()
 	end
 	cleanup_gl()
 end
+
+

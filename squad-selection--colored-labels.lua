@@ -22,35 +22,42 @@ local glText = gl.Text
 
 local LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ+#@!$=&"
 
+local GOLDEN_HUE_STEP = 0.381966
+local SQUAD_SAT = 0.75
+local SQUAD_VAL = 0.7
+
 local function index_to_letter(idx)
 	local i = (idx - 1) % #LETTERS + 1
 	return LETTERS:sub(i, i)
 end
 
 
--- Simple hue-rotation: map index to an RGB color via HSV with fixed S and V.
-local function index_to_color(idx)
-	local h = ((idx - 1) * 0.6180339887) % 1 -- golden-ratio hue spread
-	local s, v = 0.8, 1.0
+local function hsv_to_rgb(h, s, v)
 	local i = math.floor(h * 6)
 	local f = h * 6 - i
-	local p, q, t = v * (1 - s), v * (1 - s * f), v * (1 - s * (1 - f))
-	local r, g, b
+	local p = v * (1 - s)
+	local q = v * (1 - f * s)
+	local t = v * (1 - (1 - f) * s)
 	i = i % 6
 	if i == 0 then
-		r, g, b = v, t, p
+		return v, t, p
 	elseif i == 1 then
-		r, g, b = q, v, p
+		return q, v, p
 	elseif i == 2 then
-		r, g, b = p, v, t
+		return p, v, t
 	elseif i == 3 then
-		r, g, b = p, q, v
+		return p, q, v
 	elseif i == 4 then
-		r, g, b = t, p, v
+		return t, p, v
 	else
-		r, g, b = v, p, q
+		return v, p, q
 	end
-	return r, g, b
+end
+
+
+local function index_to_color(idx)
+	local h = ((idx - 1) * GOLDEN_HUE_STEP) % 1
+	return hsv_to_rgb(h, SQUAD_SAT, SQUAD_VAL)
 end
 
 
