@@ -515,8 +515,9 @@ Update any `uikeys.txt` bindings that use the old names.
 
 ## Credits
 
-- **yyyy**: original concept and the [Fassst Selectionssss](https://kk1ff.com/bar/select.lua) prototype
+- **yyyy**: original concept and the [Fassst Selectionssss](https://kk1ff.com/bar/select.lua) prototype, also hull visualization
 - **Baldric**: this implementation
+- **LucyGoesAir**: High quality early feedback and suggestions
 - Built with **assistance** from [Claude Code](https://claude.ai/code)
 
 ## License
