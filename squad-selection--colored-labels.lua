@@ -20,8 +20,6 @@ local spIsGUIHidden = Spring.IsGUIHidden
 local glColor = gl.Color
 local glText = gl.Text
 
-local LABEL_OFFSET_Y = 14 -- world units above the unit
-
 local LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ+#@!$=&"
 
 local function index_to_letter(idx)
@@ -95,9 +93,9 @@ function widget:DrawScreenEffects()
 				-- Predicted position keeps the label glued to moving units between sim frames.
 				local _, _, _, x, y, z = spGetUnitPosition(sq[j], true)
 				if x then
-					local sx, sy = spWorldToScreenCoords(x, y + LABEL_OFFSET_Y, z)
+					local sx, sy = spWorldToScreenCoords(x, y + 20, z)
 					if sx then
-						glText(label, sx, sy, 14, "co")
+						glText(label, sx, sy, 11, "co")
 					end
 				end
 			end
@@ -114,7 +112,7 @@ function widget:DrawScreenEffects()
 				local sx, sy = spWorldToScreenCoords(x, y, z)
 				if sx then
 					glColor(r, g, b, 1)
-					glText(label, sx, sy + LABEL_OFFSET_Y, 16, "co")
+					glText(label, sx, sy, 14, "co")
 				end
 			end
 		end
@@ -122,4 +120,5 @@ function widget:DrawScreenEffects()
 
 	glColor(1, 1, 1, 1)
 end
+
 
