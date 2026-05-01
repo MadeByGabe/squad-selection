@@ -37,11 +37,10 @@ local marker_fail_reason = nil
 local marker_shader = nil
 local markerInstanceVBO = nil
 local markerQuadVBO = nil
-local marker_instance_cache = {0, 0, 0,  0, 0, 0, 0}
+local marker_instance_cache = {0, 0, 0, 0, 0, 0, 0}
 
 local listener_fn = nil
 local show_reserves_cache = false
-
 
 local function hsv_to_rgb(h, s, v)
 	local i = math.floor(h * 6)
@@ -50,12 +49,19 @@ local function hsv_to_rgb(h, s, v)
 	local q = v * (1 - f * s)
 	local t = v * (1 - (1 - f) * s)
 	i = i % 6
-	if     i == 0 then return v, t, p
-	elseif i == 1 then return q, v, p
-	elseif i == 2 then return p, v, t
-	elseif i == 3 then return p, q, v
-	elseif i == 4 then return t, p, v
-	else               return v, p, q end
+	if i == 0 then
+		return v, t, p
+	elseif i == 1 then
+		return q, v, p
+	elseif i == 2 then
+		return p, v, t
+	elseif i == 3 then
+		return p, q, v
+	elseif i == 4 then
+		return t, p, v
+	else
+		return v, p, q
+	end
 end
 
 
@@ -135,7 +141,6 @@ void main() {
 }
 ]]
 
-
 local function init_gl_marker()
 	if marker_ready or marker_init_failed then
 		return marker_ready
@@ -173,13 +178,25 @@ local function init_gl_marker()
 		marker_fail_reason = "quad VBO creation failed"
 		return false
 	end
-	markerQuadVBO:Define(4, {{id = 0, name = "quadVertex", size = 2}})
-	markerQuadVBO:Upload({-1,-1,  1,-1,  -1,1,  1,1})
+	markerQuadVBO:Define(4, {
+		{
+			id = 0,
+			name = "quadVertex",
+			size = 2,
+		}})
+	markerQuadVBO:Upload({-1, -1, 1, -1, -1, 1, 1, 1})
 
 	local instanceLayout = {
-		{id = 1, name = "color",    size = 3},
-		{id = 2, name = "instData", size = 4, type = GL.UNSIGNED_INT},
-	}
+		{
+			id = 1,
+			name = "color",
+			size = 3,
+		}, {
+			id = 2,
+			name = "instData",
+			size = 4,
+			type = GL.UNSIGNED_INT,
+		}}
 	markerInstanceVBO = InstanceVBOTable.makeInstanceVBOTable(instanceLayout, 128, "squadColoredMarkersVBO", 2)
 	markerInstanceVBO.numVertices = 4
 	markerInstanceVBO.vertexVBO = markerQuadVBO
@@ -191,8 +208,13 @@ end
 
 
 local function cleanup_gl_marker()
-	if markerInstanceVBO and markerInstanceVBO.VAO then
-		markerInstanceVBO.VAO:Delete()
+	if markerInstanceVBO then
+		if markerInstanceVBO.VAO then
+			markerInstanceVBO.VAO:Delete()
+		end
+		if markerInstanceVBO.instanceVBO then
+			markerInstanceVBO.instanceVBO:Delete()
+		end
 	end
 	if markerQuadVBO then
 		markerQuadVBO:Delete()
@@ -336,7 +358,7 @@ function widget:Update()
 end
 
 
-function widget:DrawUnitsPostDeferred()
+function widget:DrawWorldPreUnit()
 	if spIsGUIHidden() then
 		return
 	end
@@ -384,3 +406,4 @@ function widget:Shutdown()
 	end
 	cleanup_gl_marker()
 end
+
