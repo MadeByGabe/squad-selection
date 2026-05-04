@@ -1445,6 +1445,7 @@ local function squad_cycle_idle()
 			end
 			spSelectUnitArray(units)
 			spSendCommands("viewselection")
+			push_to_mru(sq)
 			log("Idle squad [", sq.index or "?", "]")
 			return true
 		end
