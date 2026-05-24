@@ -2071,7 +2071,7 @@ end
 
 local function squad_setting(_, _, args)
 	if not args or not args[1] then
-		spEcho("[Squad] Usage: squad_setting toggle|set|get|reload <key> [value]")
+		spEcho("[Squad] Usage: squad_setting toggle|set|add|remove|get|reload <key> [value]")
 		return
 	end
 	local action = args[1]
@@ -2098,7 +2098,57 @@ local function squad_setting(_, _, args)
 	end
 
 
-	if action == "toggle" then
+	if action == "add" then
+		if key ~= "excludedUnitTypes" then
+			spEcho("[Squad] 'add' only applies to excludedUnitTypes")
+			return
+		end
+		if not args[3] then
+			spEcho("[Squad] Usage: squad_setting add excludedUnitTypes <name> [name ...]")
+			return
+		end
+		local existing = {}
+		for entry in config.excludedUnitTypes:gmatch("[^,]+") do
+			existing[entry:match("^%s*(.-)%s*$")] = true
+		end
+		local parts = {}
+		for entry in config.excludedUnitTypes:gmatch("[^,]+") do
+			parts[#parts + 1] = entry:match("^%s*(.-)%s*$")
+		end
+		for i = 3, #args do
+			local name = args[i]
+			if not existing[name] then
+				parts[#parts + 1] = name
+				existing[name] = true
+			end
+		end
+		set_option_value(key, table.concat(parts, ","))
+		spEcho("[Squad] excludedUnitTypes = \"" .. config[key] .. "\" (takes effect on next widget load)")
+		return
+	elseif action == "remove" then
+		if key ~= "excludedUnitTypes" then
+			spEcho("[Squad] 'remove' only applies to excludedUnitTypes")
+			return
+		end
+		if not args[3] then
+			spEcho("[Squad] Usage: squad_setting remove excludedUnitTypes <name> [name ...]")
+			return
+		end
+		local to_remove = {}
+		for i = 3, #args do
+			to_remove[args[i]] = true
+		end
+		local parts = {}
+		for entry in config.excludedUnitTypes:gmatch("[^,]+") do
+			entry = entry:match("^%s*(.-)%s*$")
+			if not to_remove[entry] then
+				parts[#parts + 1] = entry
+			end
+		end
+		set_option_value(key, table.concat(parts, ","))
+		spEcho("[Squad] excludedUnitTypes = \"" .. config[key] .. "\" (takes effect on next widget load)")
+		return
+	elseif action == "toggle" then
 		if type(config[key]) ~= "boolean" then
 			spEcho("[Squad] Cannot toggle non-boolean key: " .. key)
 			return
@@ -2151,7 +2201,7 @@ local function squad_setting(_, _, args)
 	elseif action == "get" then
 		spEcho("[Squad] " .. key .. " = " .. format_value(config[key]))
 	else
-		spEcho("[Squad] Unknown action: " .. action .. " (use toggle, set, get, or reload)")
+		spEcho("[Squad] Unknown action: " .. action .. " (use toggle, set, add, remove, get, or reload)")
 	end
 end
 

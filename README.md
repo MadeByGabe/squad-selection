@@ -308,6 +308,8 @@ For settings that don't have a panel control (like `leftClickSteps` and `exclude
 /luaui squad_setting set visualizationMode none
 /luaui squad_setting set leftClickSteps 0.5
 /luaui squad_setting set excludedUnitTypes armrectr cornecro legrezbot
+/luaui squad_setting add excludedUnitTypes armrectr cornecro legrezbot
+/luaui squad_setting remove excludedUnitTypes armrectr cornecro legrezbot
 ```
 
 All changes persist across games.
@@ -328,16 +330,18 @@ All changes persist across games.
 | `mruSize`                        | `3`                  | How many recent squads `squad_cycle_recent` cycles through                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `visualizationMode`              | `"convexHull"`       | `"convexHull"` or `"none"`. Additional styles are provided by companion widgets                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `showReserveSquads`              | `false`              | Visualize per-factory and uncategorized reserves as squads                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `excludedUnitTypes`              | `""`                 | Comma or space separated unit IDs to exclude from squad tracking (e.g. `"armrectr,cornecro,legrezbot"`). Takes effect on next widget load. To find a unit's name, open its page on [beyondallreason.info](https://www.beyondallreason.info) — the name is the last segment of the URL (e.g. `https://www.beyondallreason.info/unit/cornecro`, cornecro = Graverobber). Note, there is a chat message limit to set a setting so you might want to edit this setting in *data/LuaUi/Config/BYAR.lua* while you're not in game. |
+| `excludedUnitTypes`              | `""`                 | Unit names to exclude from squad tracking (e.g. `"armrectr cornecro legrezbot"`). Takes effect on next widget load. Use `add`/`remove` to build the list in smaller batches to stay within the chat length limit. To find a unit's name, open its page on [beyondallreason.info](https://www.beyondallreason.info) — the name is the last segment of the URL (e.g. `https://www.beyondallreason.info/unit/cornecro`, cornecro = Graverobber). |
 
 
 
-| Action                            | What it does                                                |
-| --------------------------------- | ----------------------------------------------------------- |
-| `squad_setting toggle <key>`      | Toggles a boolean setting                                   |
-| `squad_setting set <key> <value>` | Sets a setting to a specific value                          |
-| `squad_setting get <key>`         | Prints the current value of a setting                       |
-| `squad_setting reload`            | Resets all settings to the defaults defined in the Lua file |
+| Action                                           | What it does                                                                    |
+| ------------------------------------------------ | ------------------------------------------------------------------------------- |
+| `squad_setting toggle <key>`                     | Toggles a boolean setting                                                       |
+| `squad_setting set <key> <value>`                | Sets a setting to a specific value                                              |
+| `squad_setting add excludedUnitTypes <name> [name ...]`     | Adds one or more unit names to the exclusion list      |
+| `squad_setting remove excludedUnitTypes <name> [name ...]`  | Removes one or more unit names from the exclusion list |
+| `squad_setting get <key>`                        | Prints the current value of a setting                                           |
+| `squad_setting reload`                           | Resets all settings to the defaults defined in the Lua file                     |
 
 *Note: for quickly centering the camera on the current selection (the equivalent of double-tapping a control group's number key), you can either double-tap a squad-select hotkey/click (see [Double-tap to focus camera](#double-tap-to-focus-camera)) or bind `viewselection` directly to a hotkey. See also the [recent-squad cycling](#recent-squad-cycling-mru) feature, which selects a recently-used squad and focuses the camera on it in one press.*
 
