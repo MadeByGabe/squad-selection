@@ -25,6 +25,7 @@ local config = {
 	rightClickSquadCreate = false, -- right-click creates squads; bind a hotkey via `squad_setting toggle rightClickSquadCreate` to flip on demand
 	modifierRightClickCreatesSquad = false, -- Ctrl+right-click creates a squad (click still passes through, so the engine's move-in-formation runs too which can cause issues)
 	commandCreatesSquad = false,
+	disableReserveMerge = false, -- when true, `squad_create` never merges the selection into a reserve squad
 	showReserveSquads = false, -- when true, auto per-factory reserves + uncategorized reserve are visualized
 	viewselectionDoubleTapMs = 300, -- second rapid same-place non-append squad-select tap (single-step, or multi-step at the last step) calls viewselection on the just-selected squad (0 disables)
 	viewselectionDoubleTapPx = 5, -- max screen-pixel distance between the two taps
@@ -725,7 +726,7 @@ local function create_squad_from_selection(unit_that_must_be_in_selection)
 	-- reserve being trivially "fully selected" used to swallow the manual
 	-- squad on squad_create.
 	local target_reserve = last_squad_select and last_squad_select.squad
-	if not existing and target_reserve and target_reserve.is_reserve then
+	if not existing and target_reserve and target_reserve.is_reserve and not config.disableReserveMerge then
 		local selected_set = {}
 		for i = 1, #selected do
 			selected_set[selected[i]] = true
@@ -1864,6 +1865,11 @@ local OPTION_SPECS = {
 		description = "Visualize per-factory reserves and the uncategorized domain reserves.",
 		type = "bool",
 	}, {
+		configVariable = "disableReserveMerge",
+		name = "Disable merge into reserves",
+		description = "When on, squad_create never merges your selection into a reserve squad; it always creates a fresh manual squad.",
+		type = "bool",
+	}, {
 		configVariable = "viewselectionDoubleTapMs",
 		name = "Double-tap window (ms)",
 		description = "Max time between two same-place taps for the viewselection / domain-flip gesture. 0 disables.",
@@ -2284,8 +2290,8 @@ function widget:Initialize()
 	-- WG interface. Auto-generates
 	-- get<Key>/set<Key> pairs for every exposed config key.
 	local exposed_settings = {
-		"leftClickSelectsSquad", "leftClickSteps", "leftClickStepsEnabled", "leftClickAppendFiltersDomain", "leftClickFilteredRetargets", "cyclingToNextSquad", "rightClickSquadCreate", "modifierRightClickCreatesSquad", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "visualizationMode", "convexHullPadding", "convexHullArcResolution", "convexHullFillOpacity", "convexHullBorderOpacity", "convexHullBorderThickness",
-			"convexHullColorMode", "convexHullCustomColorR", "convexHullCustomColorG", "convexHullCustomColorB"}
+		"leftClickSelectsSquad", "leftClickSteps", "leftClickStepsEnabled", "leftClickAppendFiltersDomain", "leftClickFilteredRetargets", "cyclingToNextSquad", "rightClickSquadCreate", "modifierRightClickCreatesSquad", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "disableReserveMerge", "visualizationMode", "convexHullPadding", "convexHullArcResolution", "convexHullFillOpacity", "convexHullBorderOpacity",
+			"convexHullBorderThickness", "convexHullColorMode", "convexHullCustomColorR", "convexHullCustomColorG", "convexHullCustomColorB"}
 	WG['squadselection'] = {}
 	for _, key in ipairs(exposed_settings) do
 		local cap = key:sub(1, 1):upper() .. key:sub(2)

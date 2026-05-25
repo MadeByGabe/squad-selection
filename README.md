@@ -213,6 +213,8 @@ Typical flow: select your manual squad first (however you like), then squad-sele
 
 Selecting *only* a reserve squad and pressing `squad_create` still creates a new manual squad from those units, so use this to promote reserve units into a tracked manual squad.
 
+If you don't want the merge behavior at all, then turn it off with `/luaui squad_setting set disableReserveMerge true` (also exposed in the settings panel as "Disable merge into reserves").
+
 ### Portion selection
 
 Select a portion of a squad, sorted by distance to the mouse cursor. Define step values in the hotkey bind. Each press advances to the 'next step' until max value.
