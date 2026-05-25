@@ -26,6 +26,7 @@ local config = {
 	modifierRightClickCreatesSquad = false, -- Ctrl+right-click creates a squad (click still passes through, so the engine's move-in-formation runs too which can cause issues)
 	commandCreatesSquad = false,
 	disableReserveMerge = false, -- when true, `squad_create` never merges the selection into a reserve squad
+	disableSelectionAutoExtend = false, -- when true, freshly built units never auto-extend the current selection (hard off-switch alongside the wait/patrol opt-out)
 	showReserveSquads = false, -- when true, auto per-factory reserves + uncategorized reserve are visualized
 	viewselectionDoubleTapMs = 300, -- second rapid same-place non-append squad-select tap (single-step, or multi-step at the last step) calls viewselection on the just-selected squad (0 disables)
 	viewselectionDoubleTapPx = 5, -- max screen-pixel distance between the two taps
@@ -1870,6 +1871,11 @@ local OPTION_SPECS = {
 		description = "When on, squad_create never merges your selection into a reserve squad; it always creates a fresh manual squad.",
 		type = "bool",
 	}, {
+		configVariable = "disableSelectionAutoExtend",
+		name = "Disable selection auto-extend",
+		description = "When on, freshly built units never auto-extend the current selection",
+		type = "bool",
+	}, {
 		configVariable = "viewselectionDoubleTapMs",
 		name = "Double-tap window (ms)",
 		description = "Max time between two same-place taps for the viewselection / domain-flip gesture. 0 disables.",
@@ -2290,8 +2296,8 @@ function widget:Initialize()
 	-- WG interface. Auto-generates
 	-- get<Key>/set<Key> pairs for every exposed config key.
 	local exposed_settings = {
-		"leftClickSelectsSquad", "leftClickSteps", "leftClickStepsEnabled", "leftClickAppendFiltersDomain", "leftClickFilteredRetargets", "cyclingToNextSquad", "rightClickSquadCreate", "modifierRightClickCreatesSquad", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "disableReserveMerge", "visualizationMode", "convexHullPadding", "convexHullArcResolution", "convexHullFillOpacity", "convexHullBorderOpacity",
-			"convexHullBorderThickness", "convexHullColorMode", "convexHullCustomColorR", "convexHullCustomColorG", "convexHullCustomColorB"}
+		"leftClickSelectsSquad", "leftClickSteps", "leftClickStepsEnabled", "leftClickAppendFiltersDomain", "leftClickFilteredRetargets", "cyclingToNextSquad", "rightClickSquadCreate", "modifierRightClickCreatesSquad", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "disableReserveMerge", "disableSelectionAutoExtend", "visualizationMode", "convexHullPadding", "convexHullArcResolution", "convexHullFillOpacity",
+			"convexHullBorderOpacity", "convexHullBorderThickness", "convexHullColorMode", "convexHullCustomColorR", "convexHullCustomColorG", "convexHullCustomColorB"}
 	WG['squadselection'] = {}
 	for _, key in ipairs(exposed_settings) do
 		local cap = key:sub(1, 1):upper() .. key:sub(2)
@@ -2478,7 +2484,7 @@ function widget:UnitCreated(unit_id, unit_def_id, unit_team, builder_id)
 	if unit_def_id and is_combat[unit_def_id] then
 		local sq = (builder_id and factory_squad[builder_id]) or get_uncategorized_reserve_for_def(unit_def_id)
 		local extend_selection = false
-		if sq.is_reserve then
+		if sq.is_reserve and not config.disableSelectionAutoExtend then
 			local sel_set = {}
 			for _, u in ipairs(spGetSelectedUnits()) do
 				sel_set[u] = true

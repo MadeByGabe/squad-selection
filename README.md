@@ -21,6 +21,8 @@ When you have a **full reserve squad selected** and the factory produces a new u
 *Exception:* units are NOT auto-added to your selection when **Factory rally ending with wait or patrol**: new units sit at the rally waiting or patrolling, so the widget doesn't pull them into your selection. 
 - **Freshly resurrected units still healing** — rez bots leave units in wait state until healed, so they don't extend their reserve's selection.
 
+If you don't want this auto-extend at all, turn it off with `/luaui squad_setting set disableSelectionAutoExtend true` (also in the settings panel as "Disable selection auto-extend"). Freshly built units will then never join your current selection, regardless of rally state.
+
 Squad-eligible means: unit can move and has no build options.
 
 **Creating squads:** Select some units and **right-click** (with no modifier keys held). Those units are pulled out of their current reserve squad into a new one.
