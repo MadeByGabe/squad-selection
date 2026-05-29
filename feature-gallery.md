@@ -1,13 +1,5 @@
 This is a feature gallery (draft): a series of short videoclips, each with its section text above it.
 
-<!--
-  Progressive disclosure: the deeper layer of each section lives inside a
-  <details><summary>more</summary> ... </details> block, collapsed by default and
-  expandable on click (renders natively on GitHub and anywhere markdown is shown).
-  Everything outside those blocks is always visible. A section's main gif can sit
-  either inside or after a details block.
--->
-
 # Squad Selection
 
 Automagical squad creation and proximity-based squad selection.
@@ -43,7 +35,7 @@ Note: only mobile units without build options are eligible, but you can also exc
 <details>
 <summary>more</summary>
 
-For players who currently prefer autogroups, the `Ctrl+right-click creates squad` option is probably best.  
+For players who currently prefer autogroups, the `Ctrl+right-click creates squad` option is probably best (or just a hotkey bind).  
 For 1v1 players who prefer the selectbox, the `Right-click creates squad` option is probably more useful.  
 Neither is on by default.
 
@@ -101,11 +93,10 @@ Or, if you already have a selection, uses that selection as the type filter.
 
 (video that shows type based selection and its append variant)
 
-If you have enabled `Modifier+left-click selects squad` (on by default), you can also do this with `Ctrl+Alt+left-click` to replace and `Shift+Alt+left-click` to append, both with type filtering.
+If you have enabled `Modifier+left-click selects squad` (on by default), you can also do this with `Ctrl+Alt+left-click` to replace and `Shift+Alt+left-click` to append selection, both with type filtering.
 
 <details>
 <summary>more</summary>
-
 
 By default the type is "locked" in replace selection (TODO: I might change this before publishing), so repeatedly using this feature only gets you the same type of units, just maybe from different squads. There's a "retarget" variant that, in replace mode, resets the type filter to the closest unit's type even when you already have a selection (`Left-click filtered retargets` option).
 
@@ -115,7 +106,7 @@ By default the type is "locked" in replace selection (TODO: I might change this 
 
 ## Portion selection
 
-Selects the closest N units, or the closest percentage of a squad. Each press re-sorts from where the cursor is.
+Selects the closest N units, or the closest percentage of a squad. Each use re-sorts from where the cursor is.
 
 (video that shows basic portion selection in action with 50%)
 
@@ -142,9 +133,9 @@ Optionally, replace left-click selections with the `Use portion steps on left-cl
 
 I already mentioned double-tapping the selection hotkeys/clicks to jump to a squad, but there are several other ways:  
 
-If the `Cycle to next squad on retap` setting is on, reusing the same selection action gets you the next closest squad. This also works with double-tap camera focus, though you'll need a triple tap.  
+If the `Cycle to next squad on retap` setting is on, reusing the same selection action gets you the next closest squad. This also works with double-tap camera focus.
 
-(video shows cycling and with triple tap camera focus)
+(video shows cycling and with double/triple tap camera focus)
 
 <details>
 <summary>more (cycling through recent squads, idle squads, and minimap interaction)</summary>
@@ -185,7 +176,7 @@ Note: I know this seems like a bit of an odd feature, but it's needed to support
 
 ### Filters append by domain
 
-Most squad selections have an append variant that adds a squad to your existing selection. There's also an `append_domain` variant and a `Left-click append filters by domain` setting. The append-domain variant only appends squads that are in the same domain as your current selection. Domains are "land", "air", and "naval".  
+Most squad selections have an append variant that adds a squad to your existing selection. There's also an `append_domain` variant and a `Left-click append filters by domain` setting. The domain filtered variant only appends squads that are in the same domain as your current selection. Domains are "land", "air", and "naval".  
 
 So if you have Grunts selected (land domain) and want to append a nearby squad, but some fighters (air domain) happen to fly near your cursor, this feature still appends a nearby land squad and not the fighter squad.  
 
@@ -201,12 +192,12 @@ Note: a double-tap/double-click flips the append mode, so if you use append_doma
 
 ### Squad -> limit -> flip
 
-The `squad_limit_flip` action does one of two things, depending on your current selection. If your selection spans multiple squads, it limits the selection to the closest squad (it doesn't fully select that squad; instead it removes the other squads from the selection).  
+The `squad_limit_flip` action does one of two things, depending on your current selection. If your selection spans multiple squads, it limits the selection to the closest squad (it doesn't fully select that squad; instead just removes the other squads from the selection).  
 
 If your selection is already limited to one squad, it flips the selection to the rest of that squad (selecting what isn't currently selected and deselecting what is).  
 
 This can be a surprisingly useful action if you also use other selection features.  
-For example, if you have a custom selection hotkey that selects all radar and jammer units on screen, and use this action as a follow-up, you can quickly get the radar and jammer units in the closest squad. Used again and again, it just cycles between the combat units and the support units in that squad.
+For example, if you have a custom selection hotkey that selects support units such as radar and jammer units on screen, and use this action as a follow-up, you can quickly get only those units from the closest squad. Used again and again, it just cycles between the combat units and the support units in that squad.
 
 (video shows squad_limit_flip in action with jammers and radars)
 
@@ -233,7 +224,7 @@ The actions and some of the internal features are also exposed, so it's possible
 
 Out of the box, squads are drawn as convex hulls around their units. You can switch this off entirely if you'd rather keep the screen clean.
 
-Note: idle squads get a distinct color so you can spot the ones you parked and forgot. Idle strafing air squads disappear.
+Note: idle squads get a distinct color so you can spot the ones you parked and forgot. Idle strafing air squads just disappear to reduce visual noise.
 
 <details>
 <summary>more</summary>
@@ -246,7 +237,7 @@ Other styles live in **companion widgets** but you should ignore those for now.
 
 Drop [squad-selection.lua](https://raw.githubusercontent.com/MadeByGabe/squad-selection/refs/heads/main/squad-selection.lua) into your `data/LuaUI/Widgets/` directory and enable it in-game with **F11** or in the settings.
 
-Out of the box nothing really changes until you opt in. The quickest taste of it:
+Out of the box nothing really changes until you opt in. A good start would be to:
 
 -   Turn on `Ctrl+right-click creates squad`, then select some units and Ctrl+right-click drag to create a squad (you can simply ctrl+right click too but that will also turn on move in formation).
 -   `Modifier+left-click selects squad` is on by default so you can Ctrl+click to select the closest squad without binding anything.
