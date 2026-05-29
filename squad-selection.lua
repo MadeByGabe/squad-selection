@@ -1843,7 +1843,7 @@ local OPTION_SPECS = {
 	}, {
 		configVariable = "leftClickAppendFiltersDomain",
 		name = "Left-click append filters by domain",
-		description = "Shift-click squad merges stick to the squad's domain ( nearby air squads are skipped if you have a land squad selected).",
+		description = "Shift-click squad merges stick to the squad's domain (nearby air squads are skipped if you have a land squad selected).",
 		type = "bool",
 	}, {
 		configVariable = "leftClickFilteredRetargets",
@@ -2281,9 +2281,9 @@ function widget:Initialize()
 		end
 	end
 
+	widgetHandler:AddAction("squad_create", squad_create, nil, "pt")
 	widgetHandler:AddAction("squad_select", squad_select, nil, "pt")
 	widgetHandler:AddAction("squad_select_filtered", squad_select_filtered, nil, "pt")
-	widgetHandler:AddAction("squad_create", squad_create, nil, "pt")
 	widgetHandler:AddAction("squad_select_group", squad_select_group, nil, "pt")
 	widgetHandler:AddAction("squad_select_portion", squad_select_portion, nil, "pt")
 	widgetHandler:AddAction("squad_select_portion_filtered", squad_select_portion_filtered, nil, "pt")
@@ -2439,9 +2439,9 @@ function widget:Shutdown()
 	before_squad_select_callback = nil
 	squad_change_listeners = {}
 	WG['squadselection'] = nil
+	widgetHandler:RemoveAction("squad_create")
 	widgetHandler:RemoveAction("squad_select")
 	widgetHandler:RemoveAction("squad_select_filtered")
-	widgetHandler:RemoveAction("squad_create")
 	widgetHandler:RemoveAction("squad_select_group")
 	widgetHandler:RemoveAction("squad_select_portion")
 	widgetHandler:RemoveAction("squad_select_portion_filtered")
