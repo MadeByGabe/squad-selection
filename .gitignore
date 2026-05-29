@@ -1,3 +1,4 @@
 *.md
 *.png
 !README.md
+!feature-gallery.md
