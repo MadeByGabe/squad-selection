@@ -1,5 +1,13 @@
 This is a feature gallery (draft): a series of short videoclips, each with its section text above it.
 
+<!--
+  Progressive disclosure: the deeper layer of each section lives inside a
+  <details><summary>more</summary> ... </details> block, collapsed by default and
+  expandable on click (renders natively on GitHub and anywhere markdown is shown).
+  Everything outside those blocks is always visible. A section's main gif can sit
+  either inside or after a details block.
+-->
+
 # Squad Selection
 
 Automagical squad creation and proximity-based squad selection.
@@ -12,23 +20,34 @@ Automagical squad creation and proximity-based squad selection.
 
 ## The Squad Selection Widget
 
-This widget adds a new kind of unit grouping — ***"Squads"*** — and lets you re-select them (or part of them) based on which one is closest to your cursor (and in some other ways). It supports both main playstyles.
+This widget adds a new kind of unit grouping — ***"Squads"*** — and lets you re-select them (or part of them) based on which one is closest to your cursor (and in some other ways). 
+
+It supports both main playstyles: 
+- **1v1 / selectbox players** who box-select clusters of units all over the map and would benefit from many small squads they can easily grab again.
+- **Team-game / autogroup players** who want a simple spatial layer on top of the groups they already use.
+
+The features below cater to one, the other, or both.
 
 Source & full readme: [github.com/MadeByGabe/squad-selection](https://github.com/MadeByGabe/squad-selection).
 
 Important note: the default settings are intentionally unobtrusive — you won't even notice the widget is installed if you don't change settings or bind hotkeys.
 
-(short video that shows all kinds of selections in action to act as a hook)
+(short video that shows all kinds of selections in action to act as a hook preferably from a real game)
 
 ## Squad creation
 
 You can create a squad from the selected units with a simple right-click, or by hotkey, depending on your settings.
 
+Note: only mobile units without build options are eligible, but you can also exclude any unit type (for example rezbots or fighters).
+
+<details>
+<summary>more</summary>
+
 For players who currently prefer autogroups, the `Ctrl+right-click creates squad` option is probably best.  
 For 1v1 players who prefer the selectbox, the `Right-click creates squad` option is probably more useful.  
 Neither is on by default.
 
-Note: only mobile units without build options are eligible, but you can also exclude any unit type (for example rezbots or fighters).
+</details>
 
 (short video that shows manual squads created out of unit selections, also shows merge)
 
@@ -37,8 +56,13 @@ Note: only mobile units without build options are eligible, but you can also exc
 There are reserve squads as well. Every squad-eligible unit always belongs to a squad — if not to a manually created one, then to a reserve.  
 Every lab has its own reserve, and there's one for units made outside of a lab (resurrected units, units made by a Twitcher, gifted units, etc.).  
 
+<details>
+<summary>more</summary>
+
 Note: by default reserve squads have no visualization; you can turn it on with `Show reserve squads`.  
 Note: labs can be merged so they produce units into a shared reserve squad, which is useful for spam.
+
+</details>
 
 (video shows reserve squads selected, then with visualization, then shows merging labs to merge reserves)
 
@@ -61,7 +85,12 @@ The widget finds the closest unit that belongs to your autogroup, then selects t
 So squads can act as a sort of spatial subgrouping for your groups, which can be very useful.  
 For example, you can have Frigates and Thugs on the same autogroup number but only select the Thugs when your cursor is near them.
 
+<details>
+<summary>more</summary>
+
 Note: you don't need to fully replace the autogroup feature — you can use both the original and the squad variant. Just bind one of them to space+number.
+
+</details>
 
 (video shows group based selection on both manual and reserve squads, shows bot lab and vehicle lab reserves working with group based selection)
 
@@ -74,9 +103,15 @@ Or, if you already have a selection, uses that selection as the type filter.
 
 If you have enabled `Modifier+left-click selects squad` (on by default), you can also do this with `Ctrl+Alt+left-click` to replace and `Shift+Alt+left-click` to append, both with type filtering.
 
+<details>
+<summary>more</summary>
+
+
 By default the type is "locked" in replace selection (TODO: I might change this before publishing), so repeatedly using this feature only gets you the same type of units, just maybe from different squads. There's a "retarget" variant that, in replace mode, resets the type filter to the closest unit's type even when you already have a selection (`Left-click filtered retargets` option).
 
 (another video that shows the retarget variant in practical use with Pounders and Lashers)
+
+</details>
 
 ## Portion selection
 
@@ -84,7 +119,7 @@ Selects the closest N units, or the closest percentage of a squad. Each press re
 
 (video that shows basic portion selection in action with 50%)
 
-Put several sizes on one hotkey and it steps through them: e.g. **1 → 50%** means first you get the single closest unit, then half the squad, then half the squad again — but maybe a different half, depending on where the cursor is.
+Put several sizes on one hotkey and it steps through them: e.g. **1 → 50%** means first you get the single closest unit, then half the squad, then half the squad again but maybe a different half, depending on where the cursor is.
 
 (video that shows portion selection but with 1 -> 50% steps)
 
@@ -94,9 +129,14 @@ It also works with the type and group filters, has an append variant, and can be
 
 (video that shows portion selection append with distance cap and type filter working together)
 
+<details>
+<summary>more</summary>
+
 Optionally, replace left-click selections with the `Use portion steps on left-click` setting, which by default limits selection to an 850-unit radius and selects all units of a squad in that radius — or half of them if they're already selected (this can be changed, of course).
 
 (video that shows left-click selecting 2 full squads, one that's partially selected due to distance, then clicking again on some to get half squads)
+
+</details>
 
 ## Jumping to and between squads
 
@@ -106,7 +146,10 @@ If the `Cycle to next squad on retap` setting is on, reusing the same selection 
 
 (video shows cycling and with triple tap camera focus)
 
-There is a `squad_cycle_recent` action (not bound by default) that jumps to the most recently used squad. Pressing it again steps back through your squad history. The size of the history is configurable with the `Recent-squad cycle size` setting (3 by default (TODO: should I change it to 2 or 8 or something?)).
+<details>
+<summary>more (cycling through recent squads, idle squads, and minimap interaction)</summary>
+
+There is a `squad_cycle_recent` action that jumps to the most recently used squad. Pressing it again steps back through your squad history. The size of the history is configurable with the `Recent-squad cycle size` setting (3 by default (TODO: should I change it to 2 or 8 or something?)).
 
 (video shows cycling through recent squads)
 
@@ -118,6 +161,8 @@ Most actions work on the minimap as well (depending on minimap settings), so you
 
 (video shows minimap selection and camera focus)
 
+</details>
+
 ## Small convenience features
 
 ### Auto-growing selection 
@@ -126,14 +171,17 @@ This keeps a reserve squad fully selected: when a lab finishes a new unit, it jo
 
 (video shows auto-growing selection in action and also the opt-out for it on a lab with patrol rally)
 
-### Disable merge into reserves (TODO: maybe this section isn't needed at all?)
+<details>
+<summary>more (Disable merge into reserves)</summary>
 
 By default, if you have a selection, fully select a reserve squad, and then create a new squad, the selected units are merged into that reserve squad. This can be disabled with the `Disable merge into reserves` setting.  
 
 Note: I know this seems like a bit of an odd feature, but it's needed to support both main playstyles. If you prefer to constantly create new squads and have a dozen at a time (because you're a 1v1 player), you probably want to disable merging into reserves. But if you only use a few squads mainly to limit autogroup selections, you probably want merging into reserves left on.
 
-(video shows two squads merged into a reserve)
+(video shows two squads merged into a reserve)  
 (video shows two squads and a reserve merged into a new squad)
+
+</details>
 
 ### Filters append by domain
 
@@ -141,9 +189,15 @@ Most squad selections have an append variant that adds a squad to your existing 
 
 So if you have Grunts selected (land domain) and want to append a nearby squad, but some fighters (air domain) happen to fly near your cursor, this feature still appends a nearby land squad and not the fighter squad.  
 
+(video shows append by domain in action)
+
+<details>
+<summary>more</summary>
+
 Note: a double-tap/double-click flips the append mode, so if you use append_domain by default, double-tapping lets you append across domains.
 
-(video shows append by domain in action)
+</details>
+
 
 ### Squad -> limit -> flip
 
@@ -156,9 +210,12 @@ For example, if you have a custom selection hotkey that selects all radar and ja
 
 (video shows squad_limit_flip in action with jammers and radars)
 
-### Full featured actions (TODO: maybe this section isn't needed at all?)
+### Full featured actions
 
-All actions and settings can be used in just about any combination.  
+<details>
+<summary>more</summary>
+
+All actions and settings can be used in just about any way.  
 
 For example, holding a squad-related hotkey action repeats the action and can even trigger cycling and camera focus, which is sometimes a weirdly fun way to interact with squads. (Bind `squad_select_portion 0 append` to a key and hold it to effectively paint a growing selection across nearby squads.)
 
@@ -166,9 +223,11 @@ For example, holding a squad-related hotkey action repeats the action and can ev
 
 All actions can be used together with the **chain widget**, so for example you can have a hotkey that selects all nearby healthy assault units and also creates a squad out of them. 
 
-Settings can be bound to hotkeys; for example, you can have Caps Lock toggle the `Use portion steps on left-click` setting.
+Settings can be bound to hotkeys; for example, you can have Caps Lock toggle the `Right-click creates squad` setting.
 
 The actions and some of the internal features are also exposed, so it's possible to make companion widgets that, for example, implement a different squad visualization, limit squad creation, or override squad selection.
+
+</details>
 
 ## Visualization
 
@@ -176,7 +235,12 @@ Out of the box, squads are drawn as convex hulls around their units. You can swi
 
 Note: idle squads get a distinct color so you can spot the ones you parked and forgot. Idle strafing air squads disappear.
 
+<details>
+<summary>more</summary>
+
 Other styles live in **companion widgets** but you should ignore those for now.
+
+</details>
 
 ## Getting started
 
@@ -200,7 +264,7 @@ Open an issue on [GitHub](https://github.com/MadeByGabe/squad-selection) or writ
 
 -   **Baldric** — this implementation.
 -   **yyyy** — original concept, the *Fassst Selectionssss* prototype, and the hull visualization.
--   **LucyGoesAir** — high-quality early feedback and suggestions.
+-   **LucyGoesAir** — high-quality early feedback and useful feature suggestions.
 -   Built with assistance from Claude
 
 Licensed under the GNU GPL, v2 or later.
