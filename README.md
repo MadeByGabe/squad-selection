@@ -14,14 +14,14 @@ Jump straight to [installation](#installation) if you want to get going right aw
 
 ## How it works
 
-Every factory (lab) gets its own **reserve squad**, and the squad-eligible units it builds start there. Units that don't come from a factory you built (gifted, resurrected, alive at widget load, etc.) go into domain-specific **uncategorized reserves** (`land`, `air`, `naval`). Reserve squads are hidden by default — turn them on with `/luaui squad_setting set showReserveSquads true` if you want to visualize reserves as squads.
+Every factory (lab) gets its own **reserve squad**, and the squad-eligible units it builds start there. Units that don't come from a factory you built (gifted, resurrected, alive at widget load, etc.) go into domain-specific **uncategorized reserves** (`land`, `air`, `naval`). Reserve squads are hidden by default — turn them on with `/squad_setting set showReserveSquads true` if you want to visualize reserves as squads.
 
 When you have a **full reserve squad selected** and the factory produces a new unit into it, that unit is **automatically added to your selection**. This keeps your selection in sync as units roll off the production line without requiring any extra input.
 
 *Exception:* units are NOT auto-added to your selection when **Factory rally ending with wait or patrol**: new units sit at the rally waiting or patrolling, so the widget doesn't pull them into your selection. 
 - **Freshly resurrected units still healing** — rez bots leave units in wait state until healed, so they don't extend their reserve's selection.
 
-If you don't want this auto-extend at all, turn it off with `/luaui squad_setting set disableSelectionAutoExtend true` (also in the settings panel as "Disable selection auto-extend"). Freshly built units will then never join your current selection, regardless of rally state.
+If you don't want this auto-extend at all, turn it off with `/squad_setting set disableSelectionAutoExtend true` (also in the settings panel as "Disable selection auto-extend"). Freshly built units will then never join your current selection, regardless of rally state.
 
 Squad-eligible means: unit can move and has no build options.
 
@@ -37,7 +37,7 @@ There is also a **filtered select** option that only selects the unit types from
 
 All selection methods can be used with shift to append to the current selection instead of replacing it.  
 
-*Note: the left mouse selection methods can be disabled if you prefer to use hotkeys exclusively (write `/luaui squad_setting toggle leftClickSelectsSquad` in chat (saved, you don't need to re-enter it each game)).*
+*Note: the left mouse selection methods can be disabled if you prefer to use hotkeys exclusively (write `/squad_setting toggle leftClickSelectsSquad` in chat (saved, you don't need to re-enter it each game)).*
 
 
 ### Hotkeys
@@ -85,11 +85,11 @@ Mouse squad selections are skipped when clicking directly on a unit or when an a
 **Portion-mode left-click.** `leftClickSteps` controls how many units each click selects when enabled. Default is `1 0.5 distance_850` (= whole squad capped to 850 elmos around the cursor, half the squad if the whole squad is already selected). Set anything else like `0.5` or `5` and the four combos above switch to portion selection: closest N units, re-sorted by cursor proximity on each press. Filter/append flags still come from the modifiers. A `distance_<N>` token anywhere in the list caps selection to units within N world-distance of the cursor, the same way it works for hotkey actions. Examples:
 
 ```
-/luaui squad_setting set leftClickSteps 0.25 0.5 1          # 25% → 50% → 100% on successive clicks
-/luaui squad_setting set leftClickSteps 0.5                 # selects the closest 50%
-/luaui squad_setting set leftClickSteps 5 10                # fixed counts
-/luaui squad_setting set leftClickSteps distance_850 0.5 1  # same but capped to units within 850 elmos
-/luaui squad_setting set leftClickSteps                     # clear → back to whole-squad (equivalent to 1)
+/squad_setting set leftClickSteps 0.25 0.5 1          # 25% → 50% → 100% on successive clicks
+/squad_setting set leftClickSteps 0.5                 # selects the closest 50%
+/squad_setting set leftClickSteps 5 10                # fixed counts
+/squad_setting set leftClickSteps distance_850 0.5 1  # same but capped to units within 850 elmos
+/squad_setting set leftClickSteps                     # clear → back to whole-squad (equivalent to 1)
 ```
 
 `leftClickSteps` is gated by `leftClickStepsEnabled` (default `false`). Out of the box left-click selects the whole squad with no distance cap. Bind `squad_setting toggle leftClickStepsEnabled` to a hotkey (e.g. `bind capslock squad_setting toggle leftClickStepsEnabled`) to flip your configured `leftClickSteps` (and any distance cap) on and off without losing the keyboard-only path to full-map selection. 
@@ -98,7 +98,7 @@ Append (Ctrl+Shift+click) always keeps growing the selection and extends into th
 
 **Right-click** (no modifiers) with a selection runs `squad_create`: it creates a squad from selected squad-eligible combat units, and for factory-only selections it merges/splits factory reserve squads. The click still passes through to the engine, so the normal move command issues alongside the grouping.
 
-**Ctrl+right-click** (opt-in via `/luaui squad_setting toggle modifierRightClickCreatesSquad`) also runs `squad_create`. Useful if you disabled plain right-click squad creation but still want a mouse shortcut. The click passes through to the engine, so it also issues Ctrl+RMB's move-in-formation command. Be careful with this one since it also turns on the keep slowest unit's speed option for move commands, you can turn that off with a normal right click, right click drag won't work.  
+**Ctrl+right-click** (opt-in via `/squad_setting toggle modifierRightClickCreatesSquad`) also runs `squad_create`. Useful if you disabled plain right-click squad creation but still want a mouse shortcut. The click passes through to the engine, so it also issues Ctrl+RMB's move-in-formation command. Be careful with this one since it also turns on the keep slowest unit's speed option for move commands, you can turn that off with a normal right click, right click drag won't work.  
 
 *You can avoid move-in-formation by drawing a line move while holding ctrl, or if you switch to fight mode first.*
 
@@ -137,7 +137,7 @@ bind sc_x squad_select_filtered retarget
 bind Ctrl+sc_x squad_select_portion_filtered retarget 0.5 1
 ```
 
-The same behavior is available on Alt+Ctrl-click (replace-mode left-click filtered) via `/luaui squad_setting toggle leftClickFilteredRetargets` — default off.
+The same behavior is available on Alt+Ctrl-click (replace-mode left-click filtered) via `/squad_setting toggle leftClickFilteredRetargets` — default off.
 
 ### Limit-or-flip selection
 
@@ -165,7 +165,7 @@ With a pure-land selection, mixed land+air squads are skipped entirely (not just
 
 `append_domain` is accepted in place of `append` in every action that takes the append keyword — `squad_select`, `squad_select_filtered`, `squad_select_group`, and the three portion variants.
 
-**Left-click default.** Ctrl+Shift+click (and Alt+Shift+click) use domain filtering by default. Turn off with `/luaui squad_setting toggle leftClickAppendFiltersDomain` if you'd rather have unrestricted append on the mouse.
+**Left-click default.** Ctrl+Shift+click (and Alt+Shift+click) use domain filtering by default. Turn off with `/squad_setting toggle leftClickAppendFiltersDomain` if you'd rather have unrestricted append on the mouse.
 
 **Double-tap flip.** Tap any append twice in quick succession at the same screen spot and the second tap flips the domain filter: `append` becomes `append_domain` and `append_domain` becomes `append`. So if your usual hotkey/click is plain append, double-tap to constrain by domain on demand; if it's `append_domain`, double-tap to broaden out of the filter and pull in a cross-domain squad. Uses the same window as the camera-focus double-tap (`viewselectionDoubleTapMs` / `viewselectionDoubleTapPx`).
 
@@ -215,7 +215,7 @@ Typical flow: select your manual squad first (however you like), then squad-sele
 
 Selecting *only* a reserve squad and pressing `squad_create` still creates a new manual squad from those units, so use this to promote reserve units into a tracked manual squad.
 
-If you don't want the merge behavior at all, then turn it off with `/luaui squad_setting set disableReserveMerge true` (also exposed in the settings panel as "Disable merge into reserves").
+If you don't want the merge behavior at all, then turn it off with `/squad_setting set disableReserveMerge true` (also exposed in the settings panel as "Disable merge into reserves").
 
 ### Portion selection
 
@@ -256,7 +256,7 @@ bind Ctrl+Shift+c_c squad_select_portion 0.5 distance_800 append
 
 ### Recent-squad cycling (MRU)
 
-Control groups have a nice double-tap feature that moves the camera to the group. Squads don't have a number key, but the widget tracks the squads you most recently worked with so you can jump back and forth between them. The MRU holds `mruSize` entries (default 3) — tune with `/luaui squad_setting set mruSize 5`.
+Control groups have a nice double-tap feature that moves the camera to the group. Squads don't have a number key, but the widget tracks the squads you most recently worked with so you can jump back and forth between them. The MRU holds `mruSize` entries (default 3) — tune with `/squad_setting set mruSize 5`.
 
 A squad is pushed onto the MRU whenever you create a squad (right-click or `squad_create`) or run one of the squad-selection actions (`squad_select`, the filtered and group variants, and the portion actions). Plain click/box selection does not push. 
 
@@ -306,14 +306,14 @@ Most settings can be changed through the **in-game settings panel**.
 For settings that don't have a panel control (like `leftClickSteps` and `excludedUnitTypes`), use chat commands:
 
 ```
-/luaui squad_setting toggle rightClickSquadCreate
-/luaui squad_setting toggle cyclingToNextSquad
-/luaui squad_setting set visualizationMode convexHull
-/luaui squad_setting set visualizationMode none
-/luaui squad_setting set leftClickSteps 0.5
-/luaui squad_setting set excludedUnitTypes armrectr cornecro legrezbot
-/luaui squad_setting add excludedUnitTypes armrectr cornecro legrezbot
-/luaui squad_setting remove excludedUnitTypes armrectr cornecro legrezbot
+/squad_setting toggle rightClickSquadCreate
+/squad_setting toggle cyclingToNextSquad
+/squad_setting set visualizationMode convexHull
+/squad_setting set visualizationMode none
+/squad_setting set leftClickSteps 0.5
+/squad_setting set excludedUnitTypes armrectr cornecro legrezbot
+/squad_setting add excludedUnitTypes armrectr cornecro legrezbot
+/squad_setting remove excludedUnitTypes armrectr cornecro legrezbot
 ```
 
 All changes persist across games.
