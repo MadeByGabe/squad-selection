@@ -158,16 +158,16 @@ Most actions work on the minimap as well (depending on minimap settings), so you
 
 ### Auto-growing selection 
 
-This keeps a reserve squad fully selected: when a lab finishes a new unit, it joins not only the reserve squad but also your current selection, automatically. The relevant setting is `Disable selection auto-extend` (off by default). It can also be opted out on individual labs by having that lab's last rally a patrol or wait command.
+This keeps a reserve squad fully selected: when a lab finishes a new unit, it joins not only the reserve squad but also your current selection, automatically. The relevant setting is `Auto-extend selection with new units` (off by default). It can also be opted out on individual labs by having that lab's last rally a patrol or wait command.
 
 (video shows auto-growing selection in action and also the opt-out for it on a lab with patrol rally)
 
 <details>
-<summary>more (Disable merge into reserves)</summary>
+<summary>more (Merge into reserves)</summary>
 
-By default, if you have a selection, fully select a reserve squad, and then create a new squad, the selected units are merged into that reserve squad. This can be disabled with the `Disable merge into reserves` setting.  
+By default, if you have a selection, fully select a reserve squad, and then create a new squad, the selected units are merged into that reserve squad. This can be turned off with the `Merge into reserves` setting.  
 
-Note: I know this seems like a bit of an odd feature, but it's needed to support both main playstyles. If you prefer to constantly create new squads and have a dozen at a time (because you're a 1v1 player), you probably want to disable merging into reserves. But if you only use a few squads mainly to limit autogroup selections, you probably want merging into reserves left on.
+Note: I know this seems like a bit of an odd feature, but it's needed to support both main playstyles. If you prefer to constantly create new squads and have a dozen at a time (because you're a 1v1 player), you probably want to turn off merging into reserves. But if you only use a few squads mainly to limit autogroup selections, you probably want merging into reserves left on.
 
 (video shows two squads merged into a reserve)  
 (video shows two squads and a reserve merged into a new squad)

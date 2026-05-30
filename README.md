@@ -16,12 +16,12 @@ Jump straight to [installation](#installation) if you want to get going right aw
 
 Every factory (lab) gets its own **reserve squad**, and the squad-eligible units it builds start there. Units that don't come from a factory you built (gifted, resurrected, alive at widget load, etc.) go into domain-specific **uncategorized reserves** (`land`, `air`, `naval`). Reserve squads are hidden by default — turn them on with `/squad_setting set showReserveSquads true` if you want to visualize reserves as squads.
 
-When you have a **full reserve squad selected** and the factory produces a new unit into it, that unit is **automatically added to your selection**. This keeps your selection in sync as units roll off the production line without requiring any extra input.
+The widget can also keep your selection in sync as units roll off the production line. With **Auto-extend selection with new units** enabled (off by default), when you have a **full reserve squad selected** and the factory produces a new unit into it, that unit is **automatically added to your selection** — no extra input needed.
 
-*Exception:* units are NOT auto-added to your selection when **Factory rally ending with wait or patrol**: new units sit at the rally waiting or patrolling, so the widget doesn't pull them into your selection. 
+*Exception:* even when enabled, units are NOT auto-added to your selection when **the factory rally ends with wait or patrol**: new units sit at the rally waiting or patrolling, so the widget doesn't pull them into your selection. 
 - **Freshly resurrected units still healing** — rez bots leave units in wait state until healed, so they don't extend their reserve's selection.
 
-If you don't want this auto-extend at all, turn it off with `/squad_setting set disableSelectionAutoExtend true` (also in the settings panel as "Disable selection auto-extend"). Freshly built units will then never join your current selection, regardless of rally state.
+Turn it on with `/squad_setting set selectionAutoExtend true` (also in the settings panel as "Auto-extend selection with new units"). While off (the default), freshly built units never join your current selection.
 
 Squad-eligible means: unit can move and has no build options.
 
@@ -217,7 +217,7 @@ Typical flow: select your manual squad first (however you like), then squad-sele
 
 Selecting *only* a reserve squad and pressing `squad_create` still creates a new manual squad from those units, so use this to promote reserve units into a tracked manual squad.
 
-If you don't want the merge behavior at all, then turn it off with `/squad_setting set disableReserveMerge true` (also exposed in the settings panel as "Disable merge into reserves").
+If you don't want the merge behavior at all, then turn it off with `/squad_setting set mergeIntoReserves false` (also exposed in the settings panel as "Merge into reserves").
 
 ### Portion selection
 

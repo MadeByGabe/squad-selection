@@ -25,8 +25,8 @@ local config = {
 	rightClickSquadCreate = false, -- right-click creates squads; bind a hotkey via `squad_setting toggle rightClickSquadCreate` to flip on demand
 	modifierRightClickCreatesSquad = false, -- Ctrl+right-click creates a squad (click still passes through, so the engine's move-in-formation runs too which can cause issues)
 	commandCreatesSquad = false,
-	disableReserveMerge = false, -- when true, `squad_create` never merges the selection into a reserve squad
-	disableSelectionAutoExtend = false, -- when true, freshly built units never auto-extend the current selection (hard off-switch alongside the wait/patrol opt-out)
+	mergeIntoReserves = true, -- when false, `squad_create` never merges the selection into a reserve squad; it always creates a fresh manual squad
+	selectionAutoExtend = false, -- when true, freshly built units auto-extend the current selection while their reserve is fully selected (the wait/patrol rally opt-out still applies on top)
 	showReserveSquads = false, -- when true, auto per-factory reserves + uncategorized reserve are visualized
 	viewselectionDoubleTapMs = 300, -- second rapid same-place non-append squad-select tap (single-step, or multi-step at the last step) calls viewselection on the just-selected squad (0 disables)
 	viewselectionDoubleTapPx = 5, -- max screen-pixel distance between the two taps
@@ -727,7 +727,7 @@ local function create_squad_from_selection(unit_that_must_be_in_selection)
 	-- reserve being trivially "fully selected" used to swallow the manual
 	-- squad on squad_create.
 	local target_reserve = last_squad_select and last_squad_select.squad
-	if not existing and target_reserve and target_reserve.is_reserve and not config.disableReserveMerge then
+	if not existing and target_reserve and target_reserve.is_reserve and config.mergeIntoReserves then
 		local selected_set = {}
 		for i = 1, #selected do
 			selected_set[selected[i]] = true
@@ -1866,14 +1866,14 @@ local OPTION_SPECS = {
 		description = "Visualize per-factory reserves and the uncategorized domain reserves.",
 		type = "bool",
 	}, {
-		configVariable = "disableReserveMerge",
-		name = "Disable merge into reserves",
-		description = "When on, squad_create never merges your selection into a reserve squad; it always creates a fresh manual squad.",
+		configVariable = "mergeIntoReserves",
+		name = "Merge into reserves",
+		description = "When on, fully selecting a reserve squad and running squad_create merges your selection into it. When off, squad_create always creates a fresh manual squad.",
 		type = "bool",
 	}, {
-		configVariable = "disableSelectionAutoExtend",
-		name = "Disable selection auto-extend",
-		description = "When on, freshly built units never auto-extend the current selection",
+		configVariable = "selectionAutoExtend",
+		name = "Auto-extend selection with new units",
+		description = "When on, units freshly built into a fully selected reserve auto-extend your current selection.",
 		type = "bool",
 	}, {
 		configVariable = "viewselectionDoubleTapMs",
@@ -2405,7 +2405,7 @@ function widget:Initialize()
 	-- WG interface. Auto-generates
 	-- get<Key>/set<Key> pairs for every exposed config key.
 	local exposed_settings = {
-		"leftClickSelectsSquad", "leftClickSteps", "leftClickStepsEnabled", "leftClickAppendFiltersDomain", "leftClickFilteredRetargets", "cyclingToNextSquad", "rightClickSquadCreate", "modifierRightClickCreatesSquad", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "disableReserveMerge", "disableSelectionAutoExtend", "visualizationMode", "convexHullPadding", "convexHullArcResolution", "convexHullFillOpacity",
+		"leftClickSelectsSquad", "leftClickSteps", "leftClickStepsEnabled", "leftClickAppendFiltersDomain", "leftClickFilteredRetargets", "cyclingToNextSquad", "rightClickSquadCreate", "modifierRightClickCreatesSquad", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "mergeIntoReserves", "selectionAutoExtend", "visualizationMode", "convexHullPadding", "convexHullArcResolution", "convexHullFillOpacity",
 			"convexHullBorderOpacity", "convexHullBorderThickness", "convexHullColorMode", "convexHullCustomColorR", "convexHullCustomColorG", "convexHullCustomColorB"}
 	WG['squadselection'] = {}
 	for _, key in ipairs(exposed_settings) do
@@ -2595,7 +2595,7 @@ function widget:UnitCreated(unit_id, unit_def_id, unit_team, builder_id)
 	if unit_def_id and is_combat[unit_def_id] then
 		local sq = (builder_id and factory_squad[builder_id]) or get_uncategorized_reserve_for_def(unit_def_id)
 		local extend_selection = false
-		if sq.is_reserve and not config.disableSelectionAutoExtend then
+		if sq.is_reserve and config.selectionAutoExtend then
 			local sel_set = {}
 			for _, u in ipairs(spGetSelectedUnits()) do
 				sel_set[u] = true
