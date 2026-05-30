@@ -42,6 +42,8 @@ All selection methods can be used with shift to append to the current selection 
 
 ### Hotkeys
 
+*Want to try an action before committing a keybind to it?* The **cursor-independent** actions — `squad_cycle_idle`, `squad_cycle_recent` and `squad_create` — can be run straight from chat by typing them with a leading slash (e.g. `/squad_cycle_idle`), or clicked from the optional [`squad-selection--buttons.lua`](#companion-widgets) companion widget, which drops Idle / Recent / Create buttons above the player list. (The cursor-based actions like `squad_select` need a mouse position, so they really want a hotkey.) Once you know which actions you want, bind them properly below.
+
 If you want to use hotkeys instead of mouse (or in addition to), you can bind the following actions in your `uikeys.txt`:
 
 ```
@@ -467,6 +469,7 @@ Install any companion by dropping its file into `data/LuaUI/Widgets/` alongside 
 | `squad-selection--colored-labels.lua`  | CPU-drawn squad letter labels (A, B, C…) floating above each unit, colored per squad        | Complete (example/reference, not GPU accelerated so has a high CPU cost, it's mostly just an example) |
 | `squad-selection--colored-markers.lua` | GPU-accelerated (GL4) colored circle markers drawn under each unit                          | Work in progress                                                                                      |
 | `squad-selection--metaballs.lua`       | GPU-accelerated (GL4) metaball blobs that merge units in the same squad into organic shapes | Work in progress                                                                                      |
+| `squad-selection--buttons.lua`         | A small row of on-screen buttons (Idle / Recent / Create) above the player list, for trying the cursor-independent actions without binding hotkeys first | Complete |
 
 There's also a **pre-select hook example** ([pre-select-hook-example.lua](pre-select-hook-example.lua)) that demonstrates how to veto or override squad selection, for example, skipping selection when a factory is in the current selection.
 
