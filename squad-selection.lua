@@ -1987,6 +1987,10 @@ end
 -- Single config-write entry point. Writes config[key], then mirrors onto the
 -- panel option (if registered). For selects, translates the stored string to
 -- the panel's 1-based index. No-op on the panel side for keys without a spec.
+-- Forward declaration: defined near the lifecycle section; the excludedUnitTypes
+-- chat commands below call it so list edits take effect without a widget reload.
+local rebuild_tracking
+
 local function set_option_value(key, value)
 	config[key] = value
 	local option = panel_options_by_key[key]
@@ -2135,7 +2139,8 @@ local function squad_setting(_, _, args)
 			end
 		end
 		set_option_value(key, table.concat(parts, ","))
-		spEcho("[Squad] excludedUnitTypes = \"" .. config[key] .. "\" (takes effect on next widget load)")
+		rebuild_tracking()
+		spEcho("[Squad] excludedUnitTypes = \"" .. config[key] .. "\" (applied)")
 		return
 	elseif action == "remove" then
 		if key ~= "excludedUnitTypes" then
@@ -2158,7 +2163,8 @@ local function squad_setting(_, _, args)
 			end
 		end
 		set_option_value(key, table.concat(parts, ","))
-		spEcho("[Squad] excludedUnitTypes = \"" .. config[key] .. "\" (takes effect on next widget load)")
+		rebuild_tracking()
+		spEcho("[Squad] excludedUnitTypes = \"" .. config[key] .. "\" (applied)")
 		return
 	elseif action == "toggle" then
 		if type(config[key]) ~= "boolean" then
@@ -2175,7 +2181,8 @@ local function squad_setting(_, _, args)
 				parts[#parts + 1] = args[i]
 			end
 			set_option_value(key, table.concat(parts, ","))
-			spEcho("[Squad] excludedUnitTypes = \"" .. config[key] .. "\" (takes effect on next widget load)")
+			rebuild_tracking()
+			spEcho("[Squad] excludedUnitTypes = \"" .. config[key] .. "\" (applied)")
 			return
 		end
 		-- Table-typed keys collect all remaining args as a list of numbers and
@@ -2226,13 +2233,12 @@ end
 local team_color = {1, 1, 1}
 local idle_color = {1, 1, 1}
 
-function widget:Initialize()
-	if spGetSpectatingState() or spIsReplay() then
-		log("Spectating or replay mode detected, not initializing")
-		widgetHandler:RemoveWidget()
-		return
-	end
-
+-- Wipe and rebuild all squad tracking from scratch. Shared by widget:Initialize
+-- and the live exclusion actions so a change to excludedUnitTypes takes effect
+-- immediately (re-classify + re-route every unit) instead of waiting for a
+-- manual widget reload. Returns the number of combat units routed.
+-- (forward-declared above so the excludedUnitTypes chat commands can call it.)
+function rebuild_tracking()
 	squads = {}
 	factory_squad = {}
 	unit_squad = {}
@@ -2240,13 +2246,10 @@ function widget:Initialize()
 	squad_idle_state = {}
 	squad_idle_blend = {}
 	squad_hide_idle_air_hull = {}
+	mru = {}
+	last_squad_select = nil
 	idle_scan_index = 0
 	next_squad_tag = 0
-
-	local tr, tg, tb = spGetTeamColor(spGetMyTeamID())
-	team_color[1], team_color[2], team_color[3] = tr or 1, tg or 1, tb or 1
-	-- Derive idle tint from team color by rotating channels: R<-B, G<-R, B<-G and making it darker.
-	idle_color[1], idle_color[2], idle_color[3] = team_color[2] * 0.3, team_color[3] * 0.3, team_color[1] * 0.3
 
 	classify_unitdefs()
 
@@ -2257,8 +2260,7 @@ function widget:Initialize()
 		uncategorized_reserve[d] = sq
 	end
 
-	local team_id = spGetMyTeamID()
-	local all = spGetTeamUnits(team_id)
+	local all = spGetTeamUnits(spGetMyTeamID())
 	local count = 0
 
 	-- Factories first, so their auto-squads exist before we route anything.
@@ -2270,8 +2272,8 @@ function widget:Initialize()
 		end
 	end
 
-	-- Combat units: at init we have no builder info, so everything goes to
-	-- domain-specific uncategorized reserves. Future builds will route via UnitCreated.
+	-- Combat units: we have no builder info here, so everything goes to the
+	-- domain-specific uncategorized reserves. Future builds route via UnitCreated.
 	for i = 1, #all do
 		local u = all[i]
 		local def_id = get_defid(u)
@@ -2280,6 +2282,111 @@ function widget:Initialize()
 			count = count + 1
 		end
 	end
+
+	selection_dirty = true
+	notify_squad_change("rebuild", nil, nil)
+	return count
+end
+
+
+-- Distinct unitDef names of the currently selected units, in selection order.
+local function selected_unit_def_names()
+	local sel = spGetSelectedUnits()
+	local names = {}
+	local seen = {}
+	for i = 1, #sel do
+		local def_id = get_defid(sel[i])
+		if def_id then
+			local def = UnitDefs[def_id]
+			if def and def.name and not seen[def.name] then
+				seen[def.name] = true
+				names[#names + 1] = def.name
+			end
+		end
+	end
+	return names
+end
+
+
+-- Parse config.excludedUnitTypes into a dedup set plus an ordered list.
+local function parse_excluded_set()
+	local set = {}
+	local order = {}
+	for entry in config.excludedUnitTypes:gmatch("[^,]+") do
+		local e = entry:match("^%s*(.-)%s*$")
+		if e ~= "" and not set[e] then
+			set[e] = true
+			order[#order + 1] = e
+		end
+	end
+	return set, order
+end
+
+
+-- Add (exclude=true) or remove (exclude=false) the selected units' types from
+-- the exclusion list, then rebuild live. Backs the two actions below.
+local function change_selection_exclusion(exclude)
+	local names = selected_unit_def_names()
+	if #names == 0 then
+		spEcho("[Squad] No units selected to " .. (exclude and "exclude" or "unexclude"))
+		return
+	end
+	local in_selection = {}
+	for i = 1, #names do
+		in_selection[names[i]] = true
+	end
+
+	local set, order = parse_excluded_set()
+	local result = {}
+	local changed = 0
+	-- Keep existing entries (dropping selected ones when unexcluding).
+	for i = 1, #order do
+		if not exclude and in_selection[order[i]] then
+			changed = changed + 1
+		else
+			result[#result + 1] = order[i]
+		end
+	end
+	-- Append newly-excluded entries that weren't already listed.
+	if exclude then
+		for i = 1, #names do
+			if not set[names[i]] then
+				set[names[i]] = true
+				result[#result + 1] = names[i]
+				changed = changed + 1
+			end
+		end
+	end
+
+	set_option_value("excludedUnitTypes", table.concat(result, ","))
+	rebuild_tracking()
+	spEcho("[Squad] " .. (exclude and "Excluded " or "Unexcluded ") .. changed .. (exclude and " new" or "") .. " type(s); excludedUnitTypes = \"" .. config.excludedUnitTypes .. "\"")
+end
+
+
+local function squad_exclude_selected()
+	change_selection_exclusion(true)
+end
+
+
+local function squad_unexclude_selected()
+	change_selection_exclusion(false)
+end
+
+
+function widget:Initialize()
+	if spGetSpectatingState() or spIsReplay() then
+		log("Spectating or replay mode detected, not initializing")
+		widgetHandler:RemoveWidget()
+		return
+	end
+
+	local tr, tg, tb = spGetTeamColor(spGetMyTeamID())
+	team_color[1], team_color[2], team_color[3] = tr or 1, tg or 1, tb or 1
+	-- Derive idle tint from team color by rotating channels: R<-B, G<-R, B<-G and making it darker.
+	idle_color[1], idle_color[2], idle_color[3] = team_color[2] * 0.3, team_color[3] * 0.3, team_color[1] * 0.3
+
+	local count = rebuild_tracking()
 
 	widgetHandler:AddAction("squad_create", squad_create, nil, "pt")
 	widgetHandler:AddAction("squad_select", squad_select, nil, "pt")
@@ -2292,6 +2399,8 @@ function widget:Initialize()
 	widgetHandler:AddAction("squad_setting", squad_setting, nil, "t")
 	widgetHandler:AddAction("squad_cycle_recent", squad_cycle_recent, nil, "pt")
 	widgetHandler:AddAction("squad_cycle_idle", squad_cycle_idle, nil, "pt")
+	widgetHandler:AddAction("squad_exclude_selected", squad_exclude_selected, nil, "t")
+	widgetHandler:AddAction("squad_unexclude_selected", squad_unexclude_selected, nil, "t")
 
 	-- WG interface. Auto-generates
 	-- get<Key>/set<Key> pairs for every exposed config key.
@@ -2450,6 +2559,8 @@ function widget:Shutdown()
 	widgetHandler:RemoveAction("squad_setting")
 	widgetHandler:RemoveAction("squad_cycle_recent")
 	widgetHandler:RemoveAction("squad_cycle_idle")
+	widgetHandler:RemoveAction("squad_exclude_selected")
+	widgetHandler:RemoveAction("squad_unexclude_selected")
 	cleanup_gl_hull()
 	log("Shutdown")
 end
