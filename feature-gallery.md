@@ -12,7 +12,7 @@ Automagical squad creation and proximity-based squad selection.
 
 ## The Squad Selection Widget
 
-This widget adds a new kind of unit grouping — ***"Squads"*** — and lets you re-select them (or part of them) based on which one is closest to your cursor (and in some other ways). 
+This widget adds a new kind of unit grouping — ***"Squads"*** — and lets you re-select them (or part of them) based on which one is closest to your cursor (and in other ways). 
 
 It supports both main playstyles: 
 - **1v1 / selectbox players** who box-select clusters of units all over the map and would benefit from many small squads they can easily grab again.
@@ -24,7 +24,8 @@ Source & full readme: [github.com/MadeByGabe/squad-selection](https://github.com
 
 Important note: the default settings are intentionally unobtrusive — you won't even notice the widget is installed if you don't change settings or bind hotkeys.
 
-(short video that shows all kinds of selections in action to act as a hook preferably from a real game)
+![hook video](assets/videos/hook_2x_cropped.mp4)
+<sub>What's happening: I select the closest squad near the grunts. Then I type-filter a squad select near the rascals and create a squad. I portion-select 1 unit near the rascal squad and append a squad near the incisors. A bit later I cycle through recently used squads.</sub>
 
 ## Squad creation
 
@@ -41,7 +42,7 @@ Neither is on by default.
 
 </details>
 
-(short video that shows manual squads created out of unit selections, also shows merge)
+![manual squads video](assets/videos/01_2x_cropped.mp4)
 
 ## Reserve squads
 
@@ -56,7 +57,8 @@ Note: labs can be merged so they produce units into a shared reserve squad, whic
 
 </details>
 
-(video shows reserve squads selected, then with visualization, then shows merging labs to merge reserves)
+![reserve squads video](assets/videos/02_2x_cropped.mp4)
+<sub>What's happening: I select the closest squads near the reserves. I turn on reserve squad visualization with a hotkey, then change the visualization opacity with a chain hotkey.</sub>
 
 ## Basic selection
 
@@ -66,7 +68,8 @@ Double-clicking or double-tapping the hotkeys moves the camera to focus on that 
 
 Most selections also have an 'append' variant (with Shift) that simply adds the squad to your existing selection.
 
-(video shows basic selection, append selection, and double click camera focus)
+![basic selection video](assets/videos/03_2x_cropped.mp4)
+<sub>What's happening: I select the closest squads. I double-tap that to jump to the squads, then append closest squads.</sub>
 
 ## Group based selection
 
@@ -84,23 +87,26 @@ Note: you don't need to fully replace the autogroup feature — you can use both
 
 </details>
 
-(video shows group based selection on both manual and reserve squads, shows bot lab and vehicle lab reserves working with group based selection)
+![group based selection video](assets/videos/04_2x_cropped.mp4)
+<sub>What's happening: My autogroup is grunts and incisors. I select it all with the normal autogroup key 1. Then I select group-and-squad intersections with space+1, and later append with space+shift+1.</sub>
 
 ## Type based selection
 
 Finds the closest unit and its squad, then selects only the same type of units from that squad.  
 Or, if you already have a selection, uses that selection as the type filter.  
 
-(video that shows type based selection and its append variant)
+![type based selection video](assets/videos/05_2x_cropped.mp4)
+<sub>What's happening: I type-filter a squad selection near the rascals. I do it again but nothing happens, since there are no more rascal squads. I clear the selection, then type-filter a squad select near the grunts. Then I manually select incisors and rascals to select only those in the nearest squad, without the pounders.</sub>
 
 If you have enabled `Modifier+left-click selects squad` (on by default), you can also do this with `Ctrl+Alt+left-click` to replace and `Shift+Alt+left-click` to append selection, both with type filtering.
 
 <details>
 <summary>more</summary>
 
-By default the type is "locked" in replace selection (TODO: I might change this before publishing), so repeatedly using this feature only gets you the same type of units, just maybe from different squads. There's a "retarget" variant that, in replace mode, resets the type filter to the closest unit's type even when you already have a selection (`Left-click filtered retargets` option).
+By default the type is "locked" in replace selection, so repeatedly using this feature only gets you the same type of units, just maybe from different squads. There's a "retarget" variant that, in replace mode, resets the type filter to the closest unit's type even when you already have a selection (`Left-click filtered retargets` option).
 
-(another video that shows the retarget variant in practical use with Pounders and Lashers)
+![retarget variant video](assets/videos/05_02_2x_cropped.mp4)
+<sub>What's happening: I make type-filtered squad selections near various units with retarget. Then I do the same with append.</sub>
 
 </details>
 
@@ -108,24 +114,28 @@ By default the type is "locked" in replace selection (TODO: I might change this 
 
 Selects the closest N units, or the closest percentage of a squad. Each use re-sorts from where the cursor is.
 
-(video that shows basic portion selection in action with 50%)
+![portion selection video](assets/videos/06_cropped.mp4)
+<sub>What's happening: I make 50% portion selections. Then I hold down the hotkey. Then I press a few more times with append (shift).</sub>
 
 Put several sizes on one hotkey and it steps through them: e.g. **1 → 50%** means first you get the single closest unit, then half the squad, then half the squad again but maybe a different half, depending on where the cursor is.
 
-(video that shows portion selection but with 1 -> 50% steps)
+![portion selection steps video](assets/videos/06_02_cropped.mp4)
+<sub>What's happening: I use portion selection with steps: first 1 unit, then 50%. Note how the selection doesn't extend when I already have 50% selected — it just replaces the selection.</sub>
 
 Note: which step you get depends on how big the already selected portion is, not on how many times you've used the action.
 
 It also works with the type and group filters, has an append variant, and can be distance-capped to a radius around the cursor.
 
-(video that shows portion selection append with distance cap and type filter working together)
+![portion selection append with filters video](assets/videos/06_03_cropped.mp4)
+<sub>What's happening: I make a 50% type-filtered portion selection near the grunts, without retarget.</sub>
 
 <details>
 <summary>more</summary>
 
 Optionally, replace left-click selections with the `Use portion steps on left-click` setting, which by default limits selection to an 850-unit radius and selects all units of a squad in that radius — or half of them if they're already selected (this can be changed, of course).
 
-(video that shows left-click selecting 2 full squads, one that's partially selected due to distance, then clicking again on some to get half squads)
+![left-click portion selection video](assets/videos/06_04_cropped.mp4)
+<sub>What's happening: My step sizes are 100% then 50%. The long line squad doesn't get fully selected when I click near one of its ends, due to distance capping.</sub>
 
 </details>
 
@@ -135,22 +145,17 @@ I already mentioned double-tapping the selection hotkeys/clicks to jump to a squ
 
 If the `Cycle to next squad on retap` setting is on, reusing the same selection action gets you the next closest squad. This also works with double-tap camera focus.
 
-(video shows cycling and with double/triple tap camera focus)
+![cycle squads video](assets/videos/07_cropped.mp4)
+<sub>What's happening: I select the closest squad at the same cursor position twice while cycling is on. Then I do it with double-tap to also jump to them.</sub>
 
 <details>
 <summary>more (cycling through recent squads, idle squads, and minimap interaction)</summary>
 
-There is a `squad_cycle_recent` action that jumps to the most recently used squad. Pressing it again steps back through your squad history. The size of the history is configurable with the `Recent-squad cycle size` setting (3 by default (TODO: should I change it to 2 or 8 or something?)).
-
-(video shows cycling through recent squads)
+There is a `squad_cycle_recent` action that jumps to the most recently used squad. Pressing it again steps back through your squad history. The size of the history is configurable with the `Recent-squad cycle size` setting (3 by default).
 
 There is a `squad_cycle_idle` action (not bound by default) that jumps to idle squads. A squad is considered idle if at least 50% of its units have no orders. These squads also have a different visualization.
 
-(video shows cycling through idle squads, also shows idle squad visualization)
-
 Most actions work on the minimap as well (depending on minimap settings), so you can double-tap a squad selection on the minimap near some units and you'll select and jump to exactly those units, not to where you pointed on the minimap.
-
-(video shows minimap selection and camera focus)
 
 </details>
 
@@ -160,7 +165,8 @@ Most actions work on the minimap as well (depending on minimap settings), so you
 
 This keeps a reserve squad fully selected: when a lab finishes a new unit, it joins not only the reserve squad but also your current selection, automatically. The relevant setting is `Auto-extend selection with new units` (off by default). It can also be opted out on individual labs by having that lab's last rally a patrol or wait command.
 
-(video shows auto-growing selection in action and also the opt-out for it on a lab with patrol rally)
+![auto-growing selection video](assets/videos/08_cropped.mp4)
+<sub>What's happening: I have an auto-growing selection for grunts, and those two bot labs are merged. The bot lab at the top doesn't extend the selection because of its patrol rally.</sub>
 
 <details>
 <summary>more (Merge into reserves)</summary>
@@ -168,9 +174,6 @@ This keeps a reserve squad fully selected: when a lab finishes a new unit, it jo
 By default, if you have a selection, fully select a reserve squad, and then create a new squad, the selected units are merged into that reserve squad. This can be turned off with the `Merge into reserves` setting.  
 
 Note: I know this seems like a bit of an odd feature, but it's needed to support both main playstyles. If you prefer to constantly create new squads and have a dozen at a time (because you're a 1v1 player), you probably want to turn off merging into reserves. But if you only use a few squads mainly to limit autogroup selections, you probably want merging into reserves left on.
-
-(video shows two squads merged into a reserve)  
-(video shows two squads and a reserve merged into a new squad)
 
 </details>
 
@@ -180,7 +183,8 @@ Most squad selections have an append variant that adds a squad to your existing 
 
 So if you have Grunts selected (land domain) and want to append a nearby squad, but some fighters (air domain) happen to fly near your cursor, this feature still appends a nearby land squad and not the fighter squad.  
 
-(video shows append by domain in action)
+![append by domain video](assets/videos/09_cropped.mp4)
+<sub>What's happening: I append squads constrained by domain.</sub>
 
 <details>
 <summary>more</summary>
@@ -199,7 +203,8 @@ If your selection is already limited to one squad, it flips the selection to the
 This can be a surprisingly useful action if you also use other selection features.  
 For example, if you have a custom selection hotkey that selects support units such as radar and jammer units on screen, and use this action as a follow-up, you can quickly get only those units from the closest squad. Used again and again, it just cycles between the combat units and the support units in that squad.
 
-(video shows squad_limit_flip in action with jammers and radars)
+![squad limit flip video](assets/videos/10_cropped.mp4)
+<sub>What's happening: I have an AA, jammer and radar bot selected. `squad_limit_flip` flips the selection to the rest of the squad, then back again.</sub>
 
 ### Full featured actions
 
@@ -210,7 +215,8 @@ All actions and settings can be used in just about any way.
 
 For example, holding a squad-related hotkey action repeats the action and can even trigger cycling and camera focus, which is sometimes a weirdly fun way to interact with squads. (Bind `squad_select_portion 0 append` to a key and hold it to effectively paint a growing selection across nearby squads.)
 
-(video shows `squad_select_portion 0 append` being held to paint selection on nearby squads)
+![hold portion select video](assets/videos/11_cropped.mp4)
+<sub>What's happening: I hold the hotkey to paint a growing selection across nearby squads. Essentially a time- and proximity-dependent selection growth (how long I hold).</sub>
 
 All actions can be used together with the **chain widget**, so for example you can have a hotkey that selects all nearby healthy assault units and also creates a squad out of them. 
 
@@ -229,7 +235,7 @@ Note: idle squads get a distinct color so you can spot the ones you parked and f
 <details>
 <summary>more</summary>
 
-Other styles live in **companion widgets** but you should ignore those for now.
+Other styles live in **companion widgets** but they aren't really ready for use yet.
 
 </details>
 
