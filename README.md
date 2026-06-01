@@ -4,6 +4,8 @@
 
 *tldr: select some units, right-click to create a squad, then ctrl+click to select the closest squad.*
 
+[Feature gallery](https://bar-stuff.madebygabe.dev/squad-selection) - start here.
+
 ## Why?
 
 Control groups are limited in number and require manual assignment, auto-groups select units across the entire map which is not always what we want, selectboxes are imprecise and can be difficult to use in the heat of battle.  
