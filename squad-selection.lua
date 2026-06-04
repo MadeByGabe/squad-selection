@@ -127,7 +127,7 @@ local is_factory = {} -- defID -> bool (immobile with buildOptions)
 local is_strafing_air = {} -- defID -> bool (air units that strafe/fly around while idle)
 local unit_domain = {} -- defID -> "land" | "air" | "naval"
 
-local last_squad_select = nil -- { t, x, y, append, squad } of most recent successful do_squad_select; powers two same-mode double-tap gestures (replace→replace fires viewselection, append→append upgrades plain append to append_domain) and gates the reserve-merge branch of create_squad_from_selection on `squad`
+local last_squad_select = nil -- { t, x, y, append, kind, squad } of most recent successful do_squad_select; powers two same-mode double-tap gestures (replace→replace fires viewselection, append→append upgrades plain append to append_domain), both gated to a matching `kind` (selection type) so mixed sequences don't fire, and gates the reserve-merge branch of create_squad_from_selection on `squad`
 
 -------------------------------------------------------------------------------
 -- Debug
@@ -1259,10 +1259,21 @@ local function do_squad_select(opts)
 		return
 	end
 
+	-- Selection "kind" identifies the logical selection type so the same-mode
+	-- double-tap gestures only fire on a same-type repeat: e.g. a squad_select
+	-- followed by a squad_select_filtered must not trigger viewselection. The
+	-- filter/group dimension plus whole-vs-portion (the codebase's whole-squad
+	-- definition is exactly {} or {1}) captures every action variant.
+	local kind = (opts.group_set and "group") or (opts.filter_defs and "filtered") or "plain"
+	if not (#steps == 1 and steps[1] == 1) then
+		kind = kind .. ":portion"
+	end
+
 	-- Compute the double-tap window match against the *previous* tap, then
-	-- snapshot its append flag before we overwrite last_squad_select below.
+	-- snapshot its append flag and kind before we overwrite last_squad_select below.
 	local in_double_tap_window = false
 	local prev_append = false
+	local prev_kind = nil
 	if last_squad_select and config.viewselectionDoubleTapMs > 0 then
 		local dt_ms = spDiffTimers(spGetTimer(), last_squad_select.t, true)
 		local dx = mx - last_squad_select.x
@@ -1270,6 +1281,7 @@ local function do_squad_select(opts)
 		local px = config.viewselectionDoubleTapPx
 		in_double_tap_window = dt_ms < config.viewselectionDoubleTapMs and (dx * dx + dy * dy) < (px * px)
 		prev_append = last_squad_select.append
+		prev_kind = last_squad_select.kind
 	end
 
 	-- Arm now (not at the end) so subsequent taps detect this one even when the selection ends up a no-op.
@@ -1280,6 +1292,7 @@ local function do_squad_select(opts)
 		x = mx,
 		y = my,
 		append = opts.append,
+		kind = kind,
 		squad = nil,
 	}
 
@@ -1287,8 +1300,10 @@ local function do_squad_select(opts)
 	-- viewselection. Append→append flips the domain
 	-- filter — `append` upgrades to `append_domain`, `append_domain`
 	-- downgrades to `append`. Same flip happens regardless of how the action
-	-- was invoked (hotkey or left-click)
-	if in_double_tap_window and prev_append == opts.append then
+	-- was invoked (hotkey or left-click). Both gestures require the previous
+	-- tap to be the same selection kind, so mixed sequences (e.g. plain →
+	-- filtered) fall through to a normal selection.
+	if in_double_tap_window and prev_append == opts.append and prev_kind == kind then
 		if opts.append then
 			opts.use_domain_filter = not opts.use_domain_filter
 		else
@@ -1330,7 +1345,7 @@ local function do_squad_select(opts)
 	-- intermediate taps still advance through steps as normal. Same same-mode
 	-- gating as the early check — only replace→replace triggers.
 	-- TODO: should work even with distance filter.
-	if in_double_tap_window and #steps > 1 and not opts.append and not prev_append and #pool > 0 and current_in_step_pool >= step_to_count(steps[#steps], #step_pool) then
+	if in_double_tap_window and prev_kind == kind and #steps > 1 and not opts.append and not prev_append and #pool > 0 and current_in_step_pool >= step_to_count(steps[#steps], #step_pool) then
 		spSendCommands("viewselection")
 		last_squad_select = nil
 		return
