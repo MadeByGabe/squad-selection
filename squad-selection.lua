@@ -24,6 +24,7 @@ local config = {
 	leftClickFilteredRetargets = false, -- when true, Alt+Ctrl-click (replace-mode filtered) acts like the `retarget` keyword: if the closest unit's type isn't in the current selection, treat the click as a fresh selection on that new type instead of using the selection's types as the filter. Append mode is unaffected.
 	rightClickSquadCreate = false, -- right-click creates squads; bind a hotkey via `squad_setting toggle rightClickSquadCreate` to flip on demand
 	ctrlRightClickCreatesSquad = false, -- Ctrl+right-click creates a squad (click still passes through, so the engine's move-in-formation runs too which can cause issues)
+	ctrlRightClickDragCreatesSquad = true, -- hold Ctrl then right-click drag past the engine's MouseDragFrontCommandThreshold to create a squad (click still passes through)
 	commandCreatesSquad = false,
 	mergeIntoReserves = true, -- when false, `squad_create` never merges the selection into a reserve squad; it always creates a fresh manual squad
 	selectionAutoExtend = false, -- when true, freshly built units auto-extend the current selection while their reserve is fully selected (the wait/patrol rally opt-out still applies on top)
@@ -82,6 +83,7 @@ local spGetMyPlayerID = Spring.GetMyPlayerID
 local spGetGroupUnits = Spring.GetGroupUnits
 local spGetUnitGroup = Spring.GetUnitGroup
 local spGetMouseCursor = Spring.GetMouseCursor
+local spGetConfigInt = Spring.GetConfigInt
 local spIsReplay = Spring.IsReplay
 local spGetGroundHeight = Spring.GetGroundHeight
 local spGetUnitCommands = Spring.GetUnitCommands
@@ -122,6 +124,7 @@ local squad_idle_state = {} -- squad table -> true when >50% of the squad is idl
 local squad_idle_blend = {} -- squad table -> 0..1 blend between team color and idle color
 local squad_hide_idle_air_hull = {} -- squad table -> true when an idle squad is entirely airborne air units
 local idle_scan_index = 0 -- round-robin index into squads for incremental idle-state updates
+local pending_drag_create = nil -- { x, y } screen pos of a Ctrl+RMB press awaiting a drag past MouseDragFrontCommandThreshold to fire squad_create (config.ctrlRightClickDragCreatesSquad)
 local before_squad_select_callback = nil -- optional WG hook: return false to cancel a do_squad_select call
 local squad_change_listeners = {} -- array of callback functions
 
@@ -1913,6 +1916,11 @@ local OPTION_SPECS = {
 		description = "Ctrl+right-click groups the current selection into a new squad. Move in formation command still issues if the action is not a click drag.",
 		type = "bool",
 	}, {
+		configVariable = "ctrlRightClickDragCreatesSquad",
+		name = "Ctrl+right-click drag creates squad",
+		description = "Hold Ctrl, then right-click and drag the mouse to group the current selection into a new squad.",
+		type = "bool",
+	}, {
 		configVariable = "showReserveSquads",
 		name = "Show reserve squads",
 		description = "Visualize per-factory reserves and the uncategorized domain reserves.",
@@ -2456,8 +2464,8 @@ function widget:Initialize()
 	-- WG interface. Auto-generates
 	-- get<Key>/set<Key> pairs for every exposed config key.
 	local exposed_settings = {
-		"leftClickSelectsSquad", "leftClickSteps", "leftClickStepsEnabled", "leftClickAppendFiltersDomain", "leftClickFilteredRetargets", "cyclingToNextSquad", "rightClickSquadCreate", "ctrlRightClickCreatesSquad", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "mergeIntoReserves", "selectionAutoExtend", "visualizationMode", "convexHullPadding", "convexHullArcResolution", "convexHullFillOpacity",
-			"convexHullBorderOpacity", "convexHullBorderThickness", "convexHullColorMode", "convexHullCustomColorR", "convexHullCustomColorG", "convexHullCustomColorB"}
+		"leftClickSelectsSquad", "leftClickSteps", "leftClickStepsEnabled", "leftClickAppendFiltersDomain", "leftClickFilteredRetargets", "cyclingToNextSquad", "rightClickSquadCreate", "ctrlRightClickCreatesSquad", "ctrlRightClickDragCreatesSquad", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "mergeIntoReserves", "selectionAutoExtend", "visualizationMode", "convexHullPadding", "convexHullArcResolution",
+			"convexHullFillOpacity", "convexHullBorderOpacity", "convexHullBorderThickness", "convexHullColorMode", "convexHullCustomColorR", "convexHullCustomColorG", "convexHullCustomColorB"}
 	WG['squadselection'] = {}
 	for _, key in ipairs(exposed_settings) do
 		local cap = key:sub(1, 1):upper() .. key:sub(2)
@@ -2563,6 +2571,23 @@ end
 
 
 function widget:Update(dt)
+	if pending_drag_create then
+		local mx, my, _, _, rmb = spGetMouseState()
+		local _, ctrl = spGetModKeyState()
+		if not (rmb and ctrl) then
+			-- RMB released or Ctrl let go before dragging far enough: no create.
+			pending_drag_create = nil
+		else
+			local dx = mx - pending_drag_create.x
+			local dy = my - pending_drag_create.y
+			local threshold = spGetConfigInt("MouseDragFrontCommandThreshold", 30) or 30
+			if dx * dx + dy * dy >= threshold * threshold then
+				squad_create()
+				pending_drag_create = nil
+			end
+		end
+	end
+
 	if #squads == 0 then
 		idle_scan_index = 0
 		return
@@ -2763,6 +2788,14 @@ function widget:MousePress(x, y, button)
 		local will_create = (config.rightClickSquadCreate and plain) or (config.ctrlRightClickCreatesSquad and mod_combo)
 		if (will_create and cursor ~= "cursornormal") then
 			squad_create()
+		elseif config.ctrlRightClickDragCreatesSquad and mod_combo and cursor ~= "cursornormal" then
+			-- Defer creation: fire only once the player drags past the engine's
+			-- front-command threshold (checked in widget:Update). A plain Ctrl+RMB
+			-- with no drag never creates in this mode.
+			pending_drag_create = {
+				x = x,
+				y = y,
+			}
 		end
 	elseif button == 1 and config.leftClickSelectsSquad then
 		-- A modifier is required to trigger; plain/Shift/Alt alone are not enough because then the ground click deselects the units.
