@@ -35,8 +35,8 @@ local config = {
 	visualizationMode = "convexHull", -- "convexHull" or "none"
 	convexHullPadding = 60, -- space (in elmos) between the units and the hull boundary
 	convexHullArcResolution = 0.4, -- angle that each chord of the arc spans in radians; smaller = smoother but more expensive
-	convexHullFillOpacity = 0.1,
-	convexHullBorderOpacity = 0.2,
+	convexHullFillOpacity = 0.25,
+	convexHullBorderOpacity = 0.3,
 	convexHullBorderThickness = 2,
 	convexHullColorMode = "team", -- "team" (team color), "custom" (single custom RGB), "squad" (per-squad golden-ratio hue)
 	convexHullCustomColorR = 0, -- Red component of custom hull color (0–1)
@@ -44,10 +44,10 @@ local config = {
 	convexHullCustomColorB = 0.7, -- Blue component
 	-- Animation tuning (no panel control).
 	reserveStripePeriod = 64, -- diagonal-stripe period in world elmos for reserve squad fills
-	reserveStripeAlphaMul = 0.2, -- opacity of the dim stripe band relative to the bright band
+	reserveStripeAlphaMul = 0.3, -- opacity of the dim stripe band relative to the bright band
 	hullPulseAmplitude = 0.25, -- breathing pulse amplitude on hull alpha
 	hullPulseRate = 1.5, -- breathing pulse rate; period ≈ 2π / rate seconds
-	idleColorBlendRate = 2, -- per-second rate the idle/active hull color crossfades
+	idleColorBlendSeconds = 0.5, -- seconds for the idle/active hull color to fully crossfade (0 = instant)
 	debug = false,
 }
 
@@ -2582,7 +2582,7 @@ function widget:Update(dt)
 	end
 
 	-- Animate color blend for all squads.
-	local step = constrain(dt * config.idleColorBlendRate, 0, 1)
+	local step = config.idleColorBlendSeconds > 0 and constrain(dt / config.idleColorBlendSeconds, 0, 1) or 1
 	for i = 1, #squads do
 		local s = squads[i]
 		local target = squad_idle_state[s] and 1 or 0
