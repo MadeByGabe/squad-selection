@@ -2283,7 +2283,6 @@ end
 
 -- Team color for unselected-squad hulls. Populated in widget:Initialize.
 local team_color = {1, 1, 1}
-local idle_color = {1, 1, 1}
 
 -- Wipe and rebuild all squad tracking from scratch. Shared by widget:Initialize
 -- and the live exclusion actions so a change to excludedUnitTypes takes effect
@@ -2435,8 +2434,6 @@ function widget:Initialize()
 
 	local tr, tg, tb = spGetTeamColor(spGetMyTeamID())
 	team_color[1], team_color[2], team_color[3] = tr or 1, tg or 1, tb or 1
-	-- Derive idle tint from team color by rotating channels: R<-B, G<-R, B<-G and making it darker.
-	idle_color[1], idle_color[2], idle_color[3] = team_color[2] * 0.3, team_color[3] * 0.3, team_color[1] * 0.3
 
 	local count = rebuild_tracking()
 
