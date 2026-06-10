@@ -65,7 +65,9 @@ bind Alt+Shift+sc_x  squad_select_filtered append
 | `squad_select_filtered append`          | Same, but appends to selection                                                                                                                                                                                                                                                           |
 | `squad_select_filtered retarget`        | Replace-mode only. Always peeks the closest unit: if its type is in your current selection it filters by the selection's types (same as plain), otherwise it uses the closest unit's type as the new type. Lets you swing the filter to a different unit type without first deselecting. |
 | `squad_create`                          | Runs squad creation for the current selection                                                                                                                                                                                                                                            |
-| `squad_limit_flip`                      | Limits a multi-squad selection to one squad's slice, or flips within a single squad if it's already contained by one                                                                                                                                                                     |
+| `squad_limit_flip`                      | Limits to the squad nearest your cursor *and* flips within it: result is that squad's *other* units (`squad \ selection`). Drops any other squads                                                                                                                                          |
+| `squad_limit`                           | Always narrows: keep only the cursor's squad's units from your current selection (`selection ∩ squad`)                                                                                                                                                                                    |
+| `squad_flip`                            | Always flips: in every squad you have units selected from, swap them for that squad's *other* units. Cursor-independent                                                                                                                                                                   |
 | `squad_select_group N`                  | Select squad ∩ control group N closest to cursor                                                                                                                                                                                                                                         |
 | `squad_select_portion [append           | append_domain] [distance_<N>] <steps...>`                                                                                                                                                                                                                                                | Select a portion of the closest squad                                   |
 | `squad_select_portion_filtered [append  | append_domain                                                                                                                                                                                                                                                                            | retarget] [distance_<N>] <steps...>`                                    | Same, but filtered by unit type (`retarget` works the same as on `squad_select_filtered`) |
@@ -145,20 +147,22 @@ The same behavior is available on Alt+Ctrl-click (replace-mode left-click filter
 
 ### Limit-or-flip selection
 
-`squad_limit_flip` shapes your *existing* selection rather than picking units from squads by cursor proximity. It's the answer to two related problems:
+These three actions shape your *existing* selection rather than picking units from squads by cursor proximity. They're the answer to two related problems:
 
-1. You used another selection method (autogroup, control group, custom select hotkey, box-select) and ended up with units across multiple squads. You want to keep only the ones in a particular squad. Point at that squad then tap the action so the selection narrows to that squad's slice.
-2. You select the damaged units of a squad and retreat them. Now you want the rest of the squad (the healthy ones still on the line). Tap the action: since your selection is contained by a single squad, it flips: the damaged units are deselected and the squad's other units are selected.
+1. You used another selection method (autogroup, control group, custom select hotkey, box-select) and ended up with units across multiple squads. You want to keep only the ones in a particular squad. Point at that squad then tap `squad_limit` so the selection narrows to that squad's slice.
+2. You select the damaged units of a squad and retreat them. Now you want the rest of the squad (the healthy ones still on the line). Tap `squad_limit_flip` (point at the squad) or `squad_flip` (any number of squads): the damaged units are deselected and the squad's other units are selected.
 
-Behavior:
+All three pick a **target squad** = the squad that owns the tracked-selected unit closest to your cursor (except `squad_flip`, which is cursor-independent and acts on every selected squad), and all three fall back to a plain squad_select when no tracked units are selected (empty, or only untracked units like Commander/scouts).
 
-- **Multi-squad selection** → narrow: result = `selection ∩ target_squad`. Target squad = the squad that owns the tracked-selected unit closest to your cursor.
-- **Single-squad selection** (every tracked unit in your selection belongs to one squad) → flip: result = `target_squad \ selection`. A fully-selected squad flips to empty; tap again to re-select the closest squad via the fallback.
-- **No tracked units selected** (empty, or only untracked units like Commander/scouts) → falls back to a plain squad_select.
+- `squad_limit_flip` — limits to the target squad **and** flips within it: result = `target_squad \ selection` (the target squad's *other* units). Any other squads in the selection are dropped. A fully-selected squad flips to empty; tap again to re-select the closest squad via the fallback. Works the same whether one or several squads are selected.
+- `squad_limit` — narrow only: result = `selection ∩ target_squad`. Keeps the target squad's selected units, drops the rest. On a single-squad selection this is a no-op (already within the squad).
+- `squad_flip` — flip only, in **every** squad you have units selected from (not just the one under the cursor): each such squad's selected units are swapped for its unselected ones. So if you retreated the damaged units out of several squads at once, one tap re-selects all the healthy survivors across all of them. Cursor-independent.
 
-Suggested keybind:
+Suggested keybinds:
 ```
 bind sc_v squad_limit_flip
+bind Alt+sc_v squad_limit
+bind Shift+sc_v squad_flip
 ```
 
 ### Domain filtering (`append_domain`)

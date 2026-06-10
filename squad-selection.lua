@@ -1585,16 +1585,17 @@ local function squad_select_portion_group(_, _, args)
 end
 
 
--- Limits the current selection to a single squad's slice, or flips within that
--- squad if the selection is already contained by it. Replace-only.
---   Multi-squad selection → narrow to (selection ∩ closest selected unit's squad).
---   Single-squad selection (all tracked units in one squad) → flip: select that
---     squad's other units. Fully-selected squad flips to empty.
+-- Shared core for squad_limit / squad_limit_flip. Picks the target squad (owner
+-- of the tracked-selected unit closest to the cursor) and shapes the existing
+-- selection against that one squad, dropping everything else. Replace-only.
+--   do_flip == false → limit/narrow: result = selection ∩ target_squad.
+--   do_flip == true  → limit AND flip: result = target_squad \ selection (the
+--     target squad's other units). A fully-selected squad flips to empty.
 --   No tracked units selected → fall back to plain closest-squad-select.
 -- Untracked units in the selection are ignored (they don't influence the
--- target squad or the flip/narrow decision, and they don't survive into the
--- result — replace-mode SelectUnitArray drops them).
-local function squad_limit_flip()
+-- target squad, and they don't survive into the result — replace-mode
+-- SelectUnitArray drops them).
+local function limit_or_flip(do_flip)
 	local wx, wz = get_mouse_world_pos()
 	if not wx then
 		return true
@@ -1629,35 +1630,74 @@ local function squad_limit_flip()
 		return true
 	end
 
-	local flip = true
-	for u in pairs(sel.selected_set) do
-		local sq = unit_squad[u]
-		if sq and sq ~= target_squad then
-			flip = false
-			break
-		end
-	end
-
 	local result = {}
-	if flip then
-		for i = 1, #target_squad do
-			local u = target_squad[i]
-			if not sel.selected_set[u] then
-				result[#result + 1] = u
-			end
-		end
-	else
-		for i = 1, #target_squad do
-			local u = target_squad[i]
-			if sel.selected_set[u] then
-				result[#result + 1] = u
-			end
+	for i = 1, #target_squad do
+		local u = target_squad[i]
+		local selected = sel.selected_set[u]
+		if (do_flip and not selected) or (not do_flip and selected) then
+			result[#result + 1] = u
 		end
 	end
 
 	spSelectUnitArray(result)
 	push_to_mru(target_squad)
-	log(flip and "Flip" or "Limit", " squad [", target_squad.index or "?", "]: ", #result, "/", #target_squad)
+	log(do_flip and "Flip" or "Limit", " squad [", target_squad.index or "?", "]: ", #result, "/", #target_squad)
+	return true
+end
+
+
+-- Combined action: limits the selection to the cursor's target squad AND flips
+-- within it, so the result is that squad's *other* units. Works the same whether
+-- one or several squads are selected (everything outside the target squad is
+-- dropped).
+local function squad_limit_flip()
+	return limit_or_flip(true)
+end
+
+
+-- Always narrows: result = selection ∩ pointed squad.
+local function squad_limit()
+	return limit_or_flip(false)
+end
+
+
+-- Always flips, across every squad that has a selected unit: each such squad's
+-- selected units are swapped for its unselected ones. Cursor-independent —
+-- unlike squad_limit_flip, which flips only the cursor-nearest squad and drops
+-- the rest, this flips every selected squad in place. No tracked units selected
+-- → fall back to plain closest-squad-select.
+local function squad_flip()
+	local sel = analyze_selection()
+	if not sel.has_tracked_units then
+		do_squad_select({
+			cycle_when_full = config.cyclingToNextSquad,
+		})
+		return true
+	end
+
+	local flipped_squads = {}
+	for u in pairs(sel.selected_set) do
+		local sq = unit_squad[u]
+		if sq then
+			flipped_squads[sq] = true
+		end
+	end
+
+	local result = {}
+	local squad_count = 0
+	for sq in pairs(flipped_squads) do
+		squad_count = squad_count + 1
+		for i = 1, #sq do
+			local u = sq[i]
+			if not sel.selected_set[u] then
+				result[#result + 1] = u
+			end
+		end
+		push_to_mru(sq)
+	end
+
+	spSelectUnitArray(result)
+	log("Flip ", squad_count, " squad(s): ", #result, " units")
 	return true
 end
 
@@ -2408,6 +2448,8 @@ function widget:Initialize()
 	widgetHandler:AddAction("squad_select_portion_filtered", squad_select_portion_filtered, nil, "pt")
 	widgetHandler:AddAction("squad_select_portion_group", squad_select_portion_group, nil, "pt")
 	widgetHandler:AddAction("squad_limit_flip", squad_limit_flip, nil, "pt")
+	widgetHandler:AddAction("squad_limit", squad_limit, nil, "pt")
+	widgetHandler:AddAction("squad_flip", squad_flip, nil, "pt")
 	widgetHandler:AddAction("squad_setting", squad_setting, nil, "t")
 	widgetHandler:AddAction("squad_cycle_recent", squad_cycle_recent, nil, "pt")
 	widgetHandler:AddAction("squad_cycle_idle", squad_cycle_idle, nil, "pt")
@@ -2568,6 +2610,8 @@ function widget:Shutdown()
 	widgetHandler:RemoveAction("squad_select_portion_filtered")
 	widgetHandler:RemoveAction("squad_select_portion_group")
 	widgetHandler:RemoveAction("squad_limit_flip")
+	widgetHandler:RemoveAction("squad_limit")
+	widgetHandler:RemoveAction("squad_flip")
 	widgetHandler:RemoveAction("squad_setting")
 	widgetHandler:RemoveAction("squad_cycle_recent")
 	widgetHandler:RemoveAction("squad_cycle_idle")
