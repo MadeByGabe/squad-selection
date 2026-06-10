@@ -281,7 +281,7 @@ Squads you left behind (e.g. defenders you parked during an attack and forgot) a
 
 A squad counts as idle when more than 50% of its units have no commands queued. 
 
-Idle squads also get a distinct visualization color in convex-hull mode so they stand out when you're scanning the map.
+Idle squads also get a darker visualization color in convex-hull mode so they stand out when you're scanning the map.
 
 There is one special case for air: if an idle squad is entirely strafing air units and those units are currently flying, then its convex hull fades out completely instead of leaving a big floating visual noise on the screen.
 

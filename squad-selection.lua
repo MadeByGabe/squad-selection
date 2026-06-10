@@ -3072,9 +3072,9 @@ function widget:DrawWorldPreUnit()
 						cb = team_color[3]
 					end
 					if idle_blend > 0 and not fully_selected then
-						local ir = cg * 0.3
-						local ig = cb * 0.3
-						local ib = cr * 0.3
+						local ir = cr * 0.3
+						local ig = cg * 0.3
+						local ib = cb * 0.3
 						cr = cr + (ir - cr) * idle_blend
 						cg = cg + (ig - cg) * idle_blend
 						cb = cb + (ib - cb) * idle_blend
