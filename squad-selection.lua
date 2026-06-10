@@ -42,6 +42,12 @@ local config = {
 	convexHullCustomColorR = 0, -- Red component of custom hull color (0–1)
 	convexHullCustomColorG = 0.3, -- Green component
 	convexHullCustomColorB = 0.7, -- Blue component
+	-- Animation tuning (no panel control).
+	reserveStripePeriod = 64, -- diagonal-stripe period in world elmos for reserve squad fills
+	reserveStripeAlphaMul = 0.2, -- opacity of the dim stripe band relative to the bright band
+	hullPulseAmplitude = 0.25, -- breathing pulse amplitude on hull alpha
+	hullPulseRate = 1.5, -- breathing pulse rate; period ≈ 2π / rate seconds
+	idleColorBlendRate = 2, -- per-second rate the idle/active hull color crossfades
 	debug = false,
 }
 
@@ -1676,17 +1682,8 @@ local hull_ready = false
 local hull_init_failed = false -- so we don't spam retries after a failure
 local hull_time_origin = nil -- wall-clock origin for stripe/pulse animation
 
--- Diagonal-stripe pattern for reserve squad fills. Period in world elmos;
--- alphaMul is the opacity of the dim band relative to the bright band.
-local RESERVE_STRIPE_PERIOD = 64
-local RESERVE_STRIPE_ALPHA_MUL = 0.2
-
 -- Center→edge alpha gradient: alpha at the centroid as a fraction of the edge.
 local HULL_GRADIENT_CENTER = 0.2
-
--- Breathing pulse on hull alpha. Period ≈ 2π / PULSE_RATE seconds.
-local HULL_PULSE_AMPLITUDE = 0.25
-local HULL_PULSE_RATE = 1.5
 
 local hull_vs_src = [[
 #version 330 compatibility
@@ -2542,8 +2539,8 @@ function widget:Update(dt)
 		refresh_squad_idle_state(sq)
 	end
 
-	-- Animate color blend for all squads (cheap: no per-unit calls).
-	local step = constrain(dt * 2, 0, 1)
+	-- Animate color blend for all squads.
+	local step = constrain(dt * config.idleColorBlendRate, 0, 1)
 	for i = 1, #squads do
 		local s = squads[i]
 		local target = squad_idle_state[s] and 1 or 0
@@ -3127,12 +3124,12 @@ function widget:DrawWorldPreUnit()
 
 								hull_vbo:Upload(scratch_flat, nil, nil, 1, fi)
 
-								local pulse_val = 1 + HULL_PULSE_AMPLITUDE * math.sin(now * HULL_PULSE_RATE + seed * 6.2831853)
+								local pulse_val = 1 + config.hullPulseAmplitude * math.sin(now * config.hullPulseRate + seed * 6.2831853)
 								glUniform(hull_centroid_loc, pcx, pcy, hull_radius_norm)
 								glUniform(hull_pulse_loc, pulse_val)
 
 								if squad.is_reserve then
-									glUniform(hull_stripe_loc, RESERVE_STRIPE_PERIOD, RESERVE_STRIPE_ALPHA_MUL, seed * RESERVE_STRIPE_PERIOD)
+									glUniform(hull_stripe_loc, config.reserveStripePeriod, config.reserveStripeAlphaMul, seed * config.reserveStripePeriod)
 								else
 									glUniform(hull_stripe_loc, 0, 1, 0)
 								end
