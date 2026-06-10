@@ -23,7 +23,7 @@ local config = {
 	leftClickAppendFiltersDomain = true, -- when true, left-click Shift-append only cycles into squads whose domains ⊆ the selection's; when false, append behaves like the plain `append` keyword
 	leftClickFilteredRetargets = false, -- when true, Alt+Ctrl-click (replace-mode filtered) acts like the `retarget` keyword: if the closest unit's type isn't in the current selection, treat the click as a fresh selection on that new type instead of using the selection's types as the filter. Append mode is unaffected.
 	rightClickSquadCreate = false, -- right-click creates squads; bind a hotkey via `squad_setting toggle rightClickSquadCreate` to flip on demand
-	modifierRightClickCreatesSquad = false, -- Ctrl+right-click creates a squad (click still passes through, so the engine's move-in-formation runs too which can cause issues)
+	ctrlRightClickCreatesSquad = false, -- Ctrl+right-click creates a squad (click still passes through, so the engine's move-in-formation runs too which can cause issues)
 	commandCreatesSquad = false,
 	mergeIntoReserves = true, -- when false, `squad_create` never merges the selection into a reserve squad; it always creates a fresh manual squad
 	selectionAutoExtend = false, -- when true, freshly built units auto-extend the current selection while their reserve is fully selected (the wait/patrol rally opt-out still applies on top)
@@ -1908,7 +1908,7 @@ local OPTION_SPECS = {
 		description = "Plain right-click groups the current selection into a new squad. Move command still issues.",
 		type = "bool",
 	}, {
-		configVariable = "modifierRightClickCreatesSquad",
+		configVariable = "ctrlRightClickCreatesSquad",
 		name = "Ctrl+right-click creates squad",
 		description = "Ctrl+right-click groups the current selection into a new squad. Move in formation command still issues if the action is not a click drag.",
 		type = "bool",
@@ -2129,7 +2129,7 @@ end
 -- Settings action — toggle/set config values from chat
 -- Usage:
 --   /luaui squad_setting toggle rightClickSquadCreate
---   /luaui squad_setting toggle modifierRightClickCreatesSquad
+--   /luaui squad_setting toggle ctrlRightClickCreatesSquad
 --   /luaui squad_setting toggle cyclingToNextSquad
 --   /luaui squad_setting set visualizationMode convexHull
 --   /luaui squad_setting set visualizationMode none
@@ -2456,7 +2456,7 @@ function widget:Initialize()
 	-- WG interface. Auto-generates
 	-- get<Key>/set<Key> pairs for every exposed config key.
 	local exposed_settings = {
-		"leftClickSelectsSquad", "leftClickSteps", "leftClickStepsEnabled", "leftClickAppendFiltersDomain", "leftClickFilteredRetargets", "cyclingToNextSquad", "rightClickSquadCreate", "modifierRightClickCreatesSquad", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "mergeIntoReserves", "selectionAutoExtend", "visualizationMode", "convexHullPadding", "convexHullArcResolution", "convexHullFillOpacity",
+		"leftClickSelectsSquad", "leftClickSteps", "leftClickStepsEnabled", "leftClickAppendFiltersDomain", "leftClickFilteredRetargets", "cyclingToNextSquad", "rightClickSquadCreate", "ctrlRightClickCreatesSquad", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "mergeIntoReserves", "selectionAutoExtend", "visualizationMode", "convexHullPadding", "convexHullArcResolution", "convexHullFillOpacity",
 			"convexHullBorderOpacity", "convexHullBorderThickness", "convexHullColorMode", "convexHullCustomColorR", "convexHullCustomColorG", "convexHullCustomColorB"}
 	WG['squadselection'] = {}
 	for _, key in ipairs(exposed_settings) do
@@ -2760,7 +2760,7 @@ function widget:MousePress(x, y, button)
 	if button == 3 then
 		local plain = not (alt or ctrl or meta or shift)
 		local mod_combo = ctrl and not alt and not meta and not shift
-		local will_create = (config.rightClickSquadCreate and plain) or (config.modifierRightClickCreatesSquad and mod_combo)
+		local will_create = (config.rightClickSquadCreate and plain) or (config.ctrlRightClickCreatesSquad and mod_combo)
 		if (will_create and cursor ~= "cursornormal") then
 			squad_create()
 		end
