@@ -1891,185 +1891,55 @@ end
 -- writes config[key] AND, when `key` has a registered panel option, mirrors
 -- the change onto that option's `value` field so the panel UI reflects it.
 --
--- List-typed configs (leftClickSteps) and free-form strings (excludedUnitTypes)
--- have no native panel control; set_option_value still handles them — it just
--- writes config and the panel-mirror branch is a no-op.
+-- The squad-creation-method select doesn't map 1:1 to a config key: one control
+-- reads and writes the three mutually-exclusive rightClick* booleans. 
 -------------------------------------------------------------------------------
 
-local OPTION_SPECS = {
-	{
-		configVariable = "cyclingToNextSquad",
-		name = "Cycle to next squad on retap",
-		description = "When the closest squad is fully selected, retap swaps to the next-closest squad.",
-		type = "bool",
-	}, {
-		configVariable = "leftClickSelectsSquad",
-		name = "Modifier+left-click selects squad",
-		description = "Ctrl-click empty ground triggers squad select. Ctrl+Shift = append, +Alt = filtered.",
-		type = "bool",
-	}, {
-		configVariable = "leftClickStepsEnabled",
-		name = "Use portion steps on left-click",
-		description = "When enabled, left-click selection uses leftClickSteps. Configure the step list via the squad_setting console action. (default steps value: '1 0.5 distance_850')",
-		type = "bool",
-	}, {
-		configVariable = "leftClickAppendFiltersDomain",
-		name = "Left-click append filters by domain",
-		description = "Shift-click squad merges stick to the squad's domain (nearby air squads are skipped if you have a land squad selected).",
-		type = "bool",
-	}, {
-		configVariable = "leftClickFilteredRetargets",
-		name = "Left-click filtered retargets",
-		description = "Alt+Ctrl-click swings the active filter to the closest unit's type when it's not in the current selection.",
-		type = "bool",
-	}, {
-		configVariable = "rightClickSquadCreate",
-		name = "Right-click creates squad",
-		description = "Plain right-click groups the current selection into a new squad. Move command still issues.",
-		type = "bool",
-	}, {
-		configVariable = "ctrlRightClickCreatesSquad",
-		name = "Ctrl+right-click creates squad",
-		description = "Ctrl+right-click groups the current selection into a new squad. Move in formation command still issues if the action is not a click drag.",
-		type = "bool",
-	}, {
-		configVariable = "ctrlRightClickDragCreatesSquad",
-		name = "Ctrl+right-click drag creates squad",
-		description = "Hold Ctrl, then right-click and drag the mouse to group the current selection into a new squad.",
-		type = "bool",
-	}, {
-		configVariable = "showReserveSquads",
-		name = "Show reserve squads",
-		description = "Visualize per-factory reserves and the uncategorized domain reserves.",
-		type = "bool",
-	}, {
-		configVariable = "mergeIntoReserves",
-		name = "Merge into reserves",
-		description = "When on, fully selecting a reserve squad and running squad_create merges your selection into it. When off, squad_create always creates a fresh manual squad.",
-		type = "bool",
-	}, {
-		configVariable = "selectionAutoExtend",
-		name = "Auto-extend selection with new units",
-		description = "When on, units freshly built into a fully selected reserve auto-extend your current selection.",
-		type = "bool",
-	}, {
-		configVariable = "viewselectionDoubleTapMs",
-		name = "Double-tap window (ms)",
-		description = "Max time between two same-place taps for the viewselection / domain-flip gesture. 0 disables.",
-		type = "slider",
-		min = 0,
-		max = 600,
-		step = 25,
-	}, {
-		configVariable = "viewselectionDoubleTapPx",
-		name = "Double-tap distance (px)",
-		description = "Max screen-pixel distance between the two taps.",
-		type = "slider",
-		min = 0,
-		max = 30,
-		step = 1,
-	}, {
-		configVariable = "mruSize",
-		name = "Recent-squad cycle size",
-		description = "How many recent squads squad_cycle_recent cycles through.",
-		type = "slider",
-		min = 1,
-		max = 9,
-		step = 1,
-	}, {
-		configVariable = "visualizationMode",
-		name = "Squad visualization",
-		description = "Convex hull around units, or none.",
-		type = "select",
-		options = {"convexHull", "none"},
-	}, {
-		configVariable = "convexHullPadding",
-		name = "Hull padding",
-		description = "Distance (in elmos) between units and the hull boundary.",
-		type = "slider",
-		min = 0,
-		max = 200,
-		step = 5,
-	}, {
-		configVariable = "convexHullArcResolution",
-		name = "Hull arc resolution",
-		description = "Angle each chord of the rounded corners spans, in radians. Smaller is smoother but more expensive.",
-		type = "slider",
-		min = 0.05,
-		max = 1.0,
-		step = 0.05,
-	}, {
-		configVariable = "convexHullFillOpacity",
-		name = "Hull fill opacity",
-		type = "slider",
-		min = 0,
-		max = 1,
-		step = 0.05,
-	}, {
-		configVariable = "convexHullBorderOpacity",
-		name = "Hull border opacity",
-		type = "slider",
-		min = 0,
-		max = 1,
-		step = 0.05,
-	}, {
-		configVariable = "convexHullBorderThickness",
-		name = "Hull border thickness",
-		type = "slider",
-		min = 0.5,
-		max = 5,
-		step = 0.5,
-	}, {
-		configVariable = "convexHullColorMode",
-		name = "Hull color mode",
-		description = "Team color, a single custom color, or a unique color per squad.",
-		type = "select",
-		options = {"team", "custom", "squad"},
-	}, {
-		configVariable = "convexHullCustomColorR",
-		name = "Custom color Red",
-		type = "slider",
-		min = 0,
-		max = 1,
-		step = 0.05,
-	}, {
-		configVariable = "convexHullCustomColorG",
-		name = "Custom color Green",
-		type = "slider",
-		min = 0,
-		max = 1,
-		step = 0.05,
-	}, {
-		configVariable = "convexHullCustomColorB",
-		name = "Custom color Blue",
-		type = "slider",
-		min = 0,
-		max = 1,
-		step = 0.05,
-	}}
+local OPTION_ADVANCED = 2 -- BAR gui_options category constant (basic=1, advanced=2, dev=3)
 
-local OPTION_SPECS_BY_KEY = {}
-for i = 1, #OPTION_SPECS do
-	OPTION_SPECS_BY_KEY[OPTION_SPECS[i].configVariable] = OPTION_SPECS[i]
-end
+-- Registry tables read by set_option_value. OPTION_SPECS_BY_KEY is forward-
+-- declared and populated once OPTION_SPECS exists (below); the others are ready now.
+local panel_options_by_key = {} -- configVariable -> registered panel option table
+local OPTION_SPECS_BY_KEY -- configVariable -> spec (assigned after OPTION_SPECS)
 
--- configVariable -> registered option table. 
-local panel_options_by_key = {}
+-- The synthetic "squadCreateMethod" select owns these three config booleans.
+-- set_option_value refreshes the select when any of them is written directly
+-- (console action / reload), since they no longer have their own panel option.
+local SQUAD_CREATE_METHOD_KEYS = {
+	rightClickSquadCreate = true,
+	ctrlRightClickCreatesSquad = true,
+	ctrlRightClickDragCreatesSquad = true,
+}
 
-local function get_option_id(spec)
-	return "squad_selection__" .. spec.configVariable
+-- The squad-creation-method select's panel value (1-based) derived from the three
+-- mutually-exclusive config booleans. 1 = Off; order matches its `options` list.
+local function squad_create_method_index()
+	if config.rightClickSquadCreate then
+		return 2
+	end
+	if config.ctrlRightClickCreatesSquad then
+		return 3
+	end
+	if config.ctrlRightClickDragCreatesSquad then
+		return 4
+	end
+	return 1
 end
 
 
--- Single config-write entry point. Writes config[key], then mirrors onto the
--- panel option (if registered). For selects, translates the stored string to
--- the panel's 1-based index. No-op on the panel side for keys without a spec.
--- Forward declaration: defined near the lifecycle section; the excludedUnitTypes
--- chat commands below call it so list edits take effect without a widget reload.
-local rebuild_tracking
-
+-- Single config-write entry point. Writes config[key], then mirrors the change
+-- onto the registered panel option (if any) so the panel UI reflects it; for
+-- selects it translates the stored value to the panel's 1-based index. Defined
+-- above OPTION_SPECS so build_option's squadCreateMethod onchange can capture it.
 local function set_option_value(key, value)
 	config[key] = value
+	-- Mirror direct writes of the squad-create booleans onto the select.
+	if SQUAD_CREATE_METHOD_KEYS[key] then
+		local sel = panel_options_by_key["squadCreateMethod"]
+		if sel then
+			sel.value = squad_create_method_index()
+		end
+	end
 	local option = panel_options_by_key[key]
 	if not option then
 		return
@@ -2088,6 +1958,153 @@ local function set_option_value(key, value)
 end
 
 
+local OPTION_SPECS = {
+	{
+		configVariable = "cyclingToNextSquad",
+		name = "Cycle to next squad on retap",
+		description = "If squad selection would produce the current selection, selects from the next-closest squad instead.",
+		type = "bool",
+	}, {
+		configVariable = "leftClickSelectsSquad",
+		name = "Modifier+left-click selects squad",
+		description = "Ctrl-click empty ground triggers squad select. Ctrl+Shift = append, +Alt = filtered.",
+		type = "bool",
+	}, {
+		configVariable = "leftClickAppendFiltersDomain",
+		name = "Left-click append filters by domain",
+		description = "Shift-click squad append merges stick to the squad's domain (nearby air squads are skipped if you have a land squad selected). Double-tap squad append to do the opposite.",
+		type = "bool",
+		category = OPTION_ADVANCED,
+	}, {
+		configVariable = "leftClickFilteredRetargets",
+		name = "Left-click filtered retargets",
+		description = "Alt+Ctrl-click swings the active filter to the closest unit's type even when it's not in the current selection.",
+		type = "bool",
+		category = OPTION_ADVANCED,
+	}, {
+		-- One select drives the three mutually-exclusive rightClick* booleans;
+		-- build_option / set_option_value special-case it by this configVariable.
+		configVariable = "squadCreateMethod", -- id/registry anchor; not a real config field
+		name = "Right-click creates squad",
+		description = "How right-click groups the current selection into a new squad. The engine's move command still issues alongside it.",
+		type = "select",
+		options = {"Off", "Right-click", "Ctrl+right-click", "Ctrl+right-click drag"},
+	}, {
+		configVariable = "showReserveSquads",
+		name = "Show reserve squads",
+		description = "Visualize per-factory reserves and the uncategorized domain reserves.",
+		type = "bool",
+	}, {
+		configVariable = "mergeIntoReserves",
+		name = "Merge into reserves",
+		description = "When on, appending a reserve squad to selection and running squad_create merges your selection into it. When off, squad_create always creates a fresh manual squad.",
+		type = "bool",
+		category = OPTION_ADVANCED,
+	}, {
+		configVariable = "selectionAutoExtend",
+		name = "Auto-extend selection with new units",
+		description = "When on, units freshly built into a fully selected reserve auto-extend your current selection.",
+		type = "bool",
+		category = OPTION_ADVANCED,
+	}, {
+		configVariable = "mruSize",
+		name = "Recent-squad cycle size",
+		description = "How many recent squads squad_cycle_recent cycles through.",
+		type = "slider",
+		min = 1,
+		max = 9,
+		step = 1,
+		category = OPTION_ADVANCED,
+	}, {
+		configVariable = "convexHullPadding",
+		name = "Hull padding",
+		description = "Distance (in elmos) between units and the hull boundary.",
+		type = "slider",
+		min = 0,
+		max = 200,
+		step = 5,
+		category = OPTION_ADVANCED,
+	}, {
+		configVariable = "convexHullArcResolution",
+		name = "Hull arc resolution",
+		description = "Angle each chord of the rounded corners spans, in radians. Smaller is smoother but more expensive.",
+		type = "slider",
+		min = 0.05,
+		max = 1.0,
+		step = 0.05,
+		category = OPTION_ADVANCED,
+	}, {
+		configVariable = "convexHullFillOpacity",
+		name = "Hull fill opacity",
+		type = "slider",
+		min = 0,
+		max = 1,
+		step = 0.05,
+		category = OPTION_ADVANCED,
+	}, {
+		configVariable = "convexHullBorderOpacity",
+		name = "Hull border opacity",
+		type = "slider",
+		min = 0,
+		max = 1,
+		step = 0.05,
+		category = OPTION_ADVANCED,
+	}, {
+		configVariable = "convexHullBorderThickness",
+		name = "Hull border thickness",
+		type = "slider",
+		min = 0.5,
+		max = 5,
+		step = 0.5,
+		category = OPTION_ADVANCED,
+	}, {
+		configVariable = "convexHullColorMode",
+		name = "Hull color mode",
+		description = "Team color, a single custom color, or a unique color per squad.",
+		type = "select",
+		options = {"team", "custom", "squad"},
+		category = OPTION_ADVANCED,
+	}, {
+		configVariable = "convexHullCustomColorR",
+		name = "Custom color Red",
+		type = "slider",
+		min = 0,
+		max = 1,
+		step = 0.05,
+		category = OPTION_ADVANCED,
+	}, {
+		configVariable = "convexHullCustomColorG",
+		name = "Custom color Green",
+		type = "slider",
+		min = 0,
+		max = 1,
+		step = 0.05,
+		category = OPTION_ADVANCED,
+	}, {
+		configVariable = "convexHullCustomColorB",
+		name = "Custom color Blue",
+		type = "slider",
+		min = 0,
+		max = 1,
+		step = 0.05,
+		category = OPTION_ADVANCED,
+	}}
+
+-- Populate the forward-declared OPTION_SPECS_BY_KEY now that OPTION_SPECS exists.
+OPTION_SPECS_BY_KEY = {}
+for i = 1, #OPTION_SPECS do
+	OPTION_SPECS_BY_KEY[OPTION_SPECS[i].configVariable] = OPTION_SPECS[i]
+end
+
+local function get_option_id(spec)
+	return "squad_selection__" .. spec.configVariable
+end
+
+
+-- Forward declaration: defined near the lifecycle section; the excludedUnitTypes
+-- chat commands below call it so list edits take effect without a widget reload.
+local rebuild_tracking
+
 local function build_option(spec)
 	local option = {}
 	for k, v in pairs(spec) do
@@ -2096,20 +2113,33 @@ local function build_option(spec)
 	option.configVariable = nil
 	option.widgetName = widget:GetInfo().name
 	option.id = get_option_id(spec)
+
 	-- Seed value from current config (panel-shape: index for selects).
 	if spec.type == "select" then
-		option.value = 1
-		for i, v in ipairs(spec.options) do
-			if config[spec.configVariable] == v then
-				option.value = i
-				break
+		if spec.configVariable == "squadCreateMethod" then
+			option.value = squad_create_method_index()
+		else
+			option.value = 1
+			for i, v in ipairs(spec.options) do
+				if config[spec.configVariable] == v then
+					option.value = i
+					break
+				end
 			end
 		end
 	else
 		option.value = config[spec.configVariable]
 	end
+
 	-- Translate panel-shape value back to config-shape, then write through.
 	option.onchange = function(_, panel_value)
+		if spec.configVariable == "squadCreateMethod" then
+			-- One control, three mutually-exclusive booleans (1 = Off).
+			set_option_value("rightClickSquadCreate", panel_value == 2)
+			set_option_value("ctrlRightClickCreatesSquad", panel_value == 3)
+			set_option_value("ctrlRightClickDragCreatesSquad", panel_value == 4)
+			return
+		end
 		local config_value = panel_value
 		if spec.type == "select" then
 			config_value = spec.options[panel_value]
