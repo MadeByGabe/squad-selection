@@ -39,7 +39,7 @@ local config = {
 	viewselectionDoubleTapMs = 300, -- second rapid same-place non-append squad-select tap (single-step, or multi-step at the last step) calls viewselection on the just-selected squad (0 disables)
 	viewselectionDoubleTapPx = 5, -- max screen-pixel distance between the two taps
 	mruSize = 3, -- how many recent squads squad_cycle_recent cycles through
-	excludedUnitTypes = "", -- comma-separated unit names to exclude from squad tracking (e.g. "armrectr,cornecro")
+	excludedUnitTypes = "armrectr,cornecro,legrezbot", -- comma-separated unit names to exclude from squad tracking
 	visualizationMode = "convexHull", -- "convexHull" or "none"
 	convexHullPadding = 60, -- space (in elmos) between the units and the hull boundary
 	convexHullArcResolution = 0.4, -- angle that each chord of the arc spans in radians; smaller = smoother but more expensive
@@ -341,11 +341,21 @@ local function get_defid(unit_id)
 end
 
 
+-- Mobile units that have buildOptions but should still be squad-eligible (combat
+-- units that happen to be able to build, e.g. the Commando and Infestor). The
+-- default exclusion of buildOptions units is meant to skip construction units and
+-- factories; these are exceptions to that rule. User exclusions still apply on
+-- top of this, so these can be added to excludedUnitTypes to drop them again.
+local BUILDOPTIONS_ELIGIBLE = {
+	cormando = true,
+	leginfestor = true,
+}
+
 --- Pre-compute is_combat for every defID in one pass.
 local function classify_unitdefs()
 	for defID, def in pairs(UnitDefs) do
 		-- Squad eligibility, speed is needed because of mines
-		if def.canMove and def.speed and def.speed > 0 and not (def.buildOptions and #def.buildOptions > 0) then
+		if def.canMove and def.speed and def.speed > 0 and (BUILDOPTIONS_ELIGIBLE[def.name] or not (def.buildOptions and #def.buildOptions > 0)) then
 			is_combat[defID] = true
 		else
 			is_combat[defID] = false
