@@ -41,6 +41,7 @@ local config = {
 	mruSize = 3, -- how many recent squads squad_cycle_recent cycles through
 	excludedUnitTypes = "armrectr,cornecro,legrezbot", -- comma-separated unit names to exclude from squad tracking
 	visualizationMode = "convexHull", -- "convexHull" or "none"
+	showVisualizationOptions = false, -- panel-only: reveal the detailed hull options
 	convexHullPadding = 60, -- space (in elmos) between the units and the hull boundary
 	convexHullArcResolution = 0.4, -- angle that each chord of the arc spans in radians; smaller = smoother but more expensive
 	convexHullFillOpacity = 0.25,
@@ -1897,22 +1898,23 @@ end
 
 local OPTION_ADVANCED = 2 -- BAR gui_options category constant (basic=1, advanced=2, dev=3)
 
--- Registry tables read by set_option_value. OPTION_SPECS_BY_KEY is forward-
--- declared and populated once OPTION_SPECS exists (below); the others are ready now.
-local panel_options_by_key = {} -- configVariable -> registered panel option table
+local panel_options_by_key = {} -- configVariable -> registered panel option
 local OPTION_SPECS_BY_KEY -- configVariable -> spec (assigned after OPTION_SPECS)
 
--- The synthetic "squadCreateMethod" select owns these three config booleans.
--- set_option_value refreshes the select when any of them is written directly
--- (console action / reload), since they no longer have their own panel option.
+-- Nested panel visibility: the `vis_gate` toggle shows only while hulls are on;
+-- the `visualization` hull options show only while hulls are on and the gate is on.
+local visualization_gate_shown = false
+local visualization_options_shown = false
+local sync_visualization_panel -- assigned after build_option
+
+-- Synthetic "squadCreateMethod" select owning three mutually-exclusive booleans
+-- (1 = Off). set_option_value re-derives the select when any is written directly.
 local SQUAD_CREATE_METHOD_KEYS = {
 	rightClickSquadCreate = true,
 	ctrlRightClickCreatesSquad = true,
 	ctrlRightClickDragCreatesSquad = true,
 }
 
--- The squad-creation-method select's panel value (1-based) derived from the three
--- mutually-exclusive config booleans. 1 = Off; order matches its `options` list.
 local function squad_create_method_index()
 	if config.rightClickSquadCreate then
 		return 2
@@ -1927,13 +1929,50 @@ local function squad_create_method_index()
 end
 
 
--- Single config-write entry point. Writes config[key], then mirrors the change
--- onto the registered panel option (if any) so the panel UI reflects it; for
--- selects it translates the stored value to the panel's 1-based index. Defined
--- above OPTION_SPECS so build_option's squadCreateMethod onchange can capture it.
+-- Synthetic "hullDisplayMode" select owning visualizationMode + showReserveSquads.
+-- 1 = Off, 2 = All squads, 3 = Manual squads only.
+local HULL_DISPLAY_MODE_KEYS = {
+	visualizationMode = true,
+	showReserveSquads = true,
+}
+
+local function hull_display_mode_index()
+	if config.visualizationMode ~= "convexHull" then
+		return 1
+	end
+	if config.showReserveSquads then
+		return 2
+	end
+	return 3
+end
+
+
+-- Single config-write entry point: writes config[key] and mirrors it onto the
+-- registered panel option (selects translate to a 1-based index).
 local function set_option_value(key, value)
 	config[key] = value
-	-- Mirror direct writes of the squad-create booleans onto the select.
+	-- Owned by the hullDisplayMode select; re-derive it and reconcile the
+	-- dependent visualization options (hulls off hides the gate and details).
+	if HULL_DISPLAY_MODE_KEYS[key] then
+		local sel = panel_options_by_key["hullDisplayMode"]
+		if sel then
+			sel.value = hull_display_mode_index()
+		end
+		if sync_visualization_panel then
+			sync_visualization_panel()
+		end
+		return
+	end
+	if key == "showVisualizationOptions" then
+		local toggle = panel_options_by_key["showVisualizationOptions"]
+		if toggle then
+			toggle.value = value
+		end
+		if sync_visualization_panel then
+			sync_visualization_panel()
+		end
+		return
+	end
 	if SQUAD_CREATE_METHOD_KEYS[key] then
 		local sel = panel_options_by_key["squadCreateMethod"]
 		if sel then
@@ -1982,18 +2021,11 @@ local OPTION_SPECS = {
 		type = "bool",
 		category = OPTION_ADVANCED,
 	}, {
-		-- One select drives the three mutually-exclusive rightClick* booleans;
-		-- build_option / set_option_value special-case it by this configVariable.
-		configVariable = "squadCreateMethod", -- id/registry anchor; not a real config field
+		configVariable = "squadCreateMethod", -- synthetic; not a real config field
 		name = "Right-click creates squad",
 		description = "How right-click groups the current selection into a new squad. The engine's move command still issues alongside it.",
 		type = "select",
 		options = {"Off", "Right-click", "Ctrl+right-click", "Ctrl+right-click drag"},
-	}, {
-		configVariable = "showReserveSquads",
-		name = "Show reserve squads",
-		description = "Visualize per-factory reserves and the uncategorized domain reserves.",
-		type = "bool",
 	}, {
 		configVariable = "mergeIntoReserves",
 		name = "Merge into reserves",
@@ -2016,7 +2048,23 @@ local OPTION_SPECS = {
 		step = 1,
 		category = OPTION_ADVANCED,
 	}, {
+		-- Synthetic select owning visualizationMode + showReserveSquads.
+		configVariable = "hullDisplayMode", -- synthetic; not a real config field
+		name = "Squad hulls",
+		description = "Convex hull outlines around squads; 'Manual squads only' excludes reserves.",
+		type = "select",
+		options = {"Off", "All squads", "Manual squads only"}
+	}, {
+		-- Reveals the hull appearance options below it; shown only while hulls are on.
+		configVariable = "showVisualizationOptions",
+		vis_gate = true,
+		name = "Show visualization options",
+		description = "Reveal the detailed hull appearance settings.",
+		type = "bool",
+		category = OPTION_ADVANCED,
+	}, {
 		configVariable = "convexHullPadding",
+		visualization = true,
 		name = "Hull padding",
 		description = "Distance (in elmos) between units and the hull boundary.",
 		type = "slider",
@@ -2026,6 +2074,7 @@ local OPTION_SPECS = {
 		category = OPTION_ADVANCED,
 	}, {
 		configVariable = "convexHullArcResolution",
+		visualization = true,
 		name = "Hull arc resolution",
 		description = "Angle each chord of the rounded corners spans, in radians. Smaller is smoother but more expensive.",
 		type = "slider",
@@ -2035,6 +2084,7 @@ local OPTION_SPECS = {
 		category = OPTION_ADVANCED,
 	}, {
 		configVariable = "convexHullFillOpacity",
+		visualization = true,
 		name = "Hull fill opacity",
 		type = "slider",
 		min = 0,
@@ -2043,6 +2093,7 @@ local OPTION_SPECS = {
 		category = OPTION_ADVANCED,
 	}, {
 		configVariable = "convexHullBorderOpacity",
+		visualization = true,
 		name = "Hull border opacity",
 		type = "slider",
 		min = 0,
@@ -2051,6 +2102,7 @@ local OPTION_SPECS = {
 		category = OPTION_ADVANCED,
 	}, {
 		configVariable = "convexHullBorderThickness",
+		visualization = true,
 		name = "Hull border thickness",
 		type = "slider",
 		min = 0.5,
@@ -2059,6 +2111,7 @@ local OPTION_SPECS = {
 		category = OPTION_ADVANCED,
 	}, {
 		configVariable = "convexHullColorMode",
+		visualization = true,
 		name = "Hull color mode",
 		description = "Team color, a single custom color, or a unique color per squad.",
 		type = "select",
@@ -2066,6 +2119,7 @@ local OPTION_SPECS = {
 		category = OPTION_ADVANCED,
 	}, {
 		configVariable = "convexHullCustomColorR",
+		visualization = true,
 		name = "Custom color Red",
 		type = "slider",
 		min = 0,
@@ -2074,6 +2128,7 @@ local OPTION_SPECS = {
 		category = OPTION_ADVANCED,
 	}, {
 		configVariable = "convexHullCustomColorG",
+		visualization = true,
 		name = "Custom color Green",
 		type = "slider",
 		min = 0,
@@ -2082,6 +2137,7 @@ local OPTION_SPECS = {
 		category = OPTION_ADVANCED,
 	}, {
 		configVariable = "convexHullCustomColorB",
+		visualization = true,
 		name = "Custom color Blue",
 		type = "slider",
 		min = 0,
@@ -2114,10 +2170,12 @@ local function build_option(spec)
 	option.widgetName = widget:GetInfo().name
 	option.id = get_option_id(spec)
 
-	-- Seed value from current config (panel-shape: index for selects).
+	-- Seed from config (selects store a 1-based index).
 	if spec.type == "select" then
 		if spec.configVariable == "squadCreateMethod" then
 			option.value = squad_create_method_index()
+		elseif spec.configVariable == "hullDisplayMode" then
+			option.value = hull_display_mode_index()
 		else
 			option.value = 1
 			for i, v in ipairs(spec.options) do
@@ -2131,10 +2189,14 @@ local function build_option(spec)
 		option.value = config[spec.configVariable]
 	end
 
-	-- Translate panel-shape value back to config-shape, then write through.
+	-- Translate the panel value back to config shape, then write through.
 	option.onchange = function(_, panel_value)
+		if spec.configVariable == "hullDisplayMode" then
+			set_option_value("visualizationMode", panel_value == 1 and "none" or "convexHull")
+			set_option_value("showReserveSquads", panel_value == 2)
+			return
+		end
 		if spec.configVariable == "squadCreateMethod" then
-			-- One control, three mutually-exclusive booleans (1 = Off).
 			set_option_value("rightClickSquadCreate", panel_value == 2)
 			set_option_value("ctrlRightClickCreatesSquad", panel_value == 3)
 			set_option_value("ctrlRightClickDragCreatesSquad", panel_value == 4)
@@ -2152,23 +2214,73 @@ local function build_option(spec)
 end
 
 
+-- Add or remove every OPTION_SPEC carrying `flag`; returns the new shown-state.
+local function apply_option_group(flag, show, currently_shown)
+	if show == currently_shown or not (WG['options'] and WG['options'].addOptions) then
+		return currently_shown
+	end
+	if show then
+		local options = {}
+		for i = 1, #OPTION_SPECS do
+			local spec = OPTION_SPECS[i]
+			if spec[flag] then
+				local option = build_option(spec)
+				options[#options + 1] = option
+				panel_options_by_key[spec.configVariable] = option
+			end
+		end
+		WG['options'].addOptions(options)
+	else
+		local ids = {}
+		for i = 1, #OPTION_SPECS do
+			local spec = OPTION_SPECS[i]
+			if spec[flag] then
+				ids[#ids + 1] = get_option_id(spec)
+				panel_options_by_key[spec.configVariable] = nil
+			end
+		end
+		WG['options'].removeOptions(ids)
+	end
+	return show
+end
+
+
+-- Reconcile both nested levels to config. Gate is added before the details so
+-- that, when both reveal at once, they stack in order beneath it.
+sync_visualization_panel = function()
+	local hulls_on = (config.visualizationMode == "convexHull")
+	visualization_gate_shown = apply_option_group("vis_gate", hulls_on, visualization_gate_shown)
+	visualization_options_shown = apply_option_group(
+		"visualization", hulls_on and config.showVisualizationOptions, visualization_options_shown)
+end
+
+
 local function register_options()
 	if not (WG['options'] and WG['options'].addOptions) then
 		return
 	end
+	-- Register the always-shown options; sync_visualization_panel then appends the
+	-- gate and hull options as needed, so they land beneath the hull select.
 	local options = {}
 	for i = 1, #OPTION_SPECS do
 		local spec = OPTION_SPECS[i]
-		local option = build_option(spec)
-		options[i] = option
-		panel_options_by_key[spec.configVariable] = option
+		if not spec.vis_gate and not spec.visualization then
+			local option = build_option(spec)
+			options[#options + 1] = option
+			panel_options_by_key[spec.configVariable] = option
+		end
 	end
 	WG['options'].addOptions(options)
+	visualization_gate_shown = false
+	visualization_options_shown = false
+	sync_visualization_panel()
 end
 
 
 local function unregister_options()
 	panel_options_by_key = {}
+	visualization_gate_shown = false
+	visualization_options_shown = false
 	if not (WG['options'] and WG['options'].removeOptions) then
 		return
 	end
