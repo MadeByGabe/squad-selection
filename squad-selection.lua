@@ -2452,9 +2452,9 @@ end
 local team_color = {1, 1, 1}
 
 -- Wipe and rebuild all squad tracking from scratch. Shared by widget:Initialize
--- and the live exclusion actions so a change to excludedUnitTypes takes effect
--- immediately (re-classify + re-route every unit) instead of waiting for a
--- manual widget reload. Returns the number of combat units routed.
+-- and the excludedUnitTypes chat commands so a change to the exclusion list
+-- takes effect immediately (re-classify + re-route every unit) instead of
+-- waiting for a manual widget reload. Returns the number of combat units routed.
 -- (forward-declared above so the excludedUnitTypes chat commands can call it.)
 function rebuild_tracking()
 	squads = {}
@@ -2507,91 +2507,6 @@ function rebuild_tracking()
 end
 
 
--- Distinct unitDef names of the currently selected units, in selection order.
-local function selected_unit_def_names()
-	local sel = spGetSelectedUnits()
-	local names = {}
-	local seen = {}
-	for i = 1, #sel do
-		local def_id = get_defid(sel[i])
-		if def_id then
-			local def = UnitDefs[def_id]
-			if def and def.name and not seen[def.name] then
-				seen[def.name] = true
-				names[#names + 1] = def.name
-			end
-		end
-	end
-	return names
-end
-
-
--- Parse config.excludedUnitTypes into a dedup set plus an ordered list.
-local function parse_excluded_set()
-	local set = {}
-	local order = {}
-	for entry in config.excludedUnitTypes:gmatch("[^,]+") do
-		local e = entry:match("^%s*(.-)%s*$")
-		if e ~= "" and not set[e] then
-			set[e] = true
-			order[#order + 1] = e
-		end
-	end
-	return set, order
-end
-
-
--- Add (exclude=true) or remove (exclude=false) the selected units' types from
--- the exclusion list, then rebuild live. Backs the two actions below.
-local function change_selection_exclusion(exclude)
-	local names = selected_unit_def_names()
-	if #names == 0 then
-		spEcho("[Squad] No units selected to " .. (exclude and "exclude" or "unexclude"))
-		return
-	end
-	local in_selection = {}
-	for i = 1, #names do
-		in_selection[names[i]] = true
-	end
-
-	local set, order = parse_excluded_set()
-	local result = {}
-	local changed = 0
-	-- Keep existing entries (dropping selected ones when unexcluding).
-	for i = 1, #order do
-		if not exclude and in_selection[order[i]] then
-			changed = changed + 1
-		else
-			result[#result + 1] = order[i]
-		end
-	end
-	-- Append newly-excluded entries that weren't already listed.
-	if exclude then
-		for i = 1, #names do
-			if not set[names[i]] then
-				set[names[i]] = true
-				result[#result + 1] = names[i]
-				changed = changed + 1
-			end
-		end
-	end
-
-	set_option_value("excludedUnitTypes", table.concat(result, ","))
-	rebuild_tracking()
-	spEcho("[Squad] " .. (exclude and "Excluded " or "Unexcluded ") .. changed .. (exclude and " new" or "") .. " type(s); excludedUnitTypes = \"" .. config.excludedUnitTypes .. "\"")
-end
-
-
-local function squad_exclude_selected()
-	change_selection_exclusion(true)
-end
-
-
-local function squad_unexclude_selected()
-	change_selection_exclusion(false)
-end
-
-
 function widget:Initialize()
 	if spGetSpectatingState() or spIsReplay() then
 		log("Spectating or replay mode detected, not initializing")
@@ -2617,8 +2532,6 @@ function widget:Initialize()
 	widgetHandler:AddAction("squad_setting", squad_setting, nil, "t")
 	widgetHandler:AddAction("squad_cycle_recent", squad_cycle_recent, nil, "pt")
 	widgetHandler:AddAction("squad_cycle_idle", squad_cycle_idle, nil, "pt")
-	widgetHandler:AddAction("squad_exclude_selected", squad_exclude_selected, nil, "t")
-	widgetHandler:AddAction("squad_unexclude_selected", squad_unexclude_selected, nil, "t")
 
 	-- WG interface. Auto-generates
 	-- get<Key>/set<Key> pairs for every exposed config key.
@@ -2796,8 +2709,6 @@ function widget:Shutdown()
 	widgetHandler:RemoveAction("squad_setting")
 	widgetHandler:RemoveAction("squad_cycle_recent")
 	widgetHandler:RemoveAction("squad_cycle_idle")
-	widgetHandler:RemoveAction("squad_exclude_selected")
-	widgetHandler:RemoveAction("squad_unexclude_selected")
 	cleanup_gl_hull()
 	log("Shutdown")
 end

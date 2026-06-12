@@ -1,7 +1,7 @@
 function widget:GetInfo()
 	return {
 		name = "Squad Selection Buttons",
-		desc = "Squad Selection companion widget: on-screen buttons for the cursor-independent actions (cycle idle, cycle recent, create squad). Anchors above the advanced player list if present.",
+		desc = "Squad Selection companion widget: on-screen buttons for the cursor-independent actions (cycle idle, cycle recent, create squad, exclude/include selected types). Anchors above the advanced player list if present.",
 		author = "Baldric",
 		date = "2026",
 		license = "GNU GPL, v2 or later",
@@ -23,6 +23,9 @@ local spGetMouseState = Spring.GetMouseState
 local spIsGUIHidden = Spring.IsGUIHidden
 local spSendCommands = Spring.SendCommands
 local spGetConfigFloat = Spring.GetConfigFloat
+local spGetSelectedUnits = Spring.GetSelectedUnits
+local spGetUnitDefID = Spring.GetUnitDefID
+local spEcho = Spring.Echo
 
 local glColor = gl.Color
 local glRect = gl.Rect
@@ -42,7 +45,56 @@ local buttons = {
 		label = "Create",
 		action = "squad_create",
 		tooltip = "Group the current selection into a squad",
+	}, {
+		label = "Exclude",
+		action = "squad_exclude_selected",
+		tooltip = "Stop squad-tracking the selected units' types (adds them to excludedUnitTypes)",
+	}, {
+		label = "Include",
+		action = "squad_unexclude_selected",
+		tooltip = "Resume squad-tracking the selected units' types (removes them from excludedUnitTypes)",
 	}}
+
+
+-- Exclude/include the selected units' types from squad tracking. Implemented
+-- here (not in the main widget) on top of the main widget's
+-- `squad_setting add/remove excludedUnitTypes` chat commands, which dedupe,
+-- rebuild tracking live, and echo the resulting list. Registered as actions so
+-- they stay hotkey-bindable; the buttons fire them through the same path.
+local function selected_unit_def_names()
+	local sel = spGetSelectedUnits()
+	local names = {}
+	local seen = {}
+	for i = 1, #sel do
+		local def_id = spGetUnitDefID(sel[i])
+		local def = def_id and UnitDefs[def_id]
+		if def and def.name and not seen[def.name] then
+			seen[def.name] = true
+			names[#names + 1] = def.name
+		end
+	end
+	return names
+end
+
+
+local function change_selection_exclusion(exclude)
+	local names = selected_unit_def_names()
+	if #names == 0 then
+		spEcho("[Squad] No units selected to " .. (exclude and "exclude" or "unexclude"))
+		return
+	end
+	spSendCommands("squad_setting " .. (exclude and "add" or "remove") .. " excludedUnitTypes " .. table.concat(names, " "))
+end
+
+
+local function squad_exclude_selected()
+	change_selection_exclusion(true)
+end
+
+
+local function squad_unexclude_selected()
+	change_selection_exclusion(false)
+end
 
 local vsx, vsy = spGetViewGeometry()
 
@@ -240,6 +292,8 @@ end
 
 function widget:Initialize()
 	resolveUI()
+	widgetHandler:AddAction("squad_exclude_selected", squad_exclude_selected, nil, "t")
+	widgetHandler:AddAction("squad_unexclude_selected", squad_unexclude_selected, nil, "t")
 	WG['squadselection_buttons'] = {
 		GetPosition = get_row_position,
 	}
@@ -247,6 +301,8 @@ end
 
 
 function widget:Shutdown()
+	widgetHandler:RemoveAction("squad_exclude_selected")
+	widgetHandler:RemoveAction("squad_unexclude_selected")
 	WG['squadselection_buttons'] = nil
 end
 
