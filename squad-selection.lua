@@ -37,7 +37,7 @@ local config = {
 	selectionAutoExtend = false, -- when true, freshly built units auto-extend the current selection while their reserve is fully selected (the wait/patrol rally opt-out still applies on top)
 	showReserveSquads = false, -- when true, auto per-factory reserves + uncategorized reserve are visualized
 	viewselectionDoubleTapMs = 300, -- second rapid same-place non-append squad-select tap (single-step, or multi-step at the last step) calls viewselection on the just-selected squad (0 disables)
-	viewselectionDoubleTapPx = 5, -- max screen-pixel distance between the two taps
+	viewselectionDoubleTapPx = 5, -- max screen-pixel distance between the two taps (0 disables the gesture, same as Ms — the comparison is strict)
 	mruSize = 3, -- how many recent squads squad_cycle_recent cycles through
 	excludedUnitTypes = "armrectr,cornecro,legrezbot", -- comma-separated unit names to exclude from squad tracking
 	visualizationMode = "convexHull", -- "convexHull" or "none"
@@ -741,10 +741,10 @@ local function create_squad_from_selection(unit_that_must_be_in_selection)
 	-- (or partial squads). If it fully contains a reserve squad in that mix
 	-- AND the player's last widget squad-select targeted that same reserve,
 	-- merge the rest of the selection INTO that reserve instead of creating a
-	-- new manual squad. First match wins. When the selection is exactly one
-	-- reserve (`existing` set + is_reserve), we skip this branch and fall
-	-- through to new-squad creation — extracting the reserve into a manual
-	-- squad is the intended action in that case.
+	-- new manual squad. When the selection is exactly one reserve (`existing`
+	-- set + is_reserve), we skip this branch and fall through to new-squad
+	-- creation — extracting the reserve into a manual squad is the intended
+	-- action in that case.
 	--
 	-- The `last_squad_select.squad == sq` gate captures player intent: merging
 	-- only happens when the player explicitly squad-selected the reserve via
@@ -759,34 +759,33 @@ local function create_squad_from_selection(unit_that_must_be_in_selection)
 		for i = 1, #selected do
 			selected_set[selected[i]] = true
 		end
-		for _, sq in ipairs(squads) do
-			if sq == target_reserve and squad_fully_selected(sq, selected_set) then
-				local moved = 0
-				for i = 1, #selected do
-					local u = selected[i]
-					local def_id = get_defid(u)
-					if def_id and is_combat[def_id] and unit_squad[u] ~= sq then
-						remove_from_squad(u)
-						add_to_squad(u, sq)
-						moved = moved + 1
-					end
+		if squad_fully_selected(target_reserve, selected_set) then
+			local sq = target_reserve
+			local moved = 0
+			for i = 1, #selected do
+				local u = selected[i]
+				local def_id = get_defid(u)
+				if def_id and is_combat[def_id] and unit_squad[u] ~= sq then
+					remove_from_squad(u)
+					add_to_squad(u, sq)
+					moved = moved + 1
 				end
-				prune_empty_squads()
-				player_input_since_last_resquad = false
-				notify_squad_change("rebuild", nil, nil)
-				selection_dirty = true
-				push_to_mru(sq)
-
-				local units = {}
-				for i = 1, #sq do
-					units[i] = sq[i]
-				end
-				spSelectUnitArray(units)
-
-				log("Merged ", moved, " unit(s) → reserve squad [", sq.index or "?", "]")
-				log_squads()
-				return
 			end
+			prune_empty_squads()
+			player_input_since_last_resquad = false
+			notify_squad_change("rebuild", nil, nil)
+			selection_dirty = true
+			push_to_mru(sq)
+
+			local units = {}
+			for i = 1, #sq do
+				units[i] = sq[i]
+			end
+			spSelectUnitArray(units)
+
+			log("Merged ", moved, " unit(s) → reserve squad [", sq.index or "?", "]")
+			log_squads()
+			return
 		end
 	end
 
@@ -2053,7 +2052,7 @@ local OPTION_SPECS = {
 		name = "Squad hulls",
 		description = "Convex hull outlines around squads; 'Manual squads only' excludes reserves.",
 		type = "select",
-		options = {"Off", "All squads", "Manual squads only"}
+		options = {"Off", "All squads", "Manual squads only"},
 	}, {
 		-- Reveals the hull appearance options below it; shown only while hulls are on.
 		configVariable = "showVisualizationOptions",
@@ -2250,8 +2249,7 @@ end
 sync_visualization_panel = function()
 	local hulls_on = (config.visualizationMode == "convexHull")
 	visualization_gate_shown = apply_option_group("vis_gate", hulls_on, visualization_gate_shown)
-	visualization_options_shown = apply_option_group(
-		"visualization", hulls_on and config.showVisualizationOptions, visualization_options_shown)
+	visualization_options_shown = apply_option_group("visualization", hulls_on and config.showVisualizationOptions, visualization_options_shown)
 end
 
 
@@ -2315,6 +2313,7 @@ local function squad_setting(_, _, args)
 		for k, v in pairs(config_defaults) do
 			set_option_value(k, v)
 		end
+		rebuild_tracking()
 		spEcho("[Squad] Config reset to defaults from squad-selection.lua")
 		return
 	end
@@ -2756,12 +2755,14 @@ function widget:UnitCreated(unit_id, unit_def_id, unit_team, builder_id)
 		--   Uncategorized reserve → no rally to inspect; fall back to the
 		--     unit's own queue. Covers resurrection bots, which wake with
 		--     CMD_WAIT until fully healed.
-		if sq.from_factory and builder_id then
-			if factory_rally_ends_with_wait_or_patrol(builder_id) then
+		if extend_selection then
+			if sq.from_factory and builder_id then
+				if factory_rally_ends_with_wait_or_patrol(builder_id) then
+					extend_selection = false
+				end
+			elseif unit_queue_has_wait(unit_id) then
 				extend_selection = false
 			end
-		elseif extend_selection and unit_queue_has_wait(unit_id) then
-			extend_selection = false
 		end
 		add_to_squad(unit_id, sq)
 		if extend_selection then
