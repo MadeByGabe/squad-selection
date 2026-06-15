@@ -61,13 +61,13 @@ local buttons = {
 -- `squad_setting add/remove excludedUnitTypes` chat commands, which dedupe,
 -- rebuild tracking live, and echo the resulting list. Registered as actions so
 -- they stay hotkey-bindable; the buttons fire them through the same path.
-local function selected_unit_def_names()
+local function selectedUnitDefNames()
 	local sel = spGetSelectedUnits()
 	local names = {}
 	local seen = {}
 	for i = 1, #sel do
-		local def_id = spGetUnitDefID(sel[i])
-		local def = def_id and UnitDefs[def_id]
+		local defId = spGetUnitDefID(sel[i])
+		local def = defId and UnitDefs[defId]
 		if def and def.name and not seen[def.name] then
 			seen[def.name] = true
 			names[#names + 1] = def.name
@@ -77,8 +77,8 @@ local function selected_unit_def_names()
 end
 
 
-local function change_selection_exclusion(exclude)
-	local names = selected_unit_def_names()
+local function changeSelectionExclusion(exclude)
+	local names = selectedUnitDefNames()
 	if #names == 0 then
 		spEcho("[Squad] No units selected to " .. (exclude and "exclude" or "unexclude"))
 		return
@@ -87,13 +87,13 @@ local function change_selection_exclusion(exclude)
 end
 
 
-local function squad_exclude_selected()
-	change_selection_exclusion(true)
+local function squadExcludeSelected()
+	changeSelectionExclusion(true)
 end
 
 
-local function squad_unexclude_selected()
-	change_selection_exclusion(false)
+local function squadUnexcludeSelected()
+	changeSelectionExclusion(false)
 end
 
 local vsx, vsy = spGetViewGeometry()
@@ -183,7 +183,7 @@ end
 -- Same shape advplayerslist publishes ({ top, left, bottom, right, scale }) so
 -- a consumer reads [1] as our top edge and anchors above it, exactly the way we
 -- anchor on advplayerslist. Computed fresh on each call so it's never stale.
-local function get_row_position()
+local function getRowPosition()
 	local scale = getScale()
 	local left, bottom, right, top = getRowRect(scale)
 	return {top, left, bottom, right, scale}
@@ -292,10 +292,10 @@ end
 
 function widget:Initialize()
 	resolveUI()
-	widgetHandler:AddAction("squad_exclude_selected", squad_exclude_selected, nil, "t")
-	widgetHandler:AddAction("squad_unexclude_selected", squad_unexclude_selected, nil, "t")
+	widgetHandler:AddAction("squad_exclude_selected", squadExcludeSelected, nil, "t")
+	widgetHandler:AddAction("squad_unexclude_selected", squadUnexcludeSelected, nil, "t")
 	WG['squadselection_buttons'] = {
-		GetPosition = get_row_position,
+		GetPosition = getRowPosition,
 	}
 end
 

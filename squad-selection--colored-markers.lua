@@ -27,18 +27,18 @@ local popElementInstance = InstanceVBOTable and InstanceVBOTable.popElementInsta
 local MARKER_SIZE_PX = 12
 local MARKER_OPACITY = 0.5
 
-local marker_ready = false
-local marker_init_failed = false
-local marker_fail_reason = nil
-local marker_shader = nil
+local markerReady = false
+local markerInitFailed = false
+local markerFailReason = nil
+local markerShader = nil
 local markerInstanceVBO = nil
 local markerQuadVBO = nil
-local marker_instance_cache = {0, 0, 0, 0, 0, 0, 0}
+local markerInstanceCache = {0, 0, 0, 0, 0, 0, 0}
 
-local listener_fn = nil
-local show_reserves_cache = false
+local listenerFn = nil
+local showReservesCache = false
 
-local marker_vs_src = [[
+local markerVsSrc = [[
 #version 430
 #extension GL_ARB_uniform_buffer_object : require
 #extension GL_ARB_shader_storage_buffer_object : require
@@ -89,7 +89,7 @@ void main() {
 }
 ]]
 
-local marker_fs_src = [[
+local markerFsSrc = [[
 #version 430
 
 in vec3 v_color;
@@ -108,22 +108,22 @@ void main() {
 }
 ]]
 
-local function init_gl_marker()
-	if marker_ready or marker_init_failed then
-		return marker_ready
+local function initGlMarker()
+	if markerReady or markerInitFailed then
+		return markerReady
 	end
 	if not LuaShader or not InstanceVBOTable then
-		marker_fail_reason = "GL4 unavailable"
-		marker_init_failed = true
+		markerFailReason = "GL4 unavailable"
+		markerInitFailed = true
 		return false
 	end
 
 	local engineUniformBufferDefs = LuaShader.GetEngineUniformBufferDefs()
-	local vsSrc = marker_vs_src:gsub("//__ENGINEUNIFORMBUFFERDEFS__", engineUniformBufferDefs)
+	local vsSrc = markerVsSrc:gsub("//__ENGINEUNIFORMBUFFERDEFS__", engineUniformBufferDefs)
 
-	marker_shader = LuaShader({
+	markerShader = LuaShader({
 		vertex = vsSrc,
-		fragment = marker_fs_src,
+		fragment = markerFsSrc,
 		uniformFloat = {
 			viewport = {1.0, 1.0},
 			opacity = MARKER_OPACITY,
@@ -131,18 +131,18 @@ local function init_gl_marker()
 		},
 	}, "Squad Colored Markers GL4")
 
-	if not marker_shader:Initialize() then
-		marker_fail_reason = "shader compile failed"
-		marker_shader = nil
-		marker_init_failed = true
+	if not markerShader:Initialize() then
+		markerFailReason = "shader compile failed"
+		markerShader = nil
+		markerInitFailed = true
 		return false
 	end
 
 	markerQuadVBO = glGetVBO(GL.ARRAY_BUFFER, false)
 	if not markerQuadVBO then
-		marker_shader = nil
-		marker_init_failed = true
-		marker_fail_reason = "quad VBO creation failed"
+		markerShader = nil
+		markerInitFailed = true
+		markerFailReason = "quad VBO creation failed"
 		return false
 	end
 	markerQuadVBO:Define(4, {
@@ -169,12 +169,12 @@ local function init_gl_marker()
 	markerInstanceVBO.vertexVBO = markerQuadVBO
 	markerInstanceVBO.VAO = InstanceVBOTable.makeVAOandAttach(markerQuadVBO, markerInstanceVBO.instanceVBO)
 
-	marker_ready = true
+	markerReady = true
 	return true
 end
 
 
-local function cleanup_gl_marker()
+local function cleanupGlMarker()
 	if markerInstanceVBO then
 		if markerInstanceVBO.VAO then
 			markerInstanceVBO.VAO:Delete()
@@ -186,54 +186,54 @@ local function cleanup_gl_marker()
 	if markerQuadVBO then
 		markerQuadVBO:Delete()
 	end
-	if marker_shader and marker_shader.Finalize then
-		marker_shader:Finalize()
+	if markerShader and markerShader.Finalize then
+		markerShader:Finalize()
 	end
 	markerInstanceVBO = nil
 	markerQuadVBO = nil
-	marker_shader = nil
-	marker_ready = false
-	marker_init_failed = false
+	markerShader = nil
+	markerReady = false
+	markerInitFailed = false
 end
 
 
-local function get_api()
+local function getApi()
 	return WG and WG['squadselection']
 end
 
 
-local function marker_visible(sq)
-	return sq and (not sq.is_reserve or show_reserves_cache)
+local function markerVisible(sq)
+	return sq and (not sq.isReserve or showReservesCache)
 end
 
 
-local function push_unit(unit_id, sq)
-	if not marker_ready or not sq.color then
+local function pushUnit(unitId, sq)
+	if not markerReady or not sq.color then
 		return
 	end
-	marker_instance_cache[1] = sq.color[1]
-	marker_instance_cache[2] = sq.color[2]
-	marker_instance_cache[3] = sq.color[3]
-	pushElementInstance(markerInstanceVBO, marker_instance_cache, unit_id, true, false, unit_id)
+	markerInstanceCache[1] = sq.color[1]
+	markerInstanceCache[2] = sq.color[2]
+	markerInstanceCache[3] = sq.color[3]
+	pushElementInstance(markerInstanceVBO, markerInstanceCache, unitId, true, false, unitId)
 end
 
 
-local function pop_unit(unit_id)
-	if not marker_ready then
+local function popUnit(unitId)
+	if not markerReady then
 		return
 	end
-	if markerInstanceVBO.instanceIDtoIndex[unit_id] then
-		popElementInstance(markerInstanceVBO, unit_id)
+	if markerInstanceVBO.instanceIDtoIndex[unitId] then
+		popElementInstance(markerInstanceVBO, unitId)
 	end
 end
 
 
-local function rebuild_all()
-	if not marker_ready then
+local function rebuildAll()
+	if not markerReady then
 		return
 	end
 
-	local api = get_api()
+	local api = getApi()
 	if not api or not api.getSquadState then
 		return
 	end
@@ -243,16 +243,16 @@ local function rebuild_all()
 		return
 	end
 
-	show_reserves_cache = api.getShowReserveSquads and api.getShowReserveSquads() or false
+	showReservesCache = api.getShowReserveSquads and api.getShowReserveSquads() or false
 
 	local desired = {}
 	for i = 1, #state.squads do
 		local sq = state.squads[i]
-		if #sq > 0 and marker_visible(sq) then
+		if #sq > 0 and markerVisible(sq) then
 			for j = 1, #sq do
 				local uid = sq[j]
 				desired[uid] = true
-				push_unit(uid, sq)
+				pushUnit(uid, sq)
 			end
 		end
 	end
@@ -266,24 +266,24 @@ local function rebuild_all()
 end
 
 
-local function on_squad_change(event, unit_id, squad)
-	if not marker_ready and not init_gl_marker() then
+local function onSquadChange(event, unitId, squad)
+	if not markerReady and not initGlMarker() then
 		return
 	end
 
 	if event == "add" then
-		if marker_visible(squad) then
-			push_unit(unit_id, squad)
+		if markerVisible(squad) then
+			pushUnit(unitId, squad)
 		end
 	elseif event == "remove" then
-		pop_unit(unit_id)
+		popUnit(unitId)
 	elseif event == "rebuild" then
-		rebuild_all()
+		rebuildAll()
 	end
 end
 
 
-local draw_error_logged = false
+local drawErrorLogged = false
 
 function widget:Initialize()
 	if not LuaShader or not InstanceVBOTable then
@@ -292,13 +292,13 @@ function widget:Initialize()
 		return
 	end
 
-	local api = get_api()
+	local api = getApi()
 	if api and api.addSquadChangeListener then
-		if init_gl_marker() then
-			listener_fn = on_squad_change
-			api.addSquadChangeListener(listener_fn)
+		if initGlMarker() then
+			listenerFn = onSquadChange
+			api.addSquadChangeListener(listenerFn)
 		else
-			Spring.Echo("[Squad Colored Markers] GL init failed: " .. tostring(marker_fail_reason))
+			Spring.Echo("[Squad Colored Markers] GL init failed: " .. tostring(markerFailReason))
 			widgetHandler:RemoveWidget()
 		end
 	end
@@ -306,20 +306,20 @@ end
 
 
 function widget:Update()
-	if listener_fn then
+	if listenerFn then
 		return
 	end
-	local api = get_api()
+	local api = getApi()
 	if api and api.addSquadChangeListener then
-		if not marker_ready and not init_gl_marker() then
-			if not draw_error_logged then
-				Spring.Echo("[Squad Colored Markers] GL init failed: " .. tostring(marker_fail_reason))
-				draw_error_logged = true
+		if not markerReady and not initGlMarker() then
+			if not drawErrorLogged then
+				Spring.Echo("[Squad Colored Markers] GL init failed: " .. tostring(markerFailReason))
+				drawErrorLogged = true
 			end
 			return
 		end
-		listener_fn = on_squad_change
-		api.addSquadChangeListener(listener_fn)
+		listenerFn = onSquadChange
+		api.addSquadChangeListener(listenerFn)
 	end
 end
 
@@ -328,17 +328,17 @@ function widget:DrawWorldPreUnit()
 	if spIsGUIHidden() then
 		return
 	end
-	if not marker_ready or not markerInstanceVBO or markerInstanceVBO.usedElements == 0 then
+	if not markerReady or not markerInstanceVBO or markerInstanceVBO.usedElements == 0 then
 		return
 	end
 
 	-- Detect showReserveSquads toggle.
-	local api = get_api()
+	local api = getApi()
 	if api then
 		local sr = api.getShowReserveSquads and api.getShowReserveSquads() or false
-		if sr ~= show_reserves_cache then
-			show_reserves_cache = sr
-			rebuild_all()
+		if sr ~= showReservesCache then
+			showReservesCache = sr
+			rebuildAll()
 			if markerInstanceVBO.usedElements == 0 then
 				return
 			end
@@ -350,12 +350,12 @@ function widget:DrawWorldPreUnit()
 	glDepthTest(false)
 	glDepthMask(false)
 	glBlending(GL.SRC_ALPHA, GL.ONE_MINUS_SRC_ALPHA)
-	marker_shader:Activate()
-	marker_shader:SetUniform("viewport", vsx, vsy)
-	marker_shader:SetUniform("opacity", MARKER_OPACITY)
-	marker_shader:SetUniform("size", MARKER_SIZE_PX)
+	markerShader:Activate()
+	markerShader:SetUniform("viewport", vsx, vsy)
+	markerShader:SetUniform("opacity", MARKER_OPACITY)
+	markerShader:SetUniform("size", MARKER_SIZE_PX)
 	markerInstanceVBO.VAO:DrawArrays(GL.TRIANGLE_STRIP, 4, 0, markerInstanceVBO.usedElements, 0)
-	marker_shader:Deactivate()
+	markerShader:Deactivate()
 	glBlending(false)
 	glDepthMask(true)
 	glDepthTest(true)
@@ -363,14 +363,14 @@ end
 
 
 function widget:Shutdown()
-	if listener_fn then
-		local api = get_api()
+	if listenerFn then
+		local api = getApi()
 		if api and api.removeSquadChangeListener then
-			api.removeSquadChangeListener(listener_fn)
+			api.removeSquadChangeListener(listenerFn)
 		end
-		listener_fn = nil
+		listenerFn = nil
 	end
-	cleanup_gl_marker()
+	cleanupGlMarker()
 end
 
 

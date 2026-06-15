@@ -26,7 +26,7 @@ local CIRCLE_SEGMENTS = 32
 local STENCIL_RESOLUTION = 1
 
 local ready = false
-local init_failed = false
+local initFailed = false
 
 local stencilShader = nil
 local fullscreenShader = nil
@@ -36,20 +36,20 @@ local fullscreenVAO = nil
 local fullscreenVBO = nil
 
 local circleInstanceCache = {0, 0, 0, 0, 0, 0, 0, 0}
-local listener_fn = nil
-local show_reserves_cache = false
+local listenerFn = nil
+local showReservesCache = false
 
-local is_air = {} -- defID -> bool
-local defid_cache = {} -- unitID -> defID or false
+local isAir = {} -- defID -> bool
+local defidCache = {} -- unitID -> defID or false
 
-local function get_defid(unit_id)
-	local v = defid_cache[unit_id]
+local function getDefid(unitId)
+	local v = defidCache[unitId]
 	if v ~= nil then
 		return v
 	end
-	local id = Spring.GetUnitDefID(unit_id)
+	local id = Spring.GetUnitDefID(unitId)
 	v = id or false
-	defid_cache[unit_id] = v
+	defidCache[unitId] = v
 	return v
 end
 
@@ -58,7 +58,7 @@ end
 -- Shaders (inline)
 -------------------------------------------------------------------------------
 
-local stencil_vs_src = [[
+local stencilVsSrc = [[
 #version 430 core
 #extension GL_ARB_uniform_buffer_object : require
 #extension GL_ARB_shader_storage_buffer_object : require
@@ -125,7 +125,7 @@ void main() {
 }
 ]]
 
-local stencil_fs_src = [[
+local stencilFsSrc = [[
 #version 430
 #extension GL_ARB_uniform_buffer_object : require
 #extension GL_ARB_shading_language_420pack: require
@@ -145,7 +145,7 @@ void main() {
 }
 ]]
 
-local fullscreen_vs_src = [[
+local fullscreenVsSrc = [[
 #version 430 core
 
 layout (location = 0) in vec2 position;
@@ -158,7 +158,7 @@ void main() {
 }
 ]]
 
-local fullscreen_fs_src = [[
+local fullscreenFsSrc = [[
 #version 430 core
 
 uniform sampler2D stencilTex;
@@ -185,34 +185,34 @@ void main() {
 -- GL init / cleanup
 -------------------------------------------------------------------------------
 
-local function create_stencil_texture()
+local function createStencilTexture()
 	local vsx, vsy = spGetViewGeometry()
 	if stencilTexture then
 		gl.DeleteTexture(stencilTexture)
 	end
 	stencilTexture = gl.CreateTexture(vsx / STENCIL_RESOLUTION, vsy / STENCIL_RESOLUTION, {
 		fbo = true,
-		min_filter = GL.NEAREST,
-		mag_filter = GL.LINEAR,
-		wrap_s = GL.CLAMP_TO_EDGE,
-		wrap_t = GL.CLAMP_TO_EDGE,
+		minFilter = GL.NEAREST,
+		magFilter = GL.LINEAR,
+		wrapS = GL.CLAMP_TO_EDGE,
+		wrapT = GL.CLAMP_TO_EDGE,
 	})
 	return stencilTexture ~= nil
 end
 
 
-local function init_gl()
-	if ready or init_failed then
+local function initGl()
+	if ready or initFailed then
 		return ready
 	end
 	if not gl.CreateShader or not LuaShader or not InstanceVBOTable then
-		init_failed = true
+		initFailed = true
 		return false
 	end
 
 	local engineDefs = LuaShader.GetEngineUniformBufferDefs()
-	local vsSrc = stencil_vs_src:gsub("//__ENGINEUNIFORMBUFFERDEFS__", engineDefs)
-	local fsSrc = stencil_fs_src:gsub("//__ENGINEUNIFORMBUFFERDEFS__", engineDefs)
+	local vsSrc = stencilVsSrc:gsub("//__ENGINEUNIFORMBUFFERDEFS__", engineDefs)
+	local fsSrc = stencilFsSrc:gsub("//__ENGINEUNIFORMBUFFERDEFS__", engineDefs)
 
 	stencilShader = LuaShader({
 		vertex = vsSrc,
@@ -225,13 +225,13 @@ local function init_gl()
 	if not stencilShader:Initialize() then
 		spEcho("[Squad Metaballs] stencil shader compile failed")
 		stencilShader = nil
-		init_failed = true
+		initFailed = true
 		return false
 	end
 
 	fullscreenShader = LuaShader({
-		vertex = fullscreen_vs_src,
-		fragment = fullscreen_fs_src,
+		vertex = fullscreenVsSrc,
+		fragment = fullscreenFsSrc,
 		uniformInt = {
 			stencilTex = 0,
 		},
@@ -242,17 +242,17 @@ local function init_gl()
 		stencilShader:Finalize()
 		stencilShader = nil
 		fullscreenShader = nil
-		init_failed = true
+		initFailed = true
 		return false
 	end
 
-	if not create_stencil_texture() then
+	if not createStencilTexture() then
 		spEcho("[Squad Metaballs] stencil texture creation failed")
 		stencilShader:Finalize()
 		fullscreenShader:Finalize()
 		stencilShader = nil
 		fullscreenShader = nil
-		init_failed = true
+		initFailed = true
 		return false
 	end
 
@@ -290,7 +290,7 @@ local function init_gl()
 end
 
 
-local function cleanup_gl()
+local function cleanupGl()
 	if stencilTexture then
 		gl.DeleteTexture(stencilTexture)
 		stencilTexture = nil
@@ -313,8 +313,8 @@ local function cleanup_gl()
 	fullscreenShader = nil
 	circleInstanceVBO = nil
 	ready = false
-	init_failed = false
-	defid_cache = {}
+	initFailed = false
+	defidCache = {}
 end
 
 
@@ -322,46 +322,46 @@ end
 -- Instance management
 -------------------------------------------------------------------------------
 
-local function get_api()
+local function getApi()
 	return WG and WG['squadselection']
 end
 
 
-local function marker_visible(sq)
-	return sq and (not sq.is_reserve or show_reserves_cache)
+local function markerVisible(sq)
+	return sq and (not sq.isReserve or showReservesCache)
 end
 
 
-local function push_unit(unit_id, sq)
+local function pushUnit(unitId, sq)
 	if not ready or not sq.color then
 		return
 	end
-	local def_id = get_defid(unit_id)
-	circleInstanceCache[1] = (def_id and is_air[def_id]) and -CIRCLE_RADIUS or CIRCLE_RADIUS
+	local defId = getDefid(unitId)
+	circleInstanceCache[1] = (defId and isAir[defId]) and -CIRCLE_RADIUS or CIRCLE_RADIUS
 	circleInstanceCache[2] = sq.color[1]
 	circleInstanceCache[3] = sq.color[2]
 	circleInstanceCache[4] = sq.color[3]
-	pushElementInstance(circleInstanceVBO, circleInstanceCache, unit_id, true, false, unit_id)
+	pushElementInstance(circleInstanceVBO, circleInstanceCache, unitId, true, false, unitId)
 end
 
 
-local function pop_unit(unit_id)
+local function popUnit(unitId)
 	if not ready then
 		return
 	end
-	if circleInstanceVBO.instanceIDtoIndex[unit_id] then
-		popElementInstance(circleInstanceVBO, unit_id)
+	if circleInstanceVBO.instanceIDtoIndex[unitId] then
+		popElementInstance(circleInstanceVBO, unitId)
 	end
-	defid_cache[unit_id] = nil
+	defidCache[unitId] = nil
 end
 
 
-local function rebuild_all()
+local function rebuildAll()
 	if not ready then
 		return
 	end
 
-	local api = get_api()
+	local api = getApi()
 	if not api or not api.getSquadState then
 		return
 	end
@@ -371,16 +371,16 @@ local function rebuild_all()
 		return
 	end
 
-	show_reserves_cache = api.getShowReserveSquads and api.getShowReserveSquads() or false
+	showReservesCache = api.getShowReserveSquads and api.getShowReserveSquads() or false
 
 	local desired = {}
 	for i = 1, #state.squads do
 		local sq = state.squads[i]
-		if #sq > 0 and marker_visible(sq) then
+		if #sq > 0 and markerVisible(sq) then
 			for j = 1, #sq do
 				local uid = sq[j]
 				desired[uid] = true
-				push_unit(uid, sq)
+				pushUnit(uid, sq)
 			end
 		end
 	end
@@ -393,19 +393,19 @@ local function rebuild_all()
 end
 
 
-local function on_squad_change(event, unit_id, squad)
-	if not ready and not init_gl() then
+local function onSquadChange(event, unitId, squad)
+	if not ready and not initGl() then
 		return
 	end
 
 	if event == "add" then
-		if marker_visible(squad) then
-			push_unit(unit_id, squad)
+		if markerVisible(squad) then
+			pushUnit(unitId, squad)
 		end
 	elseif event == "remove" then
-		pop_unit(unit_id)
+		popUnit(unitId)
 	elseif event == "rebuild" then
-		rebuild_all()
+		rebuildAll()
 	end
 end
 
@@ -423,15 +423,15 @@ function widget:Initialize()
 
 	for defID, def in pairs(UnitDefs) do
 		if def.canFly then
-			is_air[defID] = true
+			isAir[defID] = true
 		end
 	end
 
-	local api = get_api()
+	local api = getApi()
 	if api and api.addSquadChangeListener then
-		if init_gl() then
-			listener_fn = on_squad_change
-			api.addSquadChangeListener(listener_fn)
+		if initGl() then
+			listenerFn = onSquadChange
+			api.addSquadChangeListener(listenerFn)
 		else
 			spEcho("[Squad Metaballs] GL init failed, removing widget")
 			widgetHandler:RemoveWidget()
@@ -441,28 +441,28 @@ end
 
 
 function widget:Update()
-	if listener_fn then
+	if listenerFn then
 		return
 	end
-	local api = get_api()
+	local api = getApi()
 	if api and api.addSquadChangeListener then
-		if not ready and not init_gl() then
+		if not ready and not initGl() then
 			return
 		end
-		listener_fn = on_squad_change
-		api.addSquadChangeListener(listener_fn)
+		listenerFn = onSquadChange
+		api.addSquadChangeListener(listenerFn)
 	end
 end
 
 
 function widget:ViewResize()
 	if ready then
-		create_stencil_texture()
+		createStencilTexture()
 	end
 end
 
 
-local function draw_stencil_pass()
+local function drawStencilPass()
 	gl.Clear(GL.COLOR_BUFFER_BIT, 0, 0, 0, 0)
 	gl.Texture(0, "$heightmap")
 	stencilShader:Activate()
@@ -476,7 +476,7 @@ function widget:DrawGenesis()
 		return
 	end
 	if circleInstanceVBO.usedElements > 0 then
-		gl.RenderToTexture(stencilTexture, draw_stencil_pass)
+		gl.RenderToTexture(stencilTexture, drawStencilPass)
 	end
 end
 
@@ -493,12 +493,12 @@ function widget:DrawWorldPreUnit()
 	end
 
 	-- Detect showReserveSquads toggle.
-	local api = get_api()
+	local api = getApi()
 	if api then
 		local sr = api.getShowReserveSquads and api.getShowReserveSquads() or false
-		if sr ~= show_reserves_cache then
-			show_reserves_cache = sr
-			rebuild_all()
+		if sr ~= showReservesCache then
+			showReservesCache = sr
+			rebuildAll()
 			if circleInstanceVBO.usedElements == 0 then
 				return
 			end
@@ -520,14 +520,14 @@ end
 
 
 function widget:Shutdown()
-	if listener_fn then
-		local api = get_api()
+	if listenerFn then
+		local api = getApi()
 		if api and api.removeSquadChangeListener then
-			api.removeSquadChangeListener(listener_fn)
+			api.removeSquadChangeListener(listenerFn)
 		end
-		listener_fn = nil
+		listenerFn = nil
 	end
-	cleanup_gl()
+	cleanupGl()
 end
 
 

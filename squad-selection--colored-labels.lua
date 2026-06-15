@@ -22,13 +22,13 @@ local glText = gl.Text
 
 local LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ+#@!$=&"
 
-local function index_to_letter(idx)
+local function indexToLetter(idx)
 	local i = (idx - 1) % #LETTERS + 1
 	return LETTERS:sub(i, i)
 end
 
 
-local function get_api()
+local function getApi()
 	return WG and WG['squadselection']
 end
 
@@ -38,7 +38,7 @@ function widget:DrawScreenEffects()
 		return
 	end
 
-	local api = get_api()
+	local api = getApi()
 	if not api or not api.getSquadState then
 		return
 	end
@@ -48,21 +48,21 @@ function widget:DrawScreenEffects()
 		return
 	end
 
-	local show_reserves = api.getShowReserveSquads and api.getShowReserveSquads()
+	local showReserves = api.getShowReserveSquads and api.getShowReserveSquads()
 	local squads = state.squads
-	local factory_squad = state.factory_squad
-	local squad_idle_blend = state.squad_idle_blend
+	local factorySquad = state.factorySquad
+	local squadIdleBlend = state.squadIdleBlend
 
 	for i = 1, #squads do
 		local sq = squads[i]
-		if #sq > 0 and (not sq.is_reserve or show_reserves) then
+		if #sq > 0 and (not sq.isReserve or showReserves) then
 			local idx = sq.index
 			local sc = sq.color
 			local r, g, b = sc and sc[1] or 1, sc and sc[2] or 1, sc and sc[3] or 1
-			local blend = (squad_idle_blend and squad_idle_blend[sq]) or 0
+			local blend = (squadIdleBlend and squadIdleBlend[sq]) or 0
 			local dim = 1 - blend * 0.5
 			r, g, b = r * dim, g * dim, b * dim
-			local label = index_to_letter(idx)
+			local label = indexToLetter(idx)
 			glColor(r, g, b, 1)
 			for j = 1, #sq do
 				-- Predicted position keeps the label glued to moving units between sim frames.
@@ -77,12 +77,12 @@ function widget:DrawScreenEffects()
 		end
 	end
 
-	if show_reserves and factory_squad then
-		for fid, sq in pairs(factory_squad) do
+	if showReserves and factorySquad then
+		for fid, sq in pairs(factorySquad) do
 			local idx = sq.index
 			local sc = sq.color
 			local r, g, b = sc and sc[1] or 1, sc and sc[2] or 1, sc and sc[3] or 1
-			local label = index_to_letter(idx)
+			local label = indexToLetter(idx)
 			local _, _, _, x, y, z = spGetUnitPosition(fid, true)
 			if x then
 				local sx, sy = spWorldToScreenCoords(x, y, z)
