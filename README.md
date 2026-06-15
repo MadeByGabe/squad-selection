@@ -25,7 +25,7 @@ The widget can also keep your selection in sync as units roll off the production
 
 Turn it on with `/squad_setting set selectionAutoExtend true` (also in the settings panel as "Auto-extend selection with new units"). While off (the default), freshly built units never join your current selection.
 
-Squad-eligible means: unit can move and has no build options. A few mobile combat units that happen to have build options (the Commando `cormando` and the Infestor `leginfestor`) are eligible anyway.
+Squad-eligible means: any mobile unit, minus exclusions. Exclusions come from independent sources that are unioned together: the **Exclude constructors & commanders** toggle (on by default), the **Exclude resurrection units** toggle (off by default), the **Exclude combat engineers** toggle (off by default), and your own manual `excludedUnitTypes` list. Each toggle covers a curated unit list; flipping one never touches your manual list, and your manual exclusions never affect the toggles. To track an otherwise-excluded unit type, turn the corresponding toggle off (settings panel, or `/squad_setting toggle excludeConstructors` / `excludeResurrectionUnits` / `excludeCombatEngineers`).
 
 **Creating squads:** Select some units and **right-click** (with no modifier keys held). Those units are pulled out of their current reserve squad into a new one.
 

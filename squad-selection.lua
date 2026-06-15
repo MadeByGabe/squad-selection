@@ -39,7 +39,10 @@ local config = {
 	viewselectionDoubleTapMs = 300, -- second rapid same-place non-append squad-select tap (single-step, or multi-step at the last step) calls viewselection on the just-selected squad (0 disables)
 	viewselectionDoubleTapPx = 5, -- max screen-pixel distance between the two taps (0 disables the gesture, same as Ms — the comparison is strict)
 	mruSize = 3, -- how many recent squads squad_cycle_recent cycles through
-	excludedUnitTypes = "armrectr,cornecro,legrezbot", -- comma-separated unit names to exclude from squad tracking
+	excludeConstructors = true, -- when true, the curated constructor/commander list (CONSTRUCTOR_UNITS) is excluded from squad tracking
+	excludeResurrectionUnits = false, -- when true, the curated resurrection-unit list (RESURRECTION_UNITS) is excluded from squad tracking
+	excludeCombatEngineers = false, -- when true, the curated combat-engineer list (COMBAT_ENGINEER_UNITS) is excluded from squad tracking
+	excludedUnitTypes = "", -- comma-separated unit names the player has manually excluded from squad tracking (independent of the three toggles above)
 	visualizationMode = "convexHull", -- "convexHull" or "none"
 	showVisualizationOptions = false, -- panel-only: reveal the detailed hull options
 	convexHullPadding = 60, -- space (in elmos) between the units and the hull boundary
@@ -342,21 +345,49 @@ local function get_defid(unit_id)
 end
 
 
--- Mobile units that have buildOptions but should still be squad-eligible (combat
--- units that happen to be able to build, e.g. the Commando and Infestor). The
--- default exclusion of buildOptions units is meant to skip construction units and
--- factories; these are exceptions to that rule. User exclusions still apply on
--- top of this, so these can be added to excludedUnitTypes to drop them again.
-local BUILDOPTIONS_ELIGIBLE = {
-	cormando = true,
-	leginfestor = true,
-}
+-- Curated constructor + commander list. Every mobile unit is squad-eligible by
+-- default; these are excluded when config.excludeConstructors is on. A literal
+-- list (rather than a buildOptions heuristic) because BAR has too many
+-- faction/tier/edge cases — combat units that happen to build (Commando,
+-- Infestor), and constructors across Armada/Cortex/Legion and every tier — to
+-- classify reliably from def flags.
+local CONSTRUCTOR_UNITS = "armcom,corcom,armca,corca,armck,corck,armcs,corcs,armbeaver,cormuskrat,armcv,corcv,armaca,coraca,corch,armch,armack,corack,corcsa,armcsa,armacv,coracv,armacsub,coracsub,legck,legcom,legack,legcv,legotter,legacv,legca,legaca,legnavyconship,leganavyconsub,legch,legspcon"
+
+-- Curated resurrection-unit list. 
+local RESURRECTION_UNITS = "armrectr,cornecro,legrezbot,legnavyrezsub,armrecl,correcl"
+
+-- Curated combat-engineer list.
+local COMBAT_ENGINEER_UNITS = "armfark,legaceb,armconsul,corfast,legdecom,armdecom,cordecom,leganavyengineer,armmls,cormls"
+
+--- Parse a comma-separated name list into `set[name] = true` (whitespace trimmed).
+local function add_excluded_names(set, csv)
+	for name in csv:gmatch("[^,]+") do
+		set[name:match("^%s*(.-)%s*$")] = true
+	end
+end
+
 
 --- Pre-compute is_combat for every defID in one pass.
+--
+-- Squad eligibility is "any mobile unit, minus exclusions". 
 local function classify_unitdefs()
+	local excluded = {}
+	if config.excludeConstructors then
+		add_excluded_names(excluded, CONSTRUCTOR_UNITS)
+	end
+	if config.excludeResurrectionUnits then
+		add_excluded_names(excluded, RESURRECTION_UNITS)
+	end
+	if config.excludeCombatEngineers then
+		add_excluded_names(excluded, COMBAT_ENGINEER_UNITS)
+	end
+	if config.excludedUnitTypes and config.excludedUnitTypes ~= "" then
+		add_excluded_names(excluded, config.excludedUnitTypes)
+	end
+
 	for defID, def in pairs(UnitDefs) do
 		-- Squad eligibility, speed is needed because of mines
-		if def.canMove and def.speed and def.speed > 0 and (BUILDOPTIONS_ELIGIBLE[def.name] or not (def.buildOptions and #def.buildOptions > 0)) then
+		if def.canMove and def.speed and def.speed > 0 and not excluded[def.name] then
 			is_combat[defID] = true
 		else
 			is_combat[defID] = false
@@ -374,19 +405,6 @@ local function classify_unitdefs()
 			unit_domain[defID] = "naval"
 		else
 			unit_domain[defID] = "land"
-		end
-	end
-
-	-- Apply user exclusions.
-	if config.excludedUnitTypes and config.excludedUnitTypes ~= "" then
-		for name in config.excludedUnitTypes:gmatch("[^,]+") do
-			name = name:match("^%s*(.-)%s*$") -- trim whitespace
-			for defID, def in pairs(UnitDefs) do
-				if def.name == name then
-					is_combat[defID] = false
-					break
-				end
-			end
 		end
 	end
 end
@@ -2034,7 +2052,7 @@ local OPTION_SPECS = {
 	}, {
 		configVariable = "selectionAutoExtend",
 		name = "Auto-extend selection with new units",
-		description = "When on, units freshly built into a fully selected reserve auto-extend your current selection.",
+		description = "When on, units freshly built into a fully selected reserve auto-extend your current selection except when last factory rally is patrol or wait.",
 		type = "bool",
 		category = OPTION_ADVANCED,
 	}, {
@@ -2045,6 +2063,27 @@ local OPTION_SPECS = {
 		min = 1,
 		max = 9,
 		step = 1,
+		category = OPTION_ADVANCED,
+	}, {
+		configVariable = "excludeConstructors",
+		name = "Exclude constructors & commanders",
+		description = "When on, basic constructors and commanders are never tracked as squad units. Independent of your manual exclusion list. (manual exclusion: \"/squad_setting add|remove excludedUnitTypes <unitDefID>\")",
+		type = "bool",
+		rebuild = true,
+		category = OPTION_ADVANCED,
+	}, {
+		configVariable = "excludeResurrectionUnits",
+		name = "Exclude resurrection units",
+		description = "When on, resurrection units are never tracked as squad units. Independent of your manual exclusion list. (manual exclusion: \"/squad_setting add|remove excludedUnitTypes <unitDefID>\")",
+		type = "bool",
+		rebuild = true,
+		category = OPTION_ADVANCED,
+	}, {
+		configVariable = "excludeCombatEngineers",
+		name = "Exclude combat engineers",
+		description = "When on, combat engineers are never tracked as squad units. Independent of your manual exclusion list. (manual exclusion: \"/squad_setting add|remove excludedUnitTypes <unitDefID>\")",
+		type = "bool",
+		rebuild = true,
 		category = OPTION_ADVANCED,
 	}, {
 		-- Synthetic select owning visualizationMode + showReserveSquads.
@@ -2206,6 +2245,10 @@ local function build_option(spec)
 			config_value = spec.options[panel_value]
 		end
 		set_option_value(spec.configVariable, config_value)
+		-- Toggles that change unit eligibility must re-classify
+		if spec.rebuild and rebuild_tracking then
+			rebuild_tracking()
+		end
 	end
 
 
@@ -2390,6 +2433,10 @@ local function squad_setting(_, _, args)
 			return
 		end
 		set_option_value(key, not config[key])
+		-- Eligibility toggles must re-classify and re-route all tracked units.
+		if key == "excludeConstructors" or key == "excludeResurrectionUnits" or key == "excludeCombatEngineers" then
+			rebuild_tracking()
+		end
 		spEcho("[Squad] " .. key .. " = " .. tostring(config[key]))
 	elseif action == "set" then
 		-- excludedUnitTypes collects all remaining args joined with commas.
@@ -2434,6 +2481,10 @@ local function squad_setting(_, _, args)
 			value = tonumber(value)
 		end
 		set_option_value(key, value)
+		-- Eligibility toggles must re-classify and re-route all tracked units.
+		if key == "excludeConstructors" or key == "excludeResurrectionUnits" or key == "excludeCombatEngineers" then
+			rebuild_tracking()
+		end
 		spEcho("[Squad] " .. key .. " = " .. tostring(config[key]))
 	elseif action == "get" then
 		spEcho("[Squad] " .. key .. " = " .. format_value(config[key]))
