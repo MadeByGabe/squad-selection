@@ -2532,7 +2532,8 @@ function widget:Initialize()
 	-- get<Key>/set<Key> pairs for every exposed config key.
 	local exposedSettings = {
 		"leftClickSelectsSquad", "leftClickSteps", "leftClickStepsEnabled", "leftClickAppendFiltersDomain", "leftClickFilteredRetargets", "cyclingToNextSquad", "rightClickSquadCreate", "ctrlRightClickCreatesSquad", "ctrlRightClickDragCreatesSquad", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "mergeIntoReserves", "selectionAutoExtend", "visualizationMode", "convexHullPadding", "convexHullArcResolution",
-			"convexHullFillOpacity", "convexHullBorderOpacity", "convexHullBorderThickness", "convexHullColorMode", "convexHullCustomColorR", "convexHullCustomColorG", "convexHullCustomColorB"}
+			"convexHullFillOpacity", "convexHullBorderOpacity", "convexHullBorderThickness", "convexHullColorMode", "convexHullCustomColorR", "convexHullCustomColorG", "convexHullCustomColorB", "excludeConstructors", "excludeResurrectionUnits", "excludeCombatEngineers"}
+
 	WG['squadselection'] = {}
 	for _, key in ipairs(exposedSettings) do
 		local cap = key:sub(1, 1):upper() .. key:sub(2)
@@ -2547,6 +2548,11 @@ function widget:Initialize()
 
 
 	end
+
+	WG['squadselection'].rebuildTracking = function()
+		rebuildTracking()
+	end
+
 
 	WG['squadselection'].setBeforeSquadSelectCallback = function(fn)
 		if fn ~= nil and type(fn) ~= "function" then
