@@ -494,15 +494,15 @@ Companion widgets access squad state through `WG['squadselection']`, which expos
 
 ```lua
 local state = WG['squadselection'].getSquadState()
--- state.squads            — array of squad arrays (integer keys = unitIDs)
--- state.unit_squad        — unitID → squad table
--- state.factory_squad     — factoryUnitID → squad table
--- state.uncategorized_reserve — domain → reserve squad
--- state.squad_idle_state  — squad → bool
--- state.squad_idle_blend  — squad → 0..1
+-- state.squads               — array of squad arrays (integer keys = unitIDs)
+-- state.unitSquad            — unitID → squad table
+-- state.factorySquad         — factoryUnitID → squad table
+-- state.uncategorizedReserve — domain → reserve squad
+-- state.squadIdleState       — squad → bool
+-- state.squadIdleBlend       — squad → 0..1
 ```
 
-Each squad array carries metadata on string keys: `.index` (monotonic ID), `.tag_seed` (golden-ratio phase offset), `.is_reserve`, `.from_factory`.
+Each squad array carries metadata on string keys: `.index` (monotonic ID), `.tagSeed` (golden-ratio phase offset), `.isReserve`, `.fromFactory`.
 
 **`addSquadChangeListener(fn)` / `removeSquadChangeListener(fn)`**: Register for incremental notifications. The callback receives `(event, unitID, squad)`:
 
@@ -521,12 +521,12 @@ function my_hook(ctx)
     -- ctx.mx, ctx.my — screen coords
     -- ctx.wx, ctx.wz — world coords
     return false              -- veto the selection
-    -- return { cycle_when_full = false }  -- override options
+    -- return { cycleWhenFull = false }  -- override options
     -- return nil              -- proceed normally
 end
 ```
 
-**`createSquadFromUnits(unit_ids)`**: Create a new manual squad from an explicit list of unit IDs. 
+**`createSquadFromUnits(unitIds)`**: Create a new manual squad from an explicit list of unit IDs. 
 
 There are also exposed settings such as **`getShowReserveSquads()`**. Every config key has `get<Key>()` / `set<Key>(value)` pairs (e.g. `getCyclingToNextSquad()`, `setCyclingToNextSquad(true)`).
 
