@@ -1909,15 +1909,14 @@ local SQUAD_CREATE_METHOD_KEYS = {
 	ctrlRightClickDragCreatesSquad = true,
 }
 
-local function squadCreateMethodIndex(cfg)
-	cfg = cfg or config
-	if cfg.rightClickSquadCreate then
+local function squadCreateMethodIndex()
+	if config.rightClickSquadCreate then
 		return 2
 	end
-	if cfg.ctrlRightClickCreatesSquad then
+	if config.ctrlRightClickCreatesSquad then
 		return 3
 	end
-	if cfg.ctrlRightClickDragCreatesSquad then
+	if config.ctrlRightClickDragCreatesSquad then
 		return 4
 	end
 	return 1
@@ -1931,12 +1930,11 @@ local HULL_DISPLAY_MODE_KEYS = {
 	showReserveSquads = true,
 }
 
-local function hullDisplayModeIndex(cfg)
-	cfg = cfg or config
-	if cfg.visualizationMode ~= "convexHull" then
+local function hullDisplayModeIndex()
+	if config.visualizationMode ~= "convexHull" then
 		return 1
 	end
-	if cfg.showReserveSquads then
+	if config.showReserveSquads then
 		return 2
 	end
 	return 3
@@ -2181,27 +2179,6 @@ end
 -- the panel/WG API and by the excludedUnitTypes console commands).
 local rebuildTracking
 
--- Panel value for a spec, read from an arbitrary config source (selects store a
--- 1-based index). Used to seed both `value` (live config) and `default`
--- (configDefaults) so the options-menu reset restores the true defaults rather
--- than whatever happened to be persisted at registration time.
-local function optionValueFor(spec, cfg)
-	if spec.type == "select" then
-		if spec.configVariable == "squadCreateMethod" then
-			return squadCreateMethodIndex(cfg)
-		elseif spec.configVariable == "hullDisplayMode" then
-			return hullDisplayModeIndex(cfg)
-		end
-		for i, v in ipairs(spec.options) do
-			if cfg[spec.configVariable] == v then
-				return i
-			end
-		end
-		return 1
-	end
-	return cfg[spec.configVariable]
-end
-
 local function buildOption(spec)
 	local option = {}
 	for k, v in pairs(spec) do
@@ -2211,8 +2188,24 @@ local function buildOption(spec)
 	option.widgetName = widget:GetInfo().name
 	option.id = getOptionId(spec)
 
-	option.value = optionValueFor(spec, config)
-	option.default = optionValueFor(spec, configDefaults)
+	-- Seed from config (selects store a 1-based index).
+	if spec.type == "select" then
+		if spec.configVariable == "squadCreateMethod" then
+			option.value = squadCreateMethodIndex()
+		elseif spec.configVariable == "hullDisplayMode" then
+			option.value = hullDisplayModeIndex()
+		else
+			option.value = 1
+			for i, v in ipairs(spec.options) do
+				if config[spec.configVariable] == v then
+					option.value = i
+					break
+				end
+			end
+		end
+	else
+		option.value = config[spec.configVariable]
+	end
 
 	-- Translate the panel value back to config shape, then write through.
 	option.onchange = function(_, panelValue)
@@ -3265,7 +3258,7 @@ function widget:DrawWorldPreUnit()
 	glLineWidth(borderThickness)
 
 	for _, squad in ipairs(squads) do
-		if not squad.isReserve or showReserves or (squadHighlightBlend[squad] or 0) > 0.001 then
+		if not squad.isReserve or showReserves then
 			local size = #squad
 			if size > 0 then
 				local idleBlend = squadIdleBlend[squad] or 0
