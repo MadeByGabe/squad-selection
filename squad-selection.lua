@@ -1,3 +1,5 @@
+local widget = widget ---@type Widget
+
 function widget:GetInfo()
 	return {
 		name = "Squad Selection",
@@ -30,6 +32,7 @@ local config = {
 	leftClickAppendFiltersDomain = true, -- when true, left-click Shift-append only cycles into squads whose domains ⊆ the selection's; when false, append behaves like the plain `append` keyword
 	leftClickFilteredRetargets = true, -- when true, Alt+Ctrl-click (replace-mode filtered) acts like the `retarget` keyword: if the closest unit's type isn't in the current selection, treat the click as a fresh selection on that new type instead of using the selection's types as the filter. Append mode is unaffected.
 	rightClickSquadCreate = false, -- right-click creates squads; bind a hotkey via `squad_setting toggle rightClickSquadCreate` to flip on demand
+	rightClickSelectsSquad = true, -- when nothing is selected, a plain right-click commands the closest squad (to the press point) to move to the release point, without disturbing your (empty) selection
 	ctrlRightClickCreatesSquad = false, -- Ctrl+right-click creates a squad (click still passes through, so the engine's move-in-formation runs too which can cause issues)
 	ctrlRightClickDragCreatesSquad = true, -- hold Ctrl then right-click drag past the engine's MouseDragFrontCommandThreshold to create a squad (click still passes through)
 	commandCreatesSquad = false,
@@ -60,6 +63,7 @@ local config = {
 	hullPulseAmplitude = 0.25, -- breathing pulse amplitude on hull alpha
 	hullPulseRate = 1.5, -- breathing pulse rate; period ≈ 2π / rate seconds
 	idleColorBlendSeconds = 0.5, -- seconds for the idle/active hull color to fully crossfade (0 = instant)
+	highlightBlendSeconds = 0.15, -- seconds for the closest-squad highlight to fade in/out (0 = instant)
 	debug = false,
 }
 
@@ -101,6 +105,7 @@ local spGetUnitCommands = Spring.GetUnitCommands
 local spGetUnitCommandCount = Spring.GetUnitCommandCount
 local spGetTeamColor = Spring.GetTeamColor
 local spSendCommands = Spring.SendCommands
+local spGiveOrderToUnitArray = Spring.GiveOrderToUnitArray
 local spGetMiniMapGeometry = Spring.GetMiniMapGeometry
 local spIsSphereInView = Spring.IsSphereInView
 local spGetTimer = Spring.GetTimer
@@ -133,9 +138,13 @@ local squadSelCount = {} -- squad table -> number of selected units in it
 local selectionDirty = true -- forces a full recount on the first draw frame
 local squadIdleState = {} -- squad table -> true when >50% of the squad is idle
 local squadIdleBlend = {} -- squad table -> 0..1 blend between team color and idle color
+local squadHighlightBlend = {} -- squad table -> 0..1 blend for the closest-squad preview highlight (opacity only)
+local squadControlBlend = {} -- squad table -> 0..1 blend for the actively-commanded squad (RMB held); adds the border emphasis
 local squadHideIdleAirHull = {} -- squad table -> true when an idle squad is entirely airborne air units
 local idleScanIndex = 0 -- round-robin index into squads for incremental idle-state updates
 local pendingDragCreate = nil -- { x, y } screen pos of a Ctrl+RMB press awaiting a drag past MouseDragFrontCommandThreshold to fire squad_create (config.ctrlRightClickDragCreatesSquad)
+local pendingSquadMove = nil -- { squad } from a plain RMB press with no selection (config.rightClickSelectsSquad); on RMB release in widget:Update the squad is move-ordered to the release point
+local highlightLockedSquad = nil -- while Shift is held over the squad-move highlight, the latched target squad — so a Shift-queue stays on one squad even as the cursor drifts near others
 local beforeSquadSelectCallback = nil -- optional WG hook: return false to cancel a doSquadSelect call
 local squadChangeListeners = {} -- array of callback functions
 
@@ -176,6 +185,15 @@ end
 
 local function constrain(x, min, max)
 	return math.max(min, math.min(max, x))
+end
+
+
+-- Move `current` toward `target` by at most `step` (for animated blends).
+local function approach(current, target, step)
+	if current < target then
+		return math.min(current + step, target)
+	end
+	return math.max(current - step, target)
 end
 
 
@@ -246,7 +264,12 @@ local function sweepIdleState()
 			squadIdleState[sq] = nil
 			squadIdleBlend[sq] = nil
 			squadHideIdleAirHull[sq] = nil
+			squadHighlightBlend[sq] = nil
+			squadControlBlend[sq] = nil
 		end
+	end
+	if highlightLockedSquad and not present[highlightLockedSquad] then
+		highlightLockedSquad = nil
 	end
 end
 
@@ -1865,7 +1888,7 @@ end
 -- the change onto that option's `value` field so the panel UI reflects it.
 --
 -- The squad-creation-method select doesn't map 1:1 to a config key: one control
--- reads and writes the three mutually-exclusive rightClick* booleans. 
+-- reads and writes the three mutually-exclusive rightClick* booleans.
 -------------------------------------------------------------------------------
 
 local OPTION_ADVANCED = 2 -- BAR gui_options category constant (basic=1, advanced=2, dev=3)
@@ -1995,6 +2018,11 @@ local OPTION_SPECS = {
 		description = "How right-click groups the current selection into a new squad. The engine's move command still issues alongside it.",
 		type = "select",
 		options = {"Off", "Right-click", "Ctrl+right-click", "Ctrl+right-click drag"},
+	}, {
+		configVariable = "rightClickSelectsSquad",
+		name = "Right-click moves nearest squad",
+		description = "With nothing selected, right-click-drag move-orders the squad nearest the press point to the release point. Hold Alt to do this even when you have a selection (your selection stays put). With shift you lock the squad and append the order to its queue.",
+		type = "bool",
 	}, {
 		configVariable = "mergeIntoReserves",
 		name = "Merge into reserves",
@@ -2146,6 +2174,9 @@ local function getOptionId(spec)
 end
 
 
+-- Forward declaration; defined in the Lifecycle section. Re-classifies and
+-- re-routes every tracked unit (used by the exclude* settings written through
+-- the panel/WG API and by the excludedUnitTypes console commands).
 local rebuildTracking
 
 local function buildOption(spec)
@@ -2531,9 +2562,9 @@ function widget:Initialize()
 	-- WG interface. Auto-generates
 	-- get<Key>/set<Key> pairs for every exposed config key.
 	local exposedSettings = {
-		"leftClickSelectsSquad", "leftClickSteps", "leftClickStepsEnabled", "leftClickAppendFiltersDomain", "leftClickFilteredRetargets", "cyclingToNextSquad", "rightClickSquadCreate", "ctrlRightClickCreatesSquad", "ctrlRightClickDragCreatesSquad", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "mergeIntoReserves", "selectionAutoExtend", "visualizationMode", "convexHullPadding", "convexHullArcResolution",
-			"convexHullFillOpacity", "convexHullBorderOpacity", "convexHullBorderThickness", "convexHullColorMode", "convexHullCustomColorR", "convexHullCustomColorG", "convexHullCustomColorB", "excludeConstructors", "excludeResurrectionUnits", "excludeCombatEngineers"}
-
+		"leftClickSelectsSquad", "leftClickSteps", "leftClickStepsEnabled", "leftClickAppendFiltersDomain", "leftClickFilteredRetargets", "cyclingToNextSquad", "rightClickSquadCreate", "rightClickSelectsSquad", "ctrlRightClickCreatesSquad", "ctrlRightClickDragCreatesSquad", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "mergeIntoReserves", "selectionAutoExtend", "visualizationMode", "convexHullPadding", "convexHullArcResolution",
+			"convexHullFillOpacity", "convexHullBorderOpacity", "convexHullBorderThickness", "convexHullColorMode", "convexHullCustomColorR", "convexHullCustomColorG", "convexHullCustomColorB",
+			"excludeConstructors", "excludeResurrectionUnits", "excludeCombatEngineers"}
 	WG['squadselection'] = {}
 	for _, key in ipairs(exposedSettings) do
 		local cap = key:sub(1, 1):upper() .. key:sub(2)
@@ -2549,10 +2580,10 @@ function widget:Initialize()
 
 	end
 
+	-- Re-classify units. Called by gui_options.lua after writing any of the exclude* settings
 	WG['squadselection'].rebuildTracking = function()
 		rebuildTracking()
 	end
-
 
 	WG['squadselection'].setBeforeSquadSelectCallback = function(fn)
 		if fn ~= nil and type(fn) ~= "function" then
@@ -2660,6 +2691,29 @@ function widget:Update(dt)
 		end
 	end
 
+	if pendingSquadMove then
+		local _, _, _, _, rmb = spGetMouseState()
+		if not rmb then
+			-- RMB released: move-order the picked squad to the release point.
+			local sq = pendingSquadMove.squad
+			pendingSquadMove = nil
+			if sq and #sq > 0 then
+				local wx, wz = getMouseWorldPos()
+				if wx then
+					local wy = spGetGroundHeight(wx, wz) or 0
+					local units = {}
+					for i = 1, #sq do
+						units[i] = sq[i]
+					end
+					-- Shift queues the move instead of replacing.
+					local _, _, _, shift = spGetModKeyState()
+					spGiveOrderToUnitArray(units, CMD.MOVE, {wx, wy, wz}, shift and CMD.OPT_SHIFT or 0)
+					log("RMB squad move [", sq.index or "?", "]: ", #units, " unit(s)", shift and " (queued)" or "")
+				end
+			end
+		end
+	end
+
 	if #squads == 0 then
 		idleScanIndex = 0
 		return
@@ -2675,18 +2729,40 @@ function widget:Update(dt)
 		refreshSquadIdleState(sq)
 	end
 
-	-- Animate color blend for all squads.
+	-- Highlight (closest-squad preview) and control (commanded squad) targets.
+	-- While RMB is held both lock to the commanded squad; otherwise highlight
+	-- tracks the closest squad to the cursor, which Shift latches so a queue can
+	-- stay on one squad while the cursor drifts.
+	local highlightTarget, controlTarget
+	if pendingSquadMove then
+		highlightTarget = pendingSquadMove.squad
+		controlTarget = highlightTarget
+	elseif config.rightClickSelectsSquad then
+		local alt, _, _, shift = spGetModKeyState()
+		if alt or spGetSelectedUnits()[1] == nil then
+			if not (shift and highlightLockedSquad) then
+				local hx, hz = getMouseWorldPos()
+				highlightLockedSquad = hx and findClosestSquad(nil, nil, nil, hx, hz) or nil
+			end
+			highlightTarget = highlightLockedSquad
+			if not shift then
+				highlightLockedSquad = nil
+			end
+		else
+			highlightLockedSquad = nil
+		end
+	else
+		highlightLockedSquad = nil
+	end
+
+	-- Animate idle + highlight + control blends for all squads.
 	local step = config.idleColorBlendSeconds > 0 and constrain(dt / config.idleColorBlendSeconds, 0, 1) or 1
+	local hlStep = config.highlightBlendSeconds > 0 and constrain(dt / config.highlightBlendSeconds, 0, 1) or 1
 	for i = 1, #squads do
 		local s = squads[i]
-		local target = squadIdleState[s] and 1 or 0
-		local current = squadIdleBlend[s] or 0
-		if current < target then
-			current = math.min(current + step, target)
-		elseif current > target then
-			current = math.max(current - step, target)
-		end
-		squadIdleBlend[s] = current
+		squadIdleBlend[s] = approach(squadIdleBlend[s] or 0, squadIdleState[s] and 1 or 0, step)
+		squadHighlightBlend[s] = approach(squadHighlightBlend[s] or 0, s == highlightTarget and 1 or 0, hlStep)
+		squadControlBlend[s] = approach(squadControlBlend[s] or 0, s == controlTarget and 1 or 0, hlStep)
 	end
 end
 
@@ -2857,6 +2933,9 @@ function widget:MousePress(x, y, button)
 	if button == 3 then
 		local plain = not (alt or ctrl or meta or shift)
 		local modCombo = ctrl and not alt and not meta and not shift
+		-- Squad-move combos tolerate Shift (which queues the move).
+		local altMove = alt and not ctrl and not meta
+		local plainMove = not alt and not ctrl and not meta
 		local willCreate = (config.rightClickSquadCreate and plain) or (config.ctrlRightClickCreatesSquad and modCombo)
 		if (willCreate and cursor ~= "cursornormal") then
 			squadCreate()
@@ -2868,11 +2947,46 @@ function widget:MousePress(x, y, button)
 				x = x,
 				y = y,
 			}
+		elseif config.rightClickSelectsSquad and (altMove or (plainMove and spGetSelectedUnits()[1] == nil)) then
+			-- Move a squad without touching the selection. Plain + empty selection
+			-- passes through (the engine does nothing with no selection); Alt
+			-- consumes the click so the engine won't move the selection too. The
+			-- picked squad is move-ordered to the release point in widget:Update.
+			if spTraceScreenRay(x, y) ~= "unit" then
+				local sq
+				if shift and highlightLockedSquad and #highlightLockedSquad > 0 then
+					-- Shift reuses the latched squad so each queued move hits it.
+					sq = highlightLockedSquad
+				else
+					local wx, wz = getMouseWorldPos()
+					if wx then
+						sq = findClosestSquad(nil, nil, nil, wx, wz)
+					end
+				end
+				if sq then
+					pendingSquadMove = {
+						squad = sq,
+					}
+					if alt then
+						return true -- consume so the engine keeps the selection put
+					end
+				end
+			end
 		end
 	elseif button == 1 and config.leftClickSelectsSquad then
-		-- A modifier is required to trigger; plain/Shift/Alt alone are not enough because then the ground click deselects the units.
-		-- Ctrl → replace, Ctrl+Shift → append, +Alt → filtered. Alt+Shift also triggers (filtered append) since Ctrl is redundant there.
-		if not (ctrl or (alt and shift)) then
+		-- A plain ground click normally deselects the selection on mouse-release
+		-- (engine behavior), which would wipe the squad we just selected here on
+		-- press. So a modifier is required to trigger: Ctrl → replace,
+		-- Ctrl+Shift → append, +Alt → filtered. Alt+Shift also triggers (filtered
+		-- append) since Ctrl is redundant there.
+		--
+		-- Exception: when SmartSelect's "deselect only when drag-selecting" option
+		-- is on, a plain click keeps the selection, so we drop the modifier
+		-- requirement and allow modifier-free squad-select (plain → replace,
+		-- Shift → append, Alt → filtered, Alt+Shift → filtered append).
+		local smartSelectRetainsClick = WG['smartselect'] and WG['smartselect'].getDeselectOnlyOnDrag
+			and WG['smartselect'].getDeselectOnlyOnDrag()
+		if not smartSelectRetainsClick and not (ctrl or (alt and shift)) then
 			return
 		end
 
@@ -3146,7 +3260,7 @@ function widget:DrawWorldPreUnit()
 	glLineWidth(borderThickness)
 
 	for _, squad in ipairs(squads) do
-		if not squad.isReserve or showReserves then
+		if not squad.isReserve or showReserves or (squadHighlightBlend[squad] or 0) > 0.001 then
 			local size = #squad
 			if size > 0 then
 				local idleBlend = squadIdleBlend[squad] or 0
@@ -3182,6 +3296,23 @@ function widget:DrawWorldPreUnit()
 					if squad.isReserve then
 						alphaScale = alphaScale * 0.6
 						cr, cg, cb = cr * 1.5, cg * 1.5, cb * 1.5
+					end
+
+					-- Highlight tiers, each faded in by its blend: hb (closest-squad
+					-- preview) lifts fill + brightness; ctb (commanded squad, RMB held)
+					-- adds stronger fill, more brightness, and the border emphasis.
+					local effFill, effBorder = fillOpacity, borderOpacity
+					local hb = squadHighlightBlend[squad] or 0
+					local ctb = squadControlBlend[squad] or 0
+					if hb > 0 or ctb > 0 then
+						local fillHover = math.min(1, fillOpacity * 2.8)
+						local fillCtrl = math.min(1, fillOpacity * 3.4)
+						effFill = fillOpacity + (fillHover - fillOpacity) * hb + (fillCtrl - fillHover) * ctb
+						effBorder = borderOpacity + (math.max(borderOpacity, 0.9) - borderOpacity) * ctb
+						local bright = 0.25 * hb + 0.25 * ctb
+						cr = cr + (1 - cr) * bright
+						cg = cg + (1 - cg) * bright
+						cb = cb + (1 - cb) * bright
 					end
 
 					-- fill scratchWorld in place (reuse {x,y} tables) and track
@@ -3274,13 +3405,19 @@ function widget:DrawWorldPreUnit()
 								else
 									glUniform(hullStripeLoc, 0, 1, 0)
 								end
-								glUniform(hullColorLoc, cr, cg, cb, fillOpacity * alphaScale)
+								glUniform(hullColorLoc, cr, cg, cb, effFill * alphaScale)
 								hullVao:DrawArrays(GL.TRIANGLE_FAN, n)
 								if squad.isReserve then
 									glUniform(hullStripeLoc, 0, 1, 0)
 								end
-								glUniform(hullColorLoc, cr, cg, cb, borderOpacity * alphaScale)
-								hullVao:DrawArrays(GL.LINE_LOOP, n)
+								glUniform(hullColorLoc, cr, cg, cb, effBorder * alphaScale)
+								if ctb > 0 then
+									glLineWidth(borderThickness * (1 + ctb))
+									hullVao:DrawArrays(GL.LINE_LOOP, n)
+									glLineWidth(borderThickness)
+								else
+									hullVao:DrawArrays(GL.LINE_LOOP, n)
+								end
 							end
 						end
 					end
