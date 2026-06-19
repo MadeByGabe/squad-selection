@@ -32,7 +32,7 @@ local config = {
 	leftClickAppendFiltersDomain = true, -- when true, left-click Shift-append only cycles into squads whose domains ⊆ the selection's; when false, append behaves like the plain `append` keyword
 	leftClickFilteredRetargets = true, -- when true, Alt+Ctrl-click (replace-mode filtered) acts like the `retarget` keyword: if the closest unit's type isn't in the current selection, treat the click as a fresh selection on that new type instead of using the selection's types as the filter. Append mode is unaffected.
 	rightClickSquadCreate = false, -- right-click creates squads; bind a hotkey via `squad_setting toggle rightClickSquadCreate` to flip on demand
-	rightClickSelectsSquad = true, -- when nothing is selected, a plain right-click commands the closest squad (to the press point) to move to the release point, without disturbing your (empty) selection
+	rightClickMovesSquad = true, -- when nothing is selected, a plain right-click commands the closest squad (to the press point) to move to the release point, without disturbing your (empty) selection
 	ctrlRightClickCreatesSquad = false, -- Ctrl+right-click creates a squad (click still passes through, so the engine's move-in-formation runs too which can cause issues)
 	ctrlRightClickDragCreatesSquad = true, -- hold Ctrl then right-click drag past the engine's MouseDragFrontCommandThreshold to create a squad (click still passes through)
 	commandCreatesSquad = false,
@@ -143,7 +143,7 @@ local squadControlBlend = {} -- squad table -> 0..1 blend for the actively-comma
 local squadHideIdleAirHull = {} -- squad table -> true when an idle squad is entirely airborne air units
 local idleScanIndex = 0 -- round-robin index into squads for incremental idle-state updates
 local pendingDragCreate = nil -- { x, y } screen pos of a Ctrl+RMB press awaiting a drag past MouseDragFrontCommandThreshold to fire squad_create (config.ctrlRightClickDragCreatesSquad)
-local pendingSquadMove = nil -- { squad } from a plain RMB press with no selection (config.rightClickSelectsSquad); on RMB release in widget:Update the squad is move-ordered to the release point
+local pendingSquadMove = nil -- { squad } from a plain RMB press with no selection (config.rightClickMovesSquad); on RMB release in widget:Update the squad is move-ordered to the release point
 local highlightLockedSquad = nil -- while Shift is held over the squad-move highlight, the latched target squad — so a Shift-queue stays on one squad even as the cursor drifts near others
 local beforeSquadSelectCallback = nil -- optional WG hook: return false to cancel a doSquadSelect call
 local squadChangeListeners = {} -- array of callback functions
@@ -2019,7 +2019,7 @@ local OPTION_SPECS = {
 		type = "select",
 		options = {"Off", "Right-click", "Ctrl+right-click", "Ctrl+right-click drag"},
 	}, {
-		configVariable = "rightClickSelectsSquad",
+		configVariable = "rightClickMovesSquad",
 		name = "Right-click moves nearest squad",
 		description = "With nothing selected, right-click-drag move-orders the squad nearest the press point to the release point. Hold Alt to do this even when you have a selection (your selection stays put). With shift you lock the squad and append the order to its queue.",
 		type = "bool",
@@ -2562,7 +2562,7 @@ function widget:Initialize()
 	-- WG interface. Auto-generates
 	-- get<Key>/set<Key> pairs for every exposed config key.
 	local exposedSettings = {
-		"leftClickSelectsSquad", "leftClickSteps", "leftClickStepsEnabled", "leftClickAppendFiltersDomain", "leftClickFilteredRetargets", "cyclingToNextSquad", "rightClickSquadCreate", "rightClickSelectsSquad", "ctrlRightClickCreatesSquad", "ctrlRightClickDragCreatesSquad", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "mergeIntoReserves", "selectionAutoExtend", "visualizationMode", "convexHullPadding", "convexHullArcResolution", "convexHullFillOpacity", "convexHullBorderOpacity", "convexHullBorderThickness", "convexHullColorMode", "convexHullCustomColorR", "convexHullCustomColorG", "convexHullCustomColorB", "excludeConstructors", "excludeResurrectionUnits", "excludeCombatEngineers"}
+		"leftClickSelectsSquad", "leftClickSteps", "leftClickStepsEnabled", "leftClickAppendFiltersDomain", "leftClickFilteredRetargets", "cyclingToNextSquad", "rightClickSquadCreate", "rightClickMovesSquad", "ctrlRightClickCreatesSquad", "ctrlRightClickDragCreatesSquad", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "mergeIntoReserves", "selectionAutoExtend", "visualizationMode", "convexHullPadding", "convexHullArcResolution", "convexHullFillOpacity", "convexHullBorderOpacity", "convexHullBorderThickness", "convexHullColorMode", "convexHullCustomColorR", "convexHullCustomColorG", "convexHullCustomColorB", "excludeConstructors", "excludeResurrectionUnits", "excludeCombatEngineers"}
 	WG['squadselection'] = {}
 	for _, key in ipairs(exposedSettings) do
 		local cap = key:sub(1, 1):upper() .. key:sub(2)
@@ -2736,7 +2736,7 @@ function widget:Update(dt)
 	if pendingSquadMove then
 		highlightTarget = pendingSquadMove.squad
 		controlTarget = highlightTarget
-	elseif config.rightClickSelectsSquad then
+	elseif config.rightClickMovesSquad then
 		local alt, _, _, shift = spGetModKeyState()
 		if alt or spGetSelectedUnits()[1] == nil then
 			if not (shift and highlightLockedSquad) then
@@ -2946,7 +2946,7 @@ function widget:MousePress(x, y, button)
 				x = x,
 				y = y,
 			}
-		elseif config.rightClickSelectsSquad and (altMove or (plainMove and spGetSelectedUnits()[1] == nil)) then
+		elseif config.rightClickMovesSquad and (altMove or (plainMove and spGetSelectedUnits()[1] == nil)) then
 			-- Move a squad without touching the selection. Plain + empty selection
 			-- passes through (the engine does nothing with no selection); Alt
 			-- consumes the click so the engine won't move the selection too. The
