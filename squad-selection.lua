@@ -2088,17 +2088,8 @@ local OPTION_SPECS = {
 	}, {
 		configVariable = "rightClickMovesSquad",
 		name = "Right-click moves nearest squad",
-		description = "With nothing selected, right-click-drag move-orders the squad nearest the press point to the release point. Hold Alt to do this even when you have a selection (your selection stays put). With shift you lock the squad and append the order to its queue.",
+		description = "With nothing selected, right-click-drag move-orders the squad nearest the press point to the release point. Hold Alt to do this even when you have a selection. With shift you lock the squad and append the order to its queue. With ctrl it moves in formation. Hold Space to also select the squad.",
 		type = "bool",
-	}, {
-		configVariable = "rightClickMoveRange",
-		name = "Right-click move range",
-		description = "Max distance (elmos) from the cursor for right-click-move to highlight and pick a squad. 0 = unlimited.",
-		type = "slider",
-		min = 0,
-		max = 3000,
-		step = 50,
-		category = OPTION_ADVANCED,
 	}, {
 		configVariable = "mergeIntoReserves",
 		name = "Merge into reserves",
@@ -2796,6 +2787,7 @@ function widget:Update(dt)
 					if not keepSelection then
 						spSelectUnitArray(saved) -- Space (keepSelection) leaves the squad selected
 					end
+					pushToMru(sq) -- commanding a squad counts as working with it, so it joins the recent list
 					log("RMB squad ", formation and "formation move" or "move", " [", sq.index or "?", "]: ", #units, " unit(s)", shift and " (queued)" or "")
 				end
 			end
