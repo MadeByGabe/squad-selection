@@ -3318,13 +3318,16 @@ function widget:DrawWorldPreUnit()
 						cg = teamColor[2]
 						cb = teamColor[3]
 					end
-					if idleBlend > 0 and not fullySelected then
+					local hb = squadHighlightBlend[squad] or 0
+					local ctb = squadControlBlend[squad] or 0
+					local effIdle = idleBlend * (1 - hb)
+					if effIdle > 0 and not fullySelected then
 						local ir = cr * 0.3
 						local ig = cg * 0.3
 						local ib = cb * 0.3
-						cr = cr + (ir - cr) * idleBlend
-						cg = cg + (ig - cg) * idleBlend
-						cb = cb + (ib - cb) * idleBlend
+						cr = cr + (ir - cr) * effIdle
+						cg = cg + (ig - cg) * effIdle
+						cb = cb + (ib - cb) * effIdle
 					end
 					if squad.isReserve then
 						alphaScale = alphaScale * 0.6
@@ -3338,8 +3341,6 @@ function widget:DrawWorldPreUnit()
 					-- Control: +0.4 fill/border opacity, +10 padding, +0.2 brightness, +2 border width.
 					local effFill, effBorder = fillOpacity, borderOpacity
 					local effPadding = padding
-					local hb = squadHighlightBlend[squad] or 0
-					local ctb = squadControlBlend[squad] or 0
 					if hb > 0 or ctb > 0 then
 						effFill = math.min(1, fillOpacity + 0.2 * hb + 0.2 * ctb)
 						effBorder = math.min(1, borderOpacity + 0.2 * hb + 0.2 * ctb)
