@@ -64,7 +64,7 @@ local config = {
 	hullPulseAmplitude = 0.25, -- breathing pulse amplitude on hull alpha
 	hullPulseRate = 1.5, -- breathing pulse rate; period ≈ 2π / rate seconds
 	idleColorBlendSeconds = 0.5, -- seconds for the idle/active hull color to fully crossfade (0 = instant)
-	highlightBlendSeconds = 0.1, -- seconds for the closest-squad highlight to fade in/out (0 = instant)
+	highlightBlendSeconds = 0.67, -- seconds for the closest-squad highlight to fade in/out (0 = instant)
 	debug = false,
 }
 
@@ -144,7 +144,7 @@ local squadControlBlend = {} -- squad table -> 0..1 blend for the actively-comma
 local squadHideIdleAirHull = {} -- squad table -> true when an idle squad is entirely airborne air units
 local idleScanIndex = 0 -- round-robin index into squads for incremental idle-state updates
 local pendingDragCreate = nil -- { x, y } screen pos of a Ctrl+RMB press awaiting a drag past MouseDragFrontCommandThreshold to fire squad_create (config.ctrlRightClickDragCreatesSquad)
-local pendingSquadMove = nil -- { squad } from a plain RMB press with no selection (config.rightClickMovesSquad); on RMB release in widget:Update the squad is move-ordered to the release point
+local pendingSquadMove = nil -- { squad, cmd } from an Alt RMB (or plain RMB with no selection) press (config.rightClickMovesSquad); on RMB release in widget:Update the squad is ordered (cmd = Move, or Fight when Ctrl was held) to the release point
 local highlightLockedSquad = nil -- while Shift is held over the squad-move highlight, the latched target squad — so a Shift-queue stays on one squad even as the cursor drifts near others
 local beforeSquadSelectCallback = nil -- optional WG hook: return false to cancel a doSquadSelect call
 local squadChangeListeners = {} -- array of callback functions
@@ -2705,6 +2705,7 @@ function widget:Update(dt)
 		if not rmb then
 			-- RMB released: move-order the picked squad to the release point.
 			local sq = pendingSquadMove.squad
+			local cmd = pendingSquadMove.cmd or CMD.MOVE
 			pendingSquadMove = nil
 			if sq and #sq > 0 then
 				local wx, wz = getMouseWorldPos()
@@ -2714,10 +2715,10 @@ function widget:Update(dt)
 					for i = 1, #sq do
 						units[i] = sq[i]
 					end
-					-- Shift queues the move instead of replacing.
+					-- Shift queues the order instead of replacing.
 					local _, _, _, shift = spGetModKeyState()
-					spGiveOrderToUnitArray(units, CMD.MOVE, {wx, wy, wz}, shift and CMD.OPT_SHIFT or 0)
-					log("RMB squad move [", sq.index or "?", "]: ", #units, " unit(s)", shift and " (queued)" or "")
+					spGiveOrderToUnitArray(units, cmd, {wx, wy, wz}, shift and CMD.OPT_SHIFT or 0)
+					log("RMB squad ", cmd == CMD.FIGHT and "fight" or "move", " [", sq.index or "?", "]: ", #units, " unit(s)", shift and " (queued)" or "")
 				end
 			end
 		end
@@ -2946,9 +2947,10 @@ function widget:MousePress(x, y, button)
 	if button == 3 then
 		local plain = not (alt or ctrl or meta or shift)
 		local modCombo = ctrl and not alt and not meta and not shift
-		-- Squad-move combos tolerate Shift (which queues the move).
-		local altMove = alt and not ctrl and not meta
-		local plainMove = not alt and not ctrl and not meta
+		-- Squad-move combos tolerate Shift (which queues the move) and Ctrl
+		-- (which turns the squad-move into a squad-Fight order).
+		local altMove = alt and not meta
+		local plainMove = not alt and not meta
 		local willCreate = (config.rightClickSquadCreate and plain) or (config.ctrlRightClickCreatesSquad and modCombo)
 		if (willCreate and cursor ~= "cursornormal") then
 			squadCreate()
@@ -2961,10 +2963,11 @@ function widget:MousePress(x, y, button)
 				y = y,
 			}
 		elseif config.rightClickMovesSquad and (altMove or (plainMove and spGetSelectedUnits()[1] == nil)) then
-			-- Move a squad without touching the selection. Plain + empty selection
-			-- passes through (the engine does nothing with no selection); Alt
-			-- consumes the click so the engine won't move the selection too. The
-			-- picked squad is move-ordered to the release point in widget:Update.
+			-- Command a squad without touching the selection. With an empty
+			-- selection the click passes through (the engine does nothing with no
+			-- selection); with Alt we consume the click so the engine won't move the
+			-- current selection too. Ctrl makes it a Fight order in either case. The
+			-- picked squad is ordered to the release point in widget:Update.
 			if spTraceScreenRay(x, y) ~= "unit" then
 				local sq
 				if shift and highlightLockedSquad and #highlightLockedSquad > 0 then
@@ -2977,9 +2980,26 @@ function widget:MousePress(x, y, button)
 						sq = findClosestSquad(nil, nil, nil, wx, wz, nil, maxDistSq)
 					end
 				end
+				-- If the picked squad is exactly the current selection, don't
+				-- intercept: let the engine drive its normal RMB drag (formation /
+				-- line move). Our single-point override would otherwise clobber the
+				-- move-line, and there's no selection to preserve here anyway.
+				local pickedIsSelection = false
 				if sq then
+					local selUnits = spGetSelectedUnits()
+					if #selUnits == #sq then
+						local selSet = {}
+						for i = 1, #selUnits do
+							selSet[selUnits[i]] = true
+						end
+						pickedIsSelection = squadFullySelected(sq, selSet)
+					end
+				end
+				if sq and not pickedIsSelection then
 					pendingSquadMove = {
 						squad = sq,
+						-- Ctrl turns the squad-move into a Fight order to the point.
+						cmd = ctrl and CMD.FIGHT or CMD.MOVE,
 					}
 					if alt then
 						return true -- consume so the engine keeps the selection put
@@ -3324,7 +3344,7 @@ function widget:DrawWorldPreUnit()
 						effFill = math.min(1, fillOpacity + 0.2 * hb + 0.2 * ctb)
 						effBorder = math.min(1, borderOpacity + 0.2 * hb + 0.2 * ctb)
 						effPadding = padding + 5 * hb + 5 * ctb
-						local bright = 0.3 * ctb
+						local bright = 0.4 * ctb
 						cr = cr + (1 - cr) * bright
 						cg = cg + (1 - cg) * bright
 						cb = cb + (1 - cb) * bright
