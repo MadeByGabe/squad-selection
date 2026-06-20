@@ -7,7 +7,7 @@ function widget:GetInfo()
 		author = "Baldric, yyyy",
 		date = "2026",
 		license = "GNU GPL, v2 or later",
-		layer = -99989,
+		layer = 300,
 		enabled = true,
 	}
 end
@@ -63,7 +63,7 @@ local config = {
 	hullPulseAmplitude = 0.25, -- breathing pulse amplitude on hull alpha
 	hullPulseRate = 1.5, -- breathing pulse rate; period ≈ 2π / rate seconds
 	idleColorBlendSeconds = 0.5, -- seconds for the idle/active hull color to fully crossfade (0 = instant)
-	highlightBlendSeconds = 0.15, -- seconds for the closest-squad highlight to fade in/out (0 = instant)
+	highlightBlendSeconds = 0.1, -- seconds for the closest-squad highlight to fade in/out (0 = instant)
 	debug = false,
 }
 
@@ -3296,18 +3296,20 @@ function widget:DrawWorldPreUnit()
 						cr, cg, cb = cr * 1.5, cg * 1.5, cb * 1.5
 					end
 
-					-- Highlight tiers, each faded in by its blend: hb (closest-squad
-					-- preview) lifts fill + brightness; ctb (commanded squad, RMB held)
-					-- adds stronger fill, more brightness, and the border emphasis.
+					-- Highlight tiers, each faded in by its blend. The commanded
+					-- squad always has hb fading in alongside ctb (see Update), so
+					-- ctb only ever adds on top of a full hover tier.
+					-- Hover:   +0.3 fill/border opacity, +10 padding.
+					-- Control: +0.4 fill/border opacity, +10 padding, +0.2 brightness, +2 border width.
 					local effFill, effBorder = fillOpacity, borderOpacity
+					local effPadding = padding
 					local hb = squadHighlightBlend[squad] or 0
 					local ctb = squadControlBlend[squad] or 0
 					if hb > 0 or ctb > 0 then
-						local fillHover = math.min(1, fillOpacity * 2.8)
-						local fillCtrl = math.min(1, fillOpacity * 3.4)
-						effFill = fillOpacity + (fillHover - fillOpacity) * hb + (fillCtrl - fillHover) * ctb
-						effBorder = borderOpacity + (math.max(borderOpacity, 0.9) - borderOpacity) * ctb
-						local bright = 0.25 * hb + 0.25 * ctb
+						effFill = math.min(1, fillOpacity + 0.3 * hb + 0.1 * ctb)
+						effBorder = math.min(1, borderOpacity + 0.3 * hb + 0.1 * ctb)
+						effPadding = padding + 10 * hb
+						local bright = 0.2 * ctb
 						cr = cr + (1 - cr) * bright
 						cg = cg + (1 - cg) * bright
 						cb = cb + (1 - cb) * bright
@@ -3354,11 +3356,11 @@ function widget:DrawWorldPreUnit()
 						local hx = (maxX - minX) * 0.5
 						local hz = (maxZ - minZ) * 0.5
 						local cy = spGetGroundHeight(cx, cz)
-						local radius = math.sqrt(hx * hx + hz * hz) + padding + 256
+						local radius = math.sqrt(hx * hx + hz * hz) + effPadding + 256
 						local visible = (not spIsSphereInView) or spIsSphereInView(cx, cy, cz, radius)
 
 						if visible then
-							local n = getPaddedHull(nWorld, padding, arcRes)
+							local n = getPaddedHull(nWorld, effPadding, arcRes)
 							if n >= 3 and n <= HULL_MAX_VERTICES then
 								local seed = squad.tagSeed or 0
 
@@ -3410,7 +3412,7 @@ function widget:DrawWorldPreUnit()
 								end
 								glUniform(hullColorLoc, cr, cg, cb, effBorder * alphaScale)
 								if ctb > 0 then
-									glLineWidth(borderThickness * (1 + ctb))
+									glLineWidth(borderThickness + 2 * ctb)
 									hullVao:DrawArrays(GL.LINE_LOOP, n)
 									glLineWidth(borderThickness)
 								else
