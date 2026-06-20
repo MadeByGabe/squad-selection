@@ -55,7 +55,6 @@ local buttons = {
 		tooltip = "Resume squad-tracking the selected units' types (removes them from excludedUnitTypes)",
 	}}
 
-
 -- Exclude/include the selected units' types from squad tracking. Implemented
 -- here (not in the main widget) on top of the main widget's
 -- `squad_setting add/remove excludedUnitTypes` chat commands, which dedupe,
@@ -95,6 +94,7 @@ end
 local function squadUnexcludeSelected()
 	changeSelectionExclusion(false)
 end
+
 
 local vsx, vsy = spGetViewGeometry()
 
@@ -305,4 +305,5 @@ function widget:Shutdown()
 	widgetHandler:RemoveAction("squad_unexclude_selected")
 	WG['squadselection_buttons'] = nil
 end
+
 
