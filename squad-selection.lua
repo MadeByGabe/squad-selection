@@ -2741,8 +2741,7 @@ function widget:Update(dt)
 
 	-- Highlight (closest-squad preview) and control (commanded squad) targets.
 	-- While RMB is held both lock to the commanded squad; otherwise highlight
-	-- tracks the closest squad to the cursor, which Shift latches so a queue can
-	-- stay on one squad while the cursor drifts.
+	-- tracks the closest squad, which Shift latches so a queue stays on one squad.
 	local highlightTarget, controlTarget
 	if pendingSquadMove then
 		highlightTarget = pendingSquadMove.squad
@@ -2963,11 +2962,10 @@ function widget:MousePress(x, y, button)
 				y = y,
 			}
 		elseif config.rightClickMovesSquad and (altMove or (plainMove and spGetSelectedUnits()[1] == nil)) then
-			-- Command a squad without touching the selection. With an empty
-			-- selection the click passes through (the engine does nothing with no
-			-- selection); with Alt we consume the click so the engine won't move the
-			-- current selection too. Ctrl makes it a Fight order in either case. The
-			-- picked squad is ordered to the release point in widget:Update.
+			-- Command a squad without touching the selection. Empty selection: the
+			-- click passes through (engine ignores it); Alt: consume the click so the
+			-- engine won't move the current selection too. Ctrl makes it a Fight
+			-- order. The picked squad is ordered to the release point in widget:Update.
 			if spTraceScreenRay(x, y) ~= "unit" then
 				local sq
 				if shift and highlightLockedSquad and #highlightLockedSquad > 0 then
@@ -2981,9 +2979,8 @@ function widget:MousePress(x, y, button)
 					end
 				end
 				-- If the picked squad is exactly the current selection, don't
-				-- intercept: let the engine drive its normal RMB drag (formation /
-				-- line move). Our single-point override would otherwise clobber the
-				-- move-line, and there's no selection to preserve here anyway.
+				-- intercept — let the engine drive its normal RMB drag (formation
+				-- move) rather than clobbering it with our single-point order.
 				local pickedIsSelection = false
 				if sq then
 					local selUnits = spGetSelectedUnits()
@@ -3334,11 +3331,9 @@ function widget:DrawWorldPreUnit()
 						cr, cg, cb = cr * 1.5, cg * 1.5, cb * 1.5
 					end
 
-					-- Highlight tiers, each faded in by its blend. The commanded
-					-- squad always has hb fading in alongside ctb (see Update), so
-					-- ctb only ever adds on top of a full hover tier.
-					-- Hover:   +0.3 fill/border opacity, +10 padding.
-					-- Control: +0.4 fill/border opacity, +10 padding, +0.2 brightness, +2 border width.
+					-- Highlight tiers faded in by their blends. The commanded squad
+					-- always has hb fading in alongside ctb (see Update), so control
+					-- stacks on top of hover (extra brightness + border width).
 					local effFill, effBorder = fillOpacity, borderOpacity
 					local effPadding = padding
 					if hb > 0 or ctb > 0 then
