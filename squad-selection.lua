@@ -2755,7 +2755,10 @@ function widget:Update(dt)
 				highlightLockedSquad = hx and findClosestSquad(nil, nil, nil, hx, hz, nil, maxDistSq) or nil
 			end
 			highlightTarget = highlightLockedSquad
-			if not shift then
+			if shift then
+				-- A Shift-latched squad is the live target of the queued moves, so show it as controlled.
+				controlTarget = highlightLockedSquad
+			else
 				highlightLockedSquad = nil
 			end
 		else
