@@ -106,7 +106,7 @@ local spGetUnitCommands = Spring.GetUnitCommands
 local spGetUnitCommandCount = Spring.GetUnitCommandCount
 local spGetTeamColor = Spring.GetTeamColor
 local spSendCommands = Spring.SendCommands
-local spGiveOrderToUnitArray = Spring.GiveOrderToUnitArray
+local spGiveOrder = Spring.GiveOrder -- orders the *current selection*; routes through CSelectedUnitsAI (formation + slowest-speed group move)
 local spGetMiniMapGeometry = Spring.GetMiniMapGeometry
 local spIsSphereInView = Spring.IsSphereInView
 local spGetTimer = Spring.GetTimer
@@ -145,7 +145,7 @@ local squadControlBlend = {} -- squad table -> 0..1 blend for the actively-comma
 local squadHideIdleAirHull = {} -- squad table -> true when an idle squad is entirely airborne air units
 local idleScanIndex = 0 -- round-robin index into squads for incremental idle-state updates
 local pendingDragCreate = nil -- { x, y } screen pos of a Ctrl+RMB press awaiting a drag past MouseDragFrontCommandThreshold to fire squad_create (config.ctrlRightClickDragCreatesSquad)
-local pendingSquadMove = nil -- { squad, cmd } from an Alt RMB (or plain RMB with no selection) press (config.rightClickMovesSquad); on RMB release in widget:Update the squad is ordered (cmd = Move, or Fight when Ctrl was held) to the release point
+local pendingSquadMove = nil -- { squad, formation } captured on an Alt RMB (or plain RMB with empty selection) press (config.rightClickMovesSquad); on RMB release widget:Update orders the squad to the release point (formation = Ctrl held → slowest-speed "move in formation")
 local highlightLockedSquad = nil -- while Shift is held over the squad-move highlight, the latched target squad — so a Shift-queue stays on one squad even as the cursor drifts near others
 local beforeSquadSelectCallback = nil -- optional WG hook: return false to cancel a doSquadSelect call
 local squadChangeListeners = {} -- array of callback functions
@@ -2771,7 +2771,7 @@ function widget:Update(dt)
 		if not rmb then
 			-- RMB released: move-order the picked squad to the release point.
 			local sq = pendingSquadMove.squad
-			local cmd = pendingSquadMove.cmd or CMD.MOVE
+			local formation = pendingSquadMove.formation
 			pendingSquadMove = nil
 			if sq and #sq > 0 then
 				local wx, wz = getMouseWorldPos()
@@ -2781,10 +2781,18 @@ function widget:Update(dt)
 					for i = 1, #sq do
 						units[i] = sq[i]
 					end
-					-- Shift queues the order instead of replacing.
+					-- Shift queues; Ctrl (formation) adds the slowest-speed "move in
+					-- formation" via OPT_CTRL. Issued through Spring.GiveOrder on a
+					-- brief temporary selection (restored immediately): the engine's
+					-- group-speed logic runs only on the current selection — including
+					-- clearing a prior Ctrl restriction, which a plain move must do.
 					local _, _, _, shift = spGetModKeyState()
-					spGiveOrderToUnitArray(units, cmd, {wx, wy, wz}, shift and CMD.OPT_SHIFT or 0)
-					log("RMB squad ", cmd == CMD.FIGHT and "fight" or "move", " [", sq.index or "?", "]: ", #units, " unit(s)", shift and " (queued)" or "")
+					local opts = (shift and CMD.OPT_SHIFT or 0) + (formation and CMD.OPT_CTRL or 0)
+					local saved = spGetSelectedUnits()
+					spSelectUnitArray(units)
+					spGiveOrder(CMD.MOVE, {wx, wy, wz}, opts)
+					spSelectUnitArray(saved)
+					log("RMB squad ", formation and "formation move" or "move", " [", sq.index or "?", "]: ", #units, " unit(s)", shift and " (queued)" or "")
 				end
 			end
 		end
@@ -3013,7 +3021,7 @@ function widget:MousePress(x, y, button)
 		local plain = not (alt or ctrl or meta or shift)
 		local modCombo = ctrl and not alt and not meta and not shift
 		-- Squad-move combos tolerate Shift (which queues the move) and Ctrl
-		-- (which turns the squad-move into a squad-Fight order).
+		-- (which turns the squad-move into a slowest-speed "move in formation").
 		local altMove = alt and not meta
 		local plainMove = not alt and not meta
 		local willCreate = (config.rightClickSquadCreate and plain) or (config.ctrlRightClickCreatesSquad and modCombo)
@@ -3028,10 +3036,11 @@ function widget:MousePress(x, y, button)
 				y = y,
 			}
 		elseif config.rightClickMovesSquad and (altMove or (plainMove and spGetSelectedUnits()[1] == nil)) then
-			-- Command a squad without touching the selection. Empty selection: the
-			-- click passes through (engine ignores it); Alt: consume the click so the
-			-- engine won't move the current selection too. Ctrl makes it a Fight
-			-- order. The picked squad is ordered to the release point in widget:Update.
+			-- Command a squad without changing the player's selection (widget:Update
+			-- briefly reselects the squad to order it, then restores). Empty selection:
+			-- the click passes through (engine ignores it); Alt: consume the click so
+			-- the engine won't move the current selection too. Ctrl makes it a
+			-- slowest-speed "move in formation". Ordered at the release point in Update.
 			if spTraceScreenRay(x, y) ~= "unit" then
 				local sq
 				if shift and highlightLockedSquad and #highlightLockedSquad > 0 then
@@ -3061,8 +3070,9 @@ function widget:MousePress(x, y, button)
 				if sq and not pickedIsSelection then
 					pendingSquadMove = {
 						squad = sq,
-						-- Ctrl turns the squad-move into a Fight order to the point.
-						cmd = ctrl and CMD.FIGHT or CMD.MOVE,
+						-- Ctrl turns the squad-move into a slowest-speed "move in
+						-- formation" (issued with OPT_CTRL) instead of a plain move.
+						formation = ctrl,
 					}
 					if alt then
 						return true -- consume so the engine keeps the selection put
