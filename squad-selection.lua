@@ -33,6 +33,7 @@ local config = {
 	leftClickFilteredRetargets = true, -- when true, Alt+Ctrl-click (replace-mode filtered) acts like the `retarget` keyword: if the closest unit's type isn't in the current selection, treat the click as a fresh selection on that new type instead of using the selection's types as the filter. Append mode is unaffected.
 	rightClickSquadCreate = false, -- right-click creates squads; bind a hotkey via `squad_setting toggle rightClickSquadCreate` to flip on demand
 	rightClickMovesSquad = true, -- when nothing is selected, a plain right-click commands the closest squad (to the press point) to move to the release point, without disturbing your (empty) selection
+	rightClickMoveRange = 850, -- max world-distance (elmos) from the cursor for the right-click-move feature to highlight/pick a squad; 0 = unlimited
 	ctrlRightClickCreatesSquad = false, -- Ctrl+right-click creates a squad (click still passes through, so the engine's move-in-formation runs too which can cause issues)
 	ctrlRightClickDragCreatesSquad = true, -- hold Ctrl then right-click drag past the engine's MouseDragFrontCommandThreshold to create a squad (click still passes through)
 	commandCreatesSquad = false,
@@ -904,9 +905,9 @@ end
 -- domainFilter (set of allowed domain strings) rejects entire squads whose
 -- units include any domain not in the set — so e.g. a pure-land filter skips
 -- mixed land+air squads, not just their air units.
-local function findClosestSquad(filterDefs, groupSet, exclude, wx, wz, domainFilter)
+local function findClosestSquad(filterDefs, groupSet, exclude, wx, wz, domainFilter, maxDistSq)
 	local bestUnit = nil
-	local bestDistSq = math.huge
+	local bestDistSq = maxDistSq or math.huge
 
 	for _, squad in ipairs(squads) do
 		local squadOk = true
@@ -2024,6 +2025,15 @@ local OPTION_SPECS = {
 		description = "With nothing selected, right-click-drag move-orders the squad nearest the press point to the release point. Hold Alt to do this even when you have a selection (your selection stays put). With shift you lock the squad and append the order to its queue.",
 		type = "bool",
 	}, {
+		configVariable = "rightClickMoveRange",
+		name = "Right-click move range",
+		description = "Max distance (elmos) from the cursor for right-click-move to highlight and pick a squad. 0 = unlimited.",
+		type = "slider",
+		min = 0,
+		max = 3000,
+		step = 50,
+		category = OPTION_ADVANCED,
+	}, {
 		configVariable = "mergeIntoReserves",
 		name = "Merge into reserves",
 		description = "When on, appending a reserve squad to selection and running squad_create merges your selection into it. When off, squad_create always creates a fresh manual squad.",
@@ -2741,7 +2751,8 @@ function widget:Update(dt)
 		if alt or spGetSelectedUnits()[1] == nil then
 			if not (shift and highlightLockedSquad) then
 				local hx, hz = getMouseWorldPos()
-				highlightLockedSquad = hx and findClosestSquad(nil, nil, nil, hx, hz) or nil
+				local maxDistSq = config.rightClickMoveRange > 0 and config.rightClickMoveRange * config.rightClickMoveRange or nil
+				highlightLockedSquad = hx and findClosestSquad(nil, nil, nil, hx, hz, nil, maxDistSq) or nil
 			end
 			highlightTarget = highlightLockedSquad
 			if not shift then
@@ -2959,7 +2970,8 @@ function widget:MousePress(x, y, button)
 				else
 					local wx, wz = getMouseWorldPos()
 					if wx then
-						sq = findClosestSquad(nil, nil, nil, wx, wz)
+						local maxDistSq = config.rightClickMoveRange > 0 and config.rightClickMoveRange * config.rightClickMoveRange or nil
+						sq = findClosestSquad(nil, nil, nil, wx, wz, nil, maxDistSq)
 					end
 				end
 				if sq then
