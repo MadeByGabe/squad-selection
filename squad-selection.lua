@@ -32,7 +32,7 @@ local config = {
 	leftClickAppendFiltersDomain = true, -- when true, left-click Shift-append only cycles into squads whose domains ⊆ the selection's; when false, append behaves like the plain `append` keyword
 	leftClickFilteredRetargets = true, -- when true, Alt+Ctrl-click (replace-mode filtered) acts like the `retarget` keyword: if the closest unit's type isn't in the current selection, treat the click as a fresh selection on that new type instead of using the selection's types as the filter. Append mode is unaffected.
 	rightClickSquadCreate = false, -- right-click creates squads; bind a hotkey via `squad_setting toggle rightClickSquadCreate` to flip on demand
-	rightClickMovesSquad = true, -- when nothing is selected, a plain right-click commands the closest squad (to the press point) to move to the release point, without disturbing your (empty) selection
+	rightClickMovesSquad = true, -- right-click commands the closest squad
 	rightClickMoveRange = 850, -- max world-distance (elmos) from the cursor for the right-click-move feature to highlight/pick a squad; 0 = unlimited
 	ctrlRightClickCreatesSquad = false, -- Ctrl+right-click creates a squad (click still passes through, so the engine's move-in-formation runs too which can cause issues)
 	ctrlRightClickDragCreatesSquad = true, -- hold Ctrl then right-click drag past the engine's MouseDragFrontCommandThreshold to create a squad (click still passes through)
@@ -64,7 +64,7 @@ local config = {
 	hullPulseAmplitude = 0.25, -- breathing pulse amplitude on hull alpha
 	hullPulseRate = 1.5, -- breathing pulse rate; period ≈ 2π / rate seconds
 	idleColorBlendSeconds = 0.5, -- seconds for the idle/active hull color to fully crossfade (0 = instant)
-	highlightBlendSeconds = 0.67, -- seconds for the closest-squad highlight to fade in/out (0 = instant)
+	highlightBlendSeconds = 0.34, -- seconds for the closest-squad highlight to fade in/out (0 = instant)
 	debug = false,
 }
 
@@ -106,7 +106,7 @@ local spGetUnitCommands = Spring.GetUnitCommands
 local spGetUnitCommandCount = Spring.GetUnitCommandCount
 local spGetTeamColor = Spring.GetTeamColor
 local spSendCommands = Spring.SendCommands
-local spGiveOrder = Spring.GiveOrder -- orders the *current selection*; routes through CSelectedUnitsAI (formation + slowest-speed group move)
+local spGiveOrder = Spring.GiveOrder
 local spGetMiniMapGeometry = Spring.GetMiniMapGeometry
 local spIsSphereInView = Spring.IsSphereInView
 local spGetTimer = Spring.GetTimer
@@ -145,7 +145,7 @@ local squadControlBlend = {} -- squad table -> 0..1 blend for the actively-comma
 local squadHideIdleAirHull = {} -- squad table -> true when an idle squad is entirely airborne air units
 local idleScanIndex = 0 -- round-robin index into squads for incremental idle-state updates
 local pendingDragCreate = nil -- { x, y } screen pos of a Ctrl+RMB press awaiting a drag past MouseDragFrontCommandThreshold to fire squad_create (config.ctrlRightClickDragCreatesSquad)
-local pendingSquadMove = nil -- { squad, formation, keepSelection } captured on an Alt/Space RMB (or plain RMB with empty selection) press (config.rightClickMovesSquad); on RMB release widget:Update orders the squad to the release point (formation = Ctrl → slowest-speed "move in formation"; keepSelection = Space → leave the squad selected instead of restoring)
+local pendingSquadMove = nil -- { squad, formation, keepSelection } captured on an Alt/Space RMB (or plain RMB with empty selection) press (config.rightClickMovesSquad)
 local highlightLockedSquad = nil -- while Shift is held over the squad-move highlight, the latched target squad — so a Shift-queue stays on one squad even as the cursor drifts near others
 local beforeSquadSelectCallback = nil -- optional WG hook: return false to cancel a doSquadSelect call
 local squadChangeListeners = {} -- array of callback functions
@@ -900,8 +900,7 @@ local function getMouseWorldPos()
 end
 
 
--- Cylinder radius (elmos) for unbounded callers. A fixed constant, not config:
--- it's only a perf heuristic, and a full scan runs if nothing is found within it.
+-- Cylinder radius (elmos) for perf heuristic.
 local SEARCH_RADIUS = 850
 
 -- Full scan over every tracked unit. Fallback when the cylinder finds nothing.
@@ -952,10 +951,7 @@ end
 -- units include any domain not in the set — so e.g. a pure-land filter skips
 -- mixed land+air squads, not just their air units.
 --
--- A cylinder around the cursor pre-filters the candidates. This is exact: the
--- closest passing unit, if one is within the radius, is necessarily inside the
--- cylinder. When maxDistSq is set the cylinder is the whole allowed range, so no
--- fallback is needed; when unbounded, a miss falls back to a full scan.
+-- A cylinder around the cursor pre-filters the candidates. 
 local function findClosestSquad(filterDefs, groupSet, exclude, wx, wz, domainFilter, maxDistSq)
 	local radius = maxDistSq and math.sqrt(maxDistSq) or SEARCH_RADIUS
 	local candidates = spGetUnitsInCylinder(wx, wz, radius)
@@ -2773,21 +2769,15 @@ function widget:Update(dt)
 					for i = 1, #sq do
 						units[i] = sq[i]
 					end
-					-- Shift queues; Ctrl (formation) adds the slowest-speed "move in
-					-- formation" via OPT_CTRL. Issued through Spring.GiveOrder on a
-					-- temporary selection of the squad: the engine's group-speed logic
-					-- runs only on the current selection — including clearing a prior
-					-- Ctrl restriction, which a plain move must do. Restored afterward
-					-- unless Space (keepSelection) was held.
 					local _, _, _, shift = spGetModKeyState()
 					local opts = (shift and CMD.OPT_SHIFT or 0) + (formation and CMD.OPT_CTRL or 0)
 					local saved = spGetSelectedUnits()
 					spSelectUnitArray(units)
 					spGiveOrder(CMD.MOVE, {wx, wy, wz}, opts)
 					if not keepSelection then
-						spSelectUnitArray(saved) -- Space (keepSelection) leaves the squad selected
+						spSelectUnitArray(saved)
 					end
-					pushToMru(sq) -- commanding a squad counts as working with it, so it joins the recent list
+					pushToMru(sq)
 					log("RMB squad ", formation and "formation move" or "move", " [", sq.index or "?", "]: ", #units, " unit(s)", shift and " (queued)" or "")
 				end
 			end
@@ -3021,7 +3011,6 @@ function widget:MousePress(x, y, button)
 		-- never hijack an RMB move of your current selection. Shift queues, Ctrl makes
 		-- it a slowest-speed "move in formation", and Space (meta) keeps the moved
 		-- squad selected — Space sets keepSelection only, never WHEN we fire.
-		local space = meta
 		local willCreate = (config.rightClickSquadCreate and plain) or (config.ctrlRightClickCreatesSquad and modCombo)
 		if (willCreate and cursor ~= "cursornormal") then
 			squadCreate()
@@ -3034,12 +3023,6 @@ function widget:MousePress(x, y, button)
 				y = y,
 			}
 		elseif config.rightClickMovesSquad and (alt or spGetSelectedUnits()[1] == nil) then
-			-- Command a squad without permanently changing the selection (widget:Update
-			-- reselects the squad to order it, then restores — unless Space). Empty
-			-- selection: the click passes through (engine ignores it); Alt: consume the
-			-- click so the engine won't move the current selection too. Ctrl makes it a
-			-- slowest-speed "move in formation"; Space keeps the moved squad selected
-			-- instead of restoring. Ordered at the release point in Update.
 			if spTraceScreenRay(x, y) ~= "unit" then
 				local sq
 				if shift and highlightLockedSquad and #highlightLockedSquad > 0 then
@@ -3059,7 +3042,7 @@ function widget:MousePress(x, y, button)
 				-- front-of-queue insert; Alt+Space explicitly asks for the widget's
 				-- simple move, so we still intercept even when picked == selection.
 				local pickedIsSelection = false
-				if sq and not space then
+				if sq and not meta then
 					local selUnits = spGetSelectedUnits()
 					if #selUnits == #sq then
 						local selSet = {}
@@ -3072,8 +3055,8 @@ function widget:MousePress(x, y, button)
 				if sq and not pickedIsSelection then
 					pendingSquadMove = {
 						squad = sq,
-						formation = ctrl,      -- Ctrl → slowest-speed "move in formation" (see widget:Update)
-						keepSelection = space, -- Space → leave the moved squad selected instead of restoring
+						formation = ctrl, -- Ctrl → slowest-speed "move in formation" (see widget:Update)
+						keepSelection = meta, -- Space → leave the moved squad selected instead of restoring
 					}
 					if alt then
 						return true -- consume so the engine doesn't move the current selection
