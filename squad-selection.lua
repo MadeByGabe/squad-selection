@@ -145,7 +145,7 @@ local squadControlBlend = {} -- squad table -> 0..1 blend for the actively-comma
 local squadHideIdleAirHull = {} -- squad table -> true when an idle squad is entirely airborne air units
 local idleScanIndex = 0 -- round-robin index into squads for incremental idle-state updates
 local pendingDragCreate = nil -- { x, y } screen pos of a Ctrl+RMB press awaiting a drag past MouseDragFrontCommandThreshold to fire squad_create (config.ctrlRightClickDragCreatesSquad)
-local pendingSquadMove = nil -- { squad, formation } captured on an Alt RMB (or plain RMB with empty selection) press (config.rightClickMovesSquad); on RMB release widget:Update orders the squad to the release point (formation = Ctrl held → slowest-speed "move in formation")
+local pendingSquadMove = nil -- { squad, formation, keepSelection } captured on an Alt/Space RMB (or plain RMB with empty selection) press (config.rightClickMovesSquad); on RMB release widget:Update orders the squad to the release point (formation = Ctrl → slowest-speed "move in formation"; keepSelection = Space → leave the squad selected instead of restoring)
 local highlightLockedSquad = nil -- while Shift is held over the squad-move highlight, the latched target squad — so a Shift-queue stays on one squad even as the cursor drifts near others
 local beforeSquadSelectCallback = nil -- optional WG hook: return false to cancel a doSquadSelect call
 local squadChangeListeners = {} -- array of callback functions
@@ -2772,6 +2772,7 @@ function widget:Update(dt)
 			-- RMB released: move-order the picked squad to the release point.
 			local sq = pendingSquadMove.squad
 			local formation = pendingSquadMove.formation
+			local keepSelection = pendingSquadMove.keepSelection
 			pendingSquadMove = nil
 			if sq and #sq > 0 then
 				local wx, wz = getMouseWorldPos()
@@ -2783,15 +2784,18 @@ function widget:Update(dt)
 					end
 					-- Shift queues; Ctrl (formation) adds the slowest-speed "move in
 					-- formation" via OPT_CTRL. Issued through Spring.GiveOrder on a
-					-- brief temporary selection (restored immediately): the engine's
-					-- group-speed logic runs only on the current selection — including
-					-- clearing a prior Ctrl restriction, which a plain move must do.
+					-- temporary selection of the squad: the engine's group-speed logic
+					-- runs only on the current selection — including clearing a prior
+					-- Ctrl restriction, which a plain move must do. Restored afterward
+					-- unless Space (keepSelection) was held.
 					local _, _, _, shift = spGetModKeyState()
 					local opts = (shift and CMD.OPT_SHIFT or 0) + (formation and CMD.OPT_CTRL or 0)
 					local saved = spGetSelectedUnits()
 					spSelectUnitArray(units)
 					spGiveOrder(CMD.MOVE, {wx, wy, wz}, opts)
-					spSelectUnitArray(saved)
+					if not keepSelection then
+						spSelectUnitArray(saved) -- Space (keepSelection) leaves the squad selected
+					end
 					log("RMB squad ", formation and "formation move" or "move", " [", sq.index or "?", "]: ", #units, " unit(s)", shift and " (queued)" or "")
 				end
 			end
@@ -3020,10 +3024,12 @@ function widget:MousePress(x, y, button)
 	if button == 3 then
 		local plain = not (alt or ctrl or meta or shift)
 		local modCombo = ctrl and not alt and not meta and not shift
-		-- Squad-move combos tolerate Shift (which queues the move) and Ctrl
-		-- (which turns the squad-move into a slowest-speed "move in formation").
-		local altMove = alt and not meta
-		local plainMove = not alt and not meta
+		-- The squad-move gesture fires like a normal RMB move: Alt commands a squad
+		-- even with units selected; without Alt only when nothing is selected, so we
+		-- never hijack an RMB move of your current selection. Shift queues, Ctrl makes
+		-- it a slowest-speed "move in formation", and Space (meta) keeps the moved
+		-- squad selected — Space sets keepSelection only, never WHEN we fire.
+		local space = meta
 		local willCreate = (config.rightClickSquadCreate and plain) or (config.ctrlRightClickCreatesSquad and modCombo)
 		if (willCreate and cursor ~= "cursornormal") then
 			squadCreate()
@@ -3035,12 +3041,13 @@ function widget:MousePress(x, y, button)
 				x = x,
 				y = y,
 			}
-		elseif config.rightClickMovesSquad and (altMove or (plainMove and spGetSelectedUnits()[1] == nil)) then
-			-- Command a squad without changing the player's selection (widget:Update
-			-- briefly reselects the squad to order it, then restores). Empty selection:
-			-- the click passes through (engine ignores it); Alt: consume the click so
-			-- the engine won't move the current selection too. Ctrl makes it a
-			-- slowest-speed "move in formation". Ordered at the release point in Update.
+		elseif config.rightClickMovesSquad and (alt or spGetSelectedUnits()[1] == nil) then
+			-- Command a squad without permanently changing the selection (widget:Update
+			-- reselects the squad to order it, then restores — unless Space). Empty
+			-- selection: the click passes through (engine ignores it); Alt: consume the
+			-- click so the engine won't move the current selection too. Ctrl makes it a
+			-- slowest-speed "move in formation"; Space keeps the moved squad selected
+			-- instead of restoring. Ordered at the release point in Update.
 			if spTraceScreenRay(x, y) ~= "unit" then
 				local sq
 				if shift and highlightLockedSquad and #highlightLockedSquad > 0 then
@@ -3056,8 +3063,11 @@ function widget:MousePress(x, y, button)
 				-- If the picked squad is exactly the current selection, don't
 				-- intercept — let the engine drive its normal RMB drag (formation
 				-- move) rather than clobbering it with our single-point order.
+				-- Exception: Space (meta) is not a formation drag but the engine's
+				-- front-of-queue insert; Alt+Space explicitly asks for the widget's
+				-- simple move, so we still intercept even when picked == selection.
 				local pickedIsSelection = false
-				if sq then
+				if sq and not space then
 					local selUnits = spGetSelectedUnits()
 					if #selUnits == #sq then
 						local selSet = {}
@@ -3070,12 +3080,11 @@ function widget:MousePress(x, y, button)
 				if sq and not pickedIsSelection then
 					pendingSquadMove = {
 						squad = sq,
-						-- Ctrl turns the squad-move into a slowest-speed "move in
-						-- formation" (issued with OPT_CTRL) instead of a plain move.
-						formation = ctrl,
+						formation = ctrl,      -- Ctrl → slowest-speed "move in formation" (see widget:Update)
+						keepSelection = space, -- Space → leave the moved squad selected instead of restoring
 					}
 					if alt then
-						return true -- consume so the engine keeps the selection put
+						return true -- consume so the engine doesn't move the current selection
 					end
 				end
 			end
