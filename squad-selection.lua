@@ -3318,10 +3318,10 @@ function widget:DrawWorldPreUnit()
 					local hb = squadHighlightBlend[squad] or 0
 					local ctb = squadControlBlend[squad] or 0
 					if hb > 0 or ctb > 0 then
-						effFill = math.min(1, fillOpacity + 0.3 * hb + 0.1 * ctb)
-						effBorder = math.min(1, borderOpacity + 0.3 * hb + 0.1 * ctb)
-						effPadding = padding + 10 * hb
-						local bright = 0.2 * ctb
+						effFill = math.min(1, fillOpacity + 0.2 * hb + 0.2 * ctb)
+						effBorder = math.min(1, borderOpacity + 0.2 * hb + 0.2 * ctb)
+						effPadding = padding + 5 * hb + 5 * ctb
+						local bright = 0.3 * ctb
 						cr = cr + (1 - cr) * bright
 						cg = cg + (1 - cg) * bright
 						cb = cb + (1 - cb) * bright
