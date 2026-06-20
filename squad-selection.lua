@@ -111,6 +111,7 @@ local spGetMiniMapGeometry = Spring.GetMiniMapGeometry
 local spIsSphereInView = Spring.IsSphereInView
 local spGetTimer = Spring.GetTimer
 local spDiffTimers = Spring.DiffTimers
+local spGetUnitsInCylinder = Spring.GetUnitsInCylinder
 
 local glColor = gl.Color
 local glDepthTest = gl.DepthTest
@@ -899,13 +900,12 @@ local function getMouseWorldPos()
 end
 
 
--- Returns the squad containing the unit closest to (wx, wz), or nil if none.
--- Optional filterDefs (defID set), groupSet (unitID set), and exclude
--- (unitID set) narrow the search. A unit is a candidate only if it passes all three filters.
--- domainFilter (set of allowed domain strings) rejects entire squads whose
--- units include any domain not in the set — so e.g. a pure-land filter skips
--- mixed land+air squads, not just their air units.
-local function findClosestSquad(filterDefs, groupSet, exclude, wx, wz, domainFilter, maxDistSq)
+-- Cylinder radius (elmos) for unbounded callers. A fixed constant, not config:
+-- it's only a perf heuristic, and a full scan runs if nothing is found within it.
+local SEARCH_RADIUS = 850
+
+-- Full scan over every tracked unit. Fallback when the cylinder finds nothing.
+local function findClosestSquadFullScan(filterDefs, groupSet, exclude, wx, wz, domainFilter, maxDistSq)
 	local bestUnit = nil
 	local bestDistSq = maxDistSq or math.huge
 
@@ -939,6 +939,72 @@ local function findClosestSquad(filterDefs, groupSet, exclude, wx, wz, domainFil
 				end
 			end
 		end
+	end
+
+	return bestUnit and unitSquad[bestUnit] or nil, bestUnit
+end
+
+
+-- Returns the squad containing the unit closest to (wx, wz), or nil if none.
+-- Optional filterDefs (defID set), groupSet (unitID set), and exclude
+-- (unitID set) narrow the search. A unit is a candidate only if it passes all three filters.
+-- domainFilter (set of allowed domain strings) rejects entire squads whose
+-- units include any domain not in the set — so e.g. a pure-land filter skips
+-- mixed land+air squads, not just their air units.
+--
+-- A cylinder around the cursor pre-filters the candidates. This is exact: the
+-- closest passing unit, if one is within the radius, is necessarily inside the
+-- cylinder. When maxDistSq is set the cylinder is the whole allowed range, so no
+-- fallback is needed; when unbounded, a miss falls back to a full scan.
+local function findClosestSquad(filterDefs, groupSet, exclude, wx, wz, domainFilter, maxDistSq)
+	local radius = maxDistSq and math.sqrt(maxDistSq) or SEARCH_RADIUS
+	local candidates = spGetUnitsInCylinder(wx, wz, radius)
+
+	local bestUnit = nil
+	local bestDistSq = maxDistSq or math.huge
+	local domainOk = domainFilter and {} -- memo: squad table -> bool
+
+	for i = 1, #candidates do
+		local u = candidates[i]
+		local squad = unitSquad[u] -- nil for untracked units (enemy/allied/non-combat)
+		if squad and not (exclude and exclude[u]) and not (groupSet and not groupSet[u]) then
+			if not filterDefs or (defidOf[u] and filterDefs[defidOf[u]]) then
+				-- domainFilter is squad-level: check the whole squad, not just its
+				-- in-cylinder units. Memoized so each squad is inspected once.
+				local squadOk = true
+				if domainFilter then
+					squadOk = domainOk[squad]
+					if squadOk == nil then
+						squadOk = true
+						for j = 1, #squad do
+							local d = unitDomain[defidOf[squad[j]]]
+							if d and not domainFilter[d] then
+								squadOk = false
+								break
+							end
+						end
+						domainOk[squad] = squadOk
+					end
+				end
+				if squadOk then
+					local x, _, z = spGetUnitPosition(u)
+					if x then
+						local dx = x - wx
+						local dz = z - wz
+						local distSq = dx * dx + dz * dz
+						if distSq < bestDistSq then
+							bestDistSq = distSq
+							bestUnit = u
+						end
+					end
+				end
+			end
+		end
+	end
+
+	-- Unbounded miss: a qualifying squad, if any, is farther than SEARCH_RADIUS.
+	if not bestUnit and not maxDistSq then
+		return findClosestSquadFullScan(filterDefs, groupSet, exclude, wx, wz, domainFilter, maxDistSq)
 	end
 
 	return bestUnit and unitSquad[bestUnit] or nil, bestUnit
