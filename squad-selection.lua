@@ -64,7 +64,7 @@ local config = {
 	hullPulseAmplitude = 0.25, -- breathing pulse amplitude on hull alpha
 	hullPulseRate = 1.5, -- breathing pulse rate; period ≈ 2π / rate seconds
 	idleColorBlendSeconds = 0.5, -- seconds for the idle/active hull color to fully crossfade (0 = instant)
-	highlightBlendSeconds = 0.34, -- seconds for the closest-squad highlight to fade in/out (0 = instant)
+	highlightBlendSeconds = 0.1, -- seconds for the closest-squad highlight to fade in/out (0 = instant)
 	debug = false,
 }
 
@@ -112,6 +112,7 @@ local spIsSphereInView = Spring.IsSphereInView
 local spGetTimer = Spring.GetTimer
 local spDiffTimers = Spring.DiffTimers
 local spGetUnitsInCylinder = Spring.GetUnitsInCylinder
+local spGetMiniMapRotation = Spring.GetMiniMapRotation
 
 local glColor = gl.Color
 local glDepthTest = gl.DepthTest
@@ -853,8 +854,10 @@ end
 -------------------------------------------------------------------------------
 -- Finding closest unit
 --
--- Returns the mouse cursor's world position, then iterates all tracked units
--- to find the one nearest to it. 
+-- Resolve the mouse cursor to a world (x, z). Reads the PIP minimap (via the
+-- WG API), then the standard engine minimap geometry, then falls back to a
+-- screen ray into the 3D world. Both minimap paths account for minimap
+-- rotation.
 -------------------------------------------------------------------------------
 
 local function getMouseWorldPos()
@@ -862,18 +865,31 @@ local function getMouseWorldPos()
 
 	-- PIP minimap: when active, the engine minimap is hidden/minimized so
 	-- spGetMiniMapGeometry() returns stale data. Use the WG API instead.
-	local wgMinimap = WG and WG['minimap']
-	local wgPip0 = WG and WG['pip0']
+	local wgMinimap = WG and WG["minimap"]
+	local wgPip0 = WG and WG["pip0"]
 	local pipMinimized = wgPip0 and wgPip0.IsMinimized and wgPip0.IsMinimized()
 	if wgMinimap and wgMinimap.isPipMinimapActive and wgMinimap.isPipMinimapActive() and not pipMinimized then
 		local getBounds = wgMinimap.getScreenBounds
-		if getBounds then
+		local getWorldArea = wgMinimap.getVisibleWorldArea
+		if getBounds and getWorldArea then
 			local l, b, r, t = getBounds()
 			if l and r > l and t > b and mx >= l and mx <= r and my >= b and my <= t then
-				local rx = (mx - l) / (r - l)
-				local ry = (my - b) / (t - b)
-				local wx = Game.mapSizeX * rx
-				local wz = Game.mapSizeZ - Game.mapSizeZ * ry
+				local normX = (mx - l) / (r - l)
+				local normY = (my - b) / (t - b)
+
+				-- (mirrors gui_pip's PipToWorldCoords).
+				local getRotation = wgMinimap.getRotation
+				local rot = getRotation and getRotation() or 0
+				if rot ~= 0 then
+					local dx, dy = normX - 0.5, normY - 0.5
+					local cosR, sinR = math.cos(-rot), math.sin(-rot)
+					normX = dx * cosR - dy * sinR + 0.5
+					normY = dx * sinR + dy * cosR + 0.5
+				end
+
+				local wl, wr, wb, wt = getWorldArea()
+				local wx = wl + (wr - wl) * normX
+				local wz = wb + (wt - wb) * normY
 				return wx, wz
 			end
 		end
@@ -885,8 +901,20 @@ local function getMouseWorldPos()
 		local rx = (mx - mmX) / mmW
 		local ry = (my - mmY) / mmH
 		if rx >= 0 and rx <= 1 and ry >= 0 and ry <= 1 then
-			local wx = Game.mapSizeX * rx
-			local wz = Game.mapSizeZ - Game.mapSizeZ * ry
+			local relX = rx
+			local relY = 1 - ry
+
+			-- (mirrors gui_pip's standard-minimap click handling).
+			local rot = spGetMiniMapRotation and spGetMiniMapRotation() or 0
+			if rot ~= 0 then
+				local dx, dy = relX - 0.5, relY - 0.5
+				local cosR, sinR = math.cos(rot), math.sin(rot)
+				relX = dx * cosR - dy * sinR + 0.5
+				relY = dx * sinR + dy * cosR + 0.5
+			end
+
+			local wx = Game.mapSizeX * relX
+			local wz = Game.mapSizeZ * relY
 			return wx, wz
 		end
 	end
@@ -898,7 +926,6 @@ local function getMouseWorldPos()
 	end
 	return coords[1], coords[3] -- world x, world z
 end
-
 
 -- Cylinder radius (elmos) for perf heuristic.
 local SEARCH_RADIUS = 850
