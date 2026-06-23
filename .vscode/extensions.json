@@ -1,5 +1,9 @@
 {
-    "recommendations": [
-        "yinfei.luahelper",
-    ]
+	"recommendations": [
+		"tangzx.emmylua",
+		"JohnnyMorganz.stylua"
+	],
+	"unwantedRecommendations": [
+		"sumneko.lua"
+	]
 }
