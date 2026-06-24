@@ -2826,19 +2826,18 @@ function widget:Update(dt)
 		refreshSquadIdleState(sq)
 	end
 
-	-- Highlight (closest-squad preview) and control (commanded squad) targets.
-	-- While RMB is held both lock to the commanded squad; otherwise highlight
-	-- tracks the closest squad, which Shift latches so a queue stays on one squad.
+	-- Highlight closest-squad, commanded squad, next closest-squad, etc.
 	local highlightTarget, controlTarget
 	if pendingSquadMove then
 		highlightTarget = pendingSquadMove.squad
 		controlTarget = highlightTarget
-	elseif config.rightClickMovesSquad then
+	else
 		local alt, _, _, shift = spGetModKeyState()
-		if alt or spGetSelectedUnits()[1] == nil then
+		local maxDistSq = config.rightClickMoveRange > 0 and config.rightClickMoveRange * config.rightClickMoveRange or nil
+		if config.rightClickMovesSquad and (alt or spGetSelectedUnits()[1] == nil) then
+			-- Squad-move engaged: RMB commands the closest squad.
 			if not (shift and highlightLockedSquad) then
 				local hx, hz = getMouseWorldPos()
-				local maxDistSq = config.rightClickMoveRange > 0 and config.rightClickMoveRange * config.rightClickMoveRange or nil
 				highlightLockedSquad = hx and findClosestSquad(nil, nil, nil, hx, hz, nil, maxDistSq) or nil
 			end
 			highlightTarget = highlightLockedSquad
@@ -2849,10 +2848,24 @@ function widget:Update(dt)
 				highlightLockedSquad = nil
 			end
 		else
+			-- Passive closest-squad highlight
 			highlightLockedSquad = nil
+			local hx, hz = getMouseWorldPos()
+			if hx then
+				highlightTarget = findClosestSquad(nil, nil, nil, hx, hz, nil, maxDistSq)
+				if highlightTarget then
+					local sel = analyzeSelection()
+					-- Mirror squad_select's cycle-when-full: if the closest squad is already fully selected, a plain squad-select skips to the next closest, so highlight that one instead.
+					if config.cyclingToNextSquad and squadFullySelected(highlightTarget, sel.selectedSet) then
+						highlightTarget = findClosestSquad(nil, nil, sel.selectedSet, hx, hz, nil, maxDistSq) or highlightTarget
+					end
+					-- Don't redundantly highlight a squad that's already fully selected
+					if not alt and squadFullySelected(highlightTarget, sel.selectedSet) then
+						highlightTarget = nil
+					end
+				end
+			end
 		end
-	else
-		highlightLockedSquad = nil
 	end
 
 	-- Animate idle + highlight + control blends for all squads.
@@ -3102,8 +3115,7 @@ function widget:MousePress(x, y, button)
 		-- is on, a plain click keeps the selection, so we drop the modifier
 		-- requirement and allow modifier-free squad-select (plain → replace,
 		-- Shift → append, Alt → filtered, Alt+Shift → filtered append).
-		local smartSelectRetainsClick = WG['smartselect'] and WG['smartselect'].getDeselectOnlyOnDrag and WG['smartselect'].getDeselectOnlyOnDrag()
-		if not smartSelectRetainsClick and not (ctrl or (alt and shift)) then
+		if not (ctrl or (alt and shift)) then
 			return
 		end
 
@@ -3381,16 +3393,19 @@ function widget:DrawWorldPreUnit()
 			local size = #squad
 			if size > 0 then
 				local idleBlend = squadIdleBlend[squad] or 0
+				local hb = squadHighlightBlend[squad] or 0
+				local ctb = squadControlBlend[squad] or 0
+				local fullySelected = (squadSelCount[squad] or 0) >= size
 				local alphaScale = 1
 				if squadHideIdleAirHull[squad] then
-					alphaScale = 1 - idleBlend
+					-- Idle strafing air squads normally fade their hull out, but keep it visible while fully selected, highlighted, or controlled
+					alphaScale = fullySelected and 1 or math.max(1 - idleBlend, hb, ctb)
 				end
 
 				if alphaScale <= 0.001 then
 					-- Fully hidden for idle flying-air squads.
 				else
 					local cr, cg, cb
-					local fullySelected = (squadSelCount[squad] or 0) >= size
 					if fullySelected then
 						cr, cg, cb = 1, 1, 1
 					elseif colorMode == "custom" then
@@ -3402,8 +3417,6 @@ function widget:DrawWorldPreUnit()
 						cg = teamColor[2]
 						cb = teamColor[3]
 					end
-					local hb = squadHighlightBlend[squad] or 0
-					local ctb = squadControlBlend[squad] or 0
 					local effIdle = idleBlend * (1 - hb)
 					if effIdle > 0 and not fullySelected then
 						local ir = cr * 0.3
@@ -3414,18 +3427,16 @@ function widget:DrawWorldPreUnit()
 						cb = cb + (ib - cb) * effIdle
 					end
 					if squad.isReserve then
-						alphaScale = alphaScale * 0.6
-						cr, cg, cb = cr * 1.5, cg * 1.5, cb * 1.5
+						alphaScale = alphaScale * 0.70
+						cr, cg, cb = cr * 1.25, cg * 1.25, cb * 1.25
 					end
 
-					-- Highlight tiers faded in by their blends. The commanded squad
-					-- always has hb fading in alongside ctb (see Update), so control
-					-- stacks on top of hover (extra brightness + border width).
+					-- Highlight tiers faded in by their blends.
 					local effFill, effBorder = fillOpacity, borderOpacity
 					local effPadding = padding
 					if hb > 0 or ctb > 0 then
 						effFill = math.min(1, fillOpacity + 0.2 * hb + 0.2 * ctb)
-						effBorder = math.min(1, borderOpacity + 0.2 * hb + 0.2 * ctb)
+						effBorder = math.min(1, borderOpacity + 0.4 * hb + 0.4 * ctb)
 						effPadding = padding + 5 * hb + 5 * ctb
 						local bright = 0.4 * ctb
 						cr = cr + (1 - cr) * bright
@@ -3484,7 +3495,7 @@ function widget:DrawWorldPreUnit()
 
 								-- Centroid (average of padded vertices) and max radius
 								-- are uploaded as a uniform to drive the fragment-shader
-								-- center→edge alpha gradient. The hull stays convex so
+								-- center -> edge alpha gradient. The hull stays convex so
 								-- TRIANGLE_FAN can still pivot on vertex 0.
 								local pcx, pcy = 0, 0
 								local fi = 0
@@ -3529,8 +3540,8 @@ function widget:DrawWorldPreUnit()
 									glUniform(hullStripeLoc, 0, 1, 0)
 								end
 								glUniform(hullColorLoc, cr, cg, cb, effBorder * alphaScale)
-								if ctb > 0 then
-									glLineWidth(borderThickness + 2 * ctb)
+								if hb > 0 then
+									glLineWidth(borderThickness + 1.5 * hb)
 									hullVao:DrawArrays(GL.LINE_LOOP, n)
 									glLineWidth(borderThickness)
 								else
