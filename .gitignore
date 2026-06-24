@@ -1,5 +1,6 @@
 *.md
 *.png
+*.sh
 noGit
 !README.md
 !feature-gallery.md
