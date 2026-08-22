@@ -27,13 +27,14 @@ end
 local config = {
 	cyclingToNextSquad = true, -- when full squad/type is selected, exclude it to cycle to next
 	leftClickSelectsSquad = true, -- left-click can be used to select squads
-	leftClickSteps = {1, 0.5, "distance_850"}, -- step values + optional distance cap for left-click selection; {1} = whole squad, {"distance_850", 0.5, 1} = 50% then 100% within 850 elmos
-	leftClickStepsEnabled = false, -- when true, left-click (replace and append) uses leftClickSteps; when false (default), both use {1} (whole squad, no distance cap). Bind a hotkey via `squad_setting toggle leftClickStepsEnabled` to flip on demand
+	leftClickAlternativeSelection = false, -- switches left-click (replace and append) between the normal selection — the whole closest squad, any kind, no distance cap — and the alternative one defined by leftClickAlternativeArgs. Bind a hotkey via `squad_setting toggle leftClickAlternativeSelection` to flip on demand
+	leftClickAlternativeArgs = {1, 0.5, "distance_850"}, -- what the alternative left-click selection does; same tokens as the squad_select_portion action: step values, an optional "distance_<N>" cap and an optional "manual"/"reserve" squad-kind filter. Default is 100% then 50% within 850 elmos.
 	leftClickAppendFiltersDomain = true, -- when true, left-click Shift-append only cycles into squads whose domains ⊆ the selection's; when false, append behaves like the plain `append` keyword
 	leftClickFilteredRetargets = true, -- when true, Alt+Ctrl-click (replace-mode filtered) acts like the `retarget` keyword: if the closest unit's type isn't in the current selection, treat the click as a fresh selection on that new type instead of using the selection's types as the filter. Append mode is unaffected.
 	rightClickSquadCreate = false, -- right-click creates squads; bind a hotkey via `squad_setting toggle rightClickSquadCreate` to flip on demand
 	rightClickMovesSquad = true, -- right-click commands the closest squad
-	rightClickMoveRange = 850, -- max world-distance (elmos) from the cursor for the right-click-move feature to highlight/pick a squad; 0 = unlimited
+	rightClickMoveRange = 850, -- max world-distance (elmos) from the cursor for the right-click-move feature to highlight/pick a squad; 0 = unlimited. Also caps the passive closest-squad highlight, even when rightClickMovesSquad is off — left-click select itself has no cap, so a squad farther than this is still selectable, just not previewed
+	rightClickMoveControlsReserves = false, -- when false, the right-click-move feature ignores reserve squads and only picks manual ones; when true it can command reserves too and converts the commanded reserve into a manual squad
 	ctrlRightClickCreatesSquad = false, -- Ctrl+right-click creates a squad (click still passes through, so the engine's move-in-formation runs too which can cause issues)
 	ctrlRightClickDragCreatesSquad = true, -- hold Ctrl then right-click drag past the engine's MouseDragFrontCommandThreshold to create a squad (click still passes through)
 	commandCreatesSquad = false,
@@ -936,14 +937,27 @@ end
 -- Cylinder radius (elmos) for perf heuristic.
 local SEARCH_RADIUS = 850
 
+-- Squad-kind gate shared by both scans: "manual" keeps player-created squads,
+-- "reserve" keeps per-factory + uncategorized reserves, nil keeps everything.
+local function squadMatchesKind(sq, squadKind)
+	if not squadKind then
+		return true
+	end
+	if squadKind == "reserve" then
+		return sq.isReserve == true
+	end
+	return not sq.isReserve
+end
+
+
 -- Full scan over every tracked unit. Fallback when the cylinder finds nothing.
-local function findClosestSquadFullScan(filterDefs, groupSet, exclude, wx, wz, domainFilter, maxDistSq)
+local function findClosestSquadFullScan(filterDefs, groupSet, exclude, wx, wz, domainFilter, maxDistSq, squadKind)
 	local bestUnit = nil
 	local bestDistSq = maxDistSq or math.huge
 
 	for _, squad in ipairs(squads) do
-		local squadOk = true
-		if domainFilter then
+		local squadOk = squadMatchesKind(squad, squadKind)
+		if squadOk and domainFilter then
 			for j = 1, #squad do
 				local d = unitDomain[defidOf[squad[j]]]
 				if d and not domainFilter[d] then
@@ -983,9 +997,11 @@ end
 -- domainFilter (set of allowed domain strings) rejects entire squads whose
 -- units include any domain not in the set — so e.g. a pure-land filter skips
 -- mixed land+air squads, not just their air units.
+-- squadKind ("manual"/"reserve") restricts the search to that kind of squad;
+-- nil considers both.
 --
 -- A cylinder around the cursor pre-filters the candidates. 
-local function findClosestSquad(filterDefs, groupSet, exclude, wx, wz, domainFilter, maxDistSq)
+local function findClosestSquad(filterDefs, groupSet, exclude, wx, wz, domainFilter, maxDistSq, squadKind)
 	local radius = maxDistSq and math.sqrt(maxDistSq) or SEARCH_RADIUS
 	local candidates = spGetUnitsInCylinder(wx, wz, radius)
 
@@ -996,7 +1012,7 @@ local function findClosestSquad(filterDefs, groupSet, exclude, wx, wz, domainFil
 	for i = 1, #candidates do
 		local u = candidates[i]
 		local squad = unitSquad[u] -- nil for untracked units (enemy/allied/non-combat)
-		if squad and not (exclude and exclude[u]) and not (groupSet and not groupSet[u]) then
+		if squad and squadMatchesKind(squad, squadKind) and not (exclude and exclude[u]) and not (groupSet and not groupSet[u]) then
 			if not filterDefs or (defidOf[u] and filterDefs[defidOf[u]]) then
 				-- domainFilter is squad-level: check the whole squad, not just its
 				-- in-cylinder units. Memoized so each squad is inspected once.
@@ -1033,10 +1049,20 @@ local function findClosestSquad(filterDefs, groupSet, exclude, wx, wz, domainFil
 
 	-- Unbounded miss: a qualifying squad, if any, is farther than SEARCH_RADIUS.
 	if not bestUnit and not maxDistSq then
-		return findClosestSquadFullScan(filterDefs, groupSet, exclude, wx, wz, domainFilter, maxDistSq)
+		return findClosestSquadFullScan(filterDefs, groupSet, exclude, wx, wz, domainFilter, maxDistSq, squadKind)
 	end
 
 	return bestUnit and unitSquad[bestUnit] or nil, bestUnit
+end
+
+
+-- Squad-kind filter for the right-click-move pick. Reserves are left alone
+-- unless the player opted into commanding them.
+local function rightClickMoveSquadKind()
+	if config.rightClickMoveControlsReserves then
+		return nil
+	end
+	return "manual"
 end
 
 
@@ -1118,18 +1144,39 @@ local function stepToCount(step, poolSize)
 end
 
 
---- Parse portion action args: optional "append"/"append_domain" keyword,
--- optional "distance_<N>" modifier that caps selection to units within N
--- world-distance of the cursor, plus step numbers. "append_domain" implies
--- append and additionally restricts squad cycling to domains present in the
--- current selection.
-local function parsePortionArgs(args)
+--- Squad-kind keywords accepted by every selection action: restrict the search
+-- to manual squads (player-created) or reserve squads (per-factory +
+-- uncategorized). "any" is the default and only exists so a bind can state it
+-- explicitly.
+local SQUAD_KIND_TOKENS = {
+	manual = "manual",
+	reserve = "reserve",
+	any = false, -- recognized as a token, but imposes no filter
+}
+
+
+--- Parse the args of any squad_select* action. Every token is optional and
+-- position-independent:
+--   "append"        — add to the selection instead of replacing it
+--   "append_domain" — implies append, and restricts cycling to the domains
+--                     ("land"/"air"/"naval") present in the current selection
+--   "retarget"      — filtered actions only; let a replace-mode click swing
+--                     the type filter to the closest unit's type
+--   "manual"/"reserve"/"any" — squad-kind filter (see SQUAD_KIND_TOKENS)
+--   "distance_<N>"  — cap the selection to units within N world-distance of
+--                     the cursor
+--   numbers         — step values, in order
+--
+-- The whole-squad actions ignore the returned steps and maxDistance, so a stray
+-- number (e.g. the leading group number of squad_select_group) is harmless there.
+local function parseSelectArgs(args)
 	if not args then
-		return false, false, {}, nil, false
+		return false, false, false, nil, {}, nil
 	end
 	local append = false
 	local useDomainFilter = false
 	local retarget = false
+	local squadKind = nil
 	local steps = {}
 	local maxDistance
 	for i = 1, #args do
@@ -1141,6 +1188,8 @@ local function parsePortionArgs(args)
 			useDomainFilter = true
 		elseif arg == "retarget" then
 			retarget = true
+		elseif SQUAD_KIND_TOKENS[arg] ~= nil then
+			squadKind = SQUAD_KIND_TOKENS[arg] or nil
 		elseif type(arg) == "string" and arg:sub(1, 9) == "distance_" then
 			local d = tonumber(arg:sub(10))
 			if d and d > 0 then
@@ -1153,7 +1202,7 @@ local function parsePortionArgs(args)
 			end
 		end
 	end
-	return append, useDomainFilter, steps, maxDistance, retarget
+	return append, useDomainFilter, retarget, squadKind, steps, maxDistance
 end
 
 
@@ -1268,11 +1317,12 @@ end
 --- Determine the defID set for filtered actions. Uses the selection's types
 -- if any tracked units are selected; otherwise falls back to the closest
 -- unit's type. Returns nil when nothing suitable is found (caller bails).
-local function resolveFilterDefs(sel, wx, wz)
+-- squadKind restricts the closest-unit peek to that kind of squad.
+local function resolveFilterDefs(sel, wx, wz, squadKind)
 	if sel.hasTrackedUnits then
 		return sel.selectedTypeSet
 	end
-	local _, closest = findClosestSquad(nil, nil, nil, wx, wz)
+	local _, closest = findClosestSquad(nil, nil, nil, wx, wz, nil, nil, squadKind)
 	if not closest then
 		return nil
 	end
@@ -1291,14 +1341,14 @@ end
 -- (use the selection). If not, treat the click as a fresh selection on that
 -- single new type — letting the player swing the filter to a different unit
 -- type without first deselecting.
-local function resolveRetargetFilterDefs(sel, wx, wz)
-	local _, closest = findClosestSquad(nil, nil, nil, wx, wz)
+local function resolveRetargetFilterDefs(sel, wx, wz, squadKind)
+	local _, closest = findClosestSquad(nil, nil, nil, wx, wz, nil, nil, squadKind)
 	if not closest then
-		return resolveFilterDefs(sel, wx, wz)
+		return resolveFilterDefs(sel, wx, wz, squadKind)
 	end
 	local defId = defidOf[closest]
 	if not defId then
-		return resolveFilterDefs(sel, wx, wz)
+		return resolveFilterDefs(sel, wx, wz, squadKind)
 	end
 	if sel.hasTrackedUnits and sel.selectedTypeSet[defId] then
 		return sel.selectedTypeSet
@@ -1346,6 +1396,8 @@ end
 --   groupSet           nil or unitID set (narrow pool to group members),
 --   maxDistance        nil or number — cap pool to units within that world
 --                      distance from the cursor,
+--   squadKind          nil, "manual" or "reserve" — only consider squads of
+--                      that kind; nil considers both,
 --   cycleWhenFull      bool — when the closest squad's pool is already fully
 --                      selected, re-pick a squad with those units excluded,
 --   useDomainFilter    bool — restrict squad cycling to domains
@@ -1403,6 +1455,10 @@ local function doSquadSelect(opts)
 	if not (#steps == 1 and steps[1] == 1) then
 		kind = kind .. ":portion"
 	end
+	-- Squad-kind restriction is part of the identity too.
+	if opts.squadKind then
+		kind = kind .. ":" .. opts.squadKind
+	end
 
 	-- Compute the double-tap window match against the *previous* tap, then
 	-- snapshot its append flag and kind before we overwrite lastSquadSelect below.
@@ -1451,7 +1507,7 @@ local function doSquadSelect(opts)
 	local maxDistanceSq = opts.maxDistance and opts.maxDistance * opts.maxDistance or nil
 	local domainFilter = opts.useDomainFilter and sel.hasTrackedUnits and sel.selectedDomainSet or nil
 
-	local targetSquad = findClosestSquad(filterDefs, groupSet, nil, wx, wz, domainFilter)
+	local targetSquad = findClosestSquad(filterDefs, groupSet, nil, wx, wz, domainFilter, nil, opts.squadKind)
 	if not targetSquad then
 		return
 	end
@@ -1487,7 +1543,7 @@ local function doSquadSelect(opts)
 		-- original target so a replace tap still replaces with the closest
 		-- squad instead of silently doing nothing. For append, the empty
 		-- pickUnits result later short-circuits to a no-op.
-		local cycledTarget = findClosestSquad(filterDefs, groupSet, sel.selectedSet, wx, wz, domainFilter)
+		local cycledTarget = findClosestSquad(filterDefs, groupSet, sel.selectedSet, wx, wz, domainFilter, nil, opts.squadKind)
 		if cycledTarget then
 			targetSquad = cycledTarget
 			pool, stepPool = buildPools(targetSquad, filterDefs, groupSet, maxDistanceSq, wx, wz)
@@ -1528,12 +1584,11 @@ end
 -------------------------------------------------------------------------------
 
 local function squadSelect(_, _, args)
-	local arg = args and args[1]
-	local append = arg == "append" or arg == "append_domain"
-	local useDomainFilter = arg == "append_domain"
+	local append, useDomainFilter, _, squadKind = parseSelectArgs(args) -- steps/maxDistance intentionally ignored: whole-squad action
 	doSquadSelect({
 		append = append,
 		useDomainFilter = useDomainFilter,
+		squadKind = squadKind,
 		cycleWhenFull = append or config.cyclingToNextSquad,
 	})
 	return true
@@ -1608,12 +1663,9 @@ local function squadSelectFiltered(_, _, args)
 	if not wx then
 		return true
 	end
-	local arg = args and args[1]
-	local append = arg == "append" or arg == "append_domain"
-	local useDomainFilter = arg == "append_domain"
-	local retarget = arg == "retarget"
+	local append, useDomainFilter, retarget, squadKind = parseSelectArgs(args) -- steps/maxDistance intentionally ignored: whole-squad action
 	local sel = analyzeSelection()
-	local filterDefs = (retarget and not append) and resolveRetargetFilterDefs(sel, wx, wz) or resolveFilterDefs(sel, wx, wz)
+	local filterDefs = (retarget and not append) and resolveRetargetFilterDefs(sel, wx, wz, squadKind) or resolveFilterDefs(sel, wx, wz, squadKind)
 	if not filterDefs then
 		return true
 	end
@@ -1621,6 +1673,7 @@ local function squadSelectFiltered(_, _, args)
 		append = append,
 		useDomainFilter = useDomainFilter,
 		filterDefs = filterDefs,
+		squadKind = squadKind,
 		cycleWhenFull = append or config.cyclingToNextSquad,
 	})
 	return true
@@ -1635,13 +1688,13 @@ local function squadSelectGroup(_, _, args)
 	if not groupNum then
 		return true
 	end
-	local arg = args[2]
-	local append = arg == "append" or arg == "append_domain"
-	local useDomainFilter = arg == "append_domain"
+	-- steps/maxDistance intentionally ignored, which also swallows the leading group number.
+	local append, useDomainFilter, _, squadKind = parseSelectArgs(args)
 	doSquadSelect({
 		append = append,
 		useDomainFilter = useDomainFilter,
 		groupSet = buildGroupSet(groupNum),
+		squadKind = squadKind,
 		cycleWhenFull = append or config.cyclingToNextSquad,
 	})
 	return true
@@ -1649,12 +1702,13 @@ end
 
 
 local function squadSelectPortion(_, _, args)
-	local append, useDomainFilter, steps, maxDistance = parsePortionArgs(args)
+	local append, useDomainFilter, _, squadKind, steps, maxDistance = parseSelectArgs(args)
 	doSquadSelect({
 		append = append,
 		useDomainFilter = useDomainFilter,
 		steps = steps,
 		maxDistance = maxDistance,
+		squadKind = squadKind,
 		cycleWhenFull = append,
 	})
 	return true
@@ -1662,13 +1716,13 @@ end
 
 
 local function squadSelectPortionFiltered(_, _, args)
-	local append, useDomainFilter, steps, maxDistance, retarget = parsePortionArgs(args)
+	local append, useDomainFilter, retarget, squadKind, steps, maxDistance = parseSelectArgs(args)
 	local wx, wz = getMouseWorldPos()
 	if not wx then
 		return true
 	end
 	local sel = analyzeSelection()
-	local filterDefs = (retarget and not append) and resolveRetargetFilterDefs(sel, wx, wz) or resolveFilterDefs(sel, wx, wz)
+	local filterDefs = (retarget and not append) and resolveRetargetFilterDefs(sel, wx, wz, squadKind) or resolveFilterDefs(sel, wx, wz, squadKind)
 	if not filterDefs then
 		return true
 	end
@@ -1678,6 +1732,7 @@ local function squadSelectPortionFiltered(_, _, args)
 		steps = steps,
 		filterDefs = filterDefs,
 		maxDistance = maxDistance,
+		squadKind = squadKind,
 		cycleWhenFull = append,
 	})
 	return true
@@ -1696,13 +1751,14 @@ local function squadSelectPortionGroup(_, _, args)
 	for i = 2, #args do
 		remaining[#remaining + 1] = args[i]
 	end
-	local append, useDomainFilter, steps, maxDistance = parsePortionArgs(remaining)
+	local append, useDomainFilter, _, squadKind, steps, maxDistance = parseSelectArgs(remaining)
 	doSquadSelect({
 		append = append,
 		useDomainFilter = useDomainFilter,
 		steps = steps,
 		groupSet = buildGroupSet(groupNum),
 		maxDistance = maxDistance,
+		squadKind = squadKind,
 		cycleWhenFull = append,
 	})
 	return true
@@ -2099,7 +2155,7 @@ local OPTION_SPECS = {
 	}, {
 		configVariable = "leftClickAppendFiltersDomain",
 		name = "Left-click append filters by domain",
-		description = "Shift-click squad append merges stick to the squad's domain (nearby air squads are skipped if you have a land squad selected). Double-tap squad append to do the opposite.",
+		description = "Shift-click squad append merges stick to the squad's domain (e.g. nearby air squads are skipped if you have a land squad selected). Double-tap squad append to do the opposite.",
 		type = "bool",
 		category = OPTION_ADVANCED,
 	}, {
@@ -2113,11 +2169,16 @@ local OPTION_SPECS = {
 		name = "Right-click creates squad",
 		description = "How right-click groups the current selection into a new squad. The engine's move command still issues alongside it.",
 		type = "select",
-		options = {"Off", "Right-click", "Ctrl+right-click", "Ctrl+right-click drag"},
+		options = {"Off", "Plain right-click", "Ctrl+right-click", "Ctrl+right-click drag"},
 	}, {
 		configVariable = "rightClickMovesSquad",
 		name = "Right-click moves nearest squad",
 		description = "With nothing selected, right-click-drag move-orders the squad nearest the press point to the release point. Hold Alt to do this even when you have a selection. With shift you lock the squad and append the order to its queue. With ctrl it moves in formation. Hold Space to also select the squad.",
+		type = "bool",
+	}, {
+		configVariable = "rightClickMoveControlsReserves",
+		name = "Right-click move controls reserves",
+		description = "When on, right-click move can command reserve squads (the automatic per-factory and uncategorized ones) and converts the commanded reserve into a manual squad. When off, the feature ignores reserves and only picks manual squads.",
 		type = "bool",
 	}, {
 		configVariable = "mergeIntoReserves",
@@ -2524,8 +2585,8 @@ local function squadSetting(_, _, args)
 			spEcho("[Squad] excludedUnitTypes = \"" .. config[key] .. "\" (applied)")
 			return
 		end
-		-- Table-typed keys collect all remaining args as a list of numbers and
-		-- distance_<N> tokens. Passing no values clears the list.
+		-- Table-typed keys collect all remaining args as a list of numbers plus
+		-- distance_<N> and squad-kind tokens. Passing no values clears the list.
 		if type(config[key]) == "table" then
 			local list = {}
 			for i = 3, #args do
@@ -2533,7 +2594,7 @@ local function squadSetting(_, _, args)
 				local n = tonumber(tok)
 				if n then
 					list[#list + 1] = n
-				elseif tok:match("^distance_%d+%.?%d*$") then
+				elseif tok:match("^distance_%d+%.?%d*$") or tok == "manual" or tok == "reserve" or tok == "any" then
 					list[#list + 1] = tok
 				end
 			end
@@ -2658,7 +2719,7 @@ function widget:Initialize()
 	-- WG interface. Auto-generates
 	-- get<Key>/set<Key> pairs for every exposed config key.
 	local exposedSettings = {
-		"leftClickSelectsSquad", "leftClickSteps", "leftClickStepsEnabled", "leftClickAppendFiltersDomain", "leftClickFilteredRetargets", "cyclingToNextSquad", "rightClickSquadCreate", "rightClickMovesSquad", "ctrlRightClickCreatesSquad", "ctrlRightClickDragCreatesSquad", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "mergeIntoReserves", "selectionAutoExtend", "visualizationMode", "convexHullPadding", "convexHullArcResolution", "convexHullFillOpacity", "convexHullBorderOpacity", "convexHullBorderThickness", "convexHullColorMode", "convexHullCustomColorR", "convexHullCustomColorG", "convexHullCustomColorB", "excludeConstructors", "excludeResurrectionUnits", "excludeCombatEngineers"}
+		"leftClickSelectsSquad", "leftClickAlternativeSelection", "leftClickAlternativeArgs", "leftClickAppendFiltersDomain", "leftClickFilteredRetargets", "cyclingToNextSquad", "rightClickSquadCreate", "rightClickMovesSquad", "rightClickMoveControlsReserves", "ctrlRightClickCreatesSquad", "ctrlRightClickDragCreatesSquad", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "mergeIntoReserves", "selectionAutoExtend", "visualizationMode", "convexHullPadding", "convexHullArcResolution", "convexHullFillOpacity", "convexHullBorderOpacity", "convexHullBorderThickness", "convexHullColorMode", "convexHullCustomColorR", "convexHullCustomColorG", "convexHullCustomColorB", "excludeConstructors", "excludeResurrectionUnits", "excludeCombatEngineers"}
 	WG['squadselection'] = {}
 	for _, key in ipairs(exposedSettings) do
 		local cap = key:sub(1, 1):upper() .. key:sub(2)
@@ -2807,6 +2868,18 @@ function widget:Update(dt)
 					local saved = spGetSelectedUnits()
 					spSelectUnitArray(units)
 					spGiveOrder(CMD.MOVE, {wx, wy, wz}, opts)
+					-- Commanding a reserve promotes it to a manual squad.
+					if config.rightClickMoveControlsReserves and sq.isReserve then
+						createSquadFromSelection()
+						local promoted = unitSquad[units[1]]
+						if promoted then
+							-- Re-latch the Shift lock so queued follow-up moves keep hitting the same units.
+							if highlightLockedSquad == sq then
+								highlightLockedSquad = promoted
+							end
+							sq = promoted
+						end
+					end
 					if not keepSelection then
 						spSelectUnitArray(saved)
 					end
@@ -2843,11 +2916,12 @@ function widget:Update(dt)
 		else
 			local alt, _, _, shift = spGetModKeyState()
 			local maxDistSq = config.rightClickMoveRange > 0 and config.rightClickMoveRange * config.rightClickMoveRange or nil
-			if config.rightClickMovesSquad and (alt or spGetSelectedUnits()[1] == nil) then
+			local _, activeCmdID = spGetActiveCommand()
+			if config.rightClickMovesSquad and not activeCmdID and (alt or spGetSelectedUnits()[1] == nil) then
 				-- Squad-move engaged: RMB commands the closest squad.
+				local hx, hz = getMouseWorldPos()
 				if not (shift and highlightLockedSquad) then
-					local hx, hz = getMouseWorldPos()
-					highlightLockedSquad = hx and findClosestSquad(nil, nil, nil, hx, hz, nil, maxDistSq) or nil
+					highlightLockedSquad = hx and findClosestSquad(nil, nil, nil, hx, hz, nil, maxDistSq, rightClickMoveSquadKind()) or nil
 				end
 				highlightTarget = highlightLockedSquad
 				if shift then
@@ -2855,6 +2929,11 @@ function widget:Update(dt)
 					controlTarget = highlightLockedSquad
 				else
 					highlightLockedSquad = nil
+					-- A reserve the gesture skips is still selectable, so the preview keeps
+					-- showing the closest squad of any kind — same thing the passive highlight shows.
+					if hx and rightClickMoveSquadKind() then
+						highlightTarget = findClosestSquad(nil, nil, nil, hx, hz, nil, maxDistSq) or highlightTarget
+					end
 				end
 			else
 				-- Passive closest-squad highlight
@@ -2864,13 +2943,9 @@ function widget:Update(dt)
 					highlightTarget = findClosestSquad(nil, nil, nil, hx, hz, nil, maxDistSq)
 					if highlightTarget then
 						local sel = analyzeSelection()
-						-- Mirror squad_select's cycle-when-full: if the closest squad is already fully selected, a plain squad-select skips to the next closest, so highlight that one instead.
-						if config.cyclingToNextSquad and squadFullySelected(highlightTarget, sel.selectedSet) then
-							highlightTarget = findClosestSquad(nil, nil, sel.selectedSet, hx, hz, nil, maxDistSq) or highlightTarget
-						end
-						-- Don't redundantly highlight a squad that's already fully selected
-						if not alt and squadFullySelected(highlightTarget, sel.selectedSet) then
-							highlightTarget = nil
+						if squadFullySelected(highlightTarget, sel.selectedSet) then
+							-- Mirror squad_select's cycle-when-full: a fully-selected closest squad makes a plain squad-select skip to the next closest, so highlight that one instead.
+							highlightTarget = config.cyclingToNextSquad and findClosestSquad(nil, nil, sel.selectedSet, hx, hz, nil, maxDistSq) or nil
 						end
 					end
 				end
@@ -2881,10 +2956,16 @@ function widget:Update(dt)
 	-- Animate idle + highlight + control blends for all squads.
 	local step = config.idleColorBlendSeconds > 0 and constrain(dt / config.idleColorBlendSeconds, 0, 1) or 1
 	local hlStep = config.highlightBlendSeconds > 0 and constrain(dt / config.highlightBlendSeconds, 0, 1) or 1
+	-- A highlighted reserve the right-click move won't command only answers half
+	-- the gestures (select yes, move no), so it previews at half strength.
+	local hlStrength = 1.0
+	if highlightTarget and highlightTarget.isReserve and config.rightClickMovesSquad and not config.rightClickMoveControlsReserves then
+		hlStrength = 0.5
+	end
 	for i = 1, #squads do
 		local s = squads[i]
 		squadIdleBlend[s] = approach(squadIdleBlend[s] or 0, squadIdleState[s] and 1 or 0, step)
-		squadHighlightBlend[s] = approach(squadHighlightBlend[s] or 0, s == highlightTarget and 1 or 0, hlStep)
+		squadHighlightBlend[s] = approach(squadHighlightBlend[s] or 0, s == highlightTarget and hlStrength or 0, hlStep)
 		squadControlBlend[s] = approach(squadControlBlend[s] or 0, s == controlTarget and 1 or 0, hlStep)
 	end
 end
@@ -3073,6 +3154,11 @@ function widget:MousePress(x, y, button)
 				y = y,
 			}
 		elseif config.rightClickMovesSquad and widget.canControlUnits and (alt or spGetSelectedUnits()[1] == nil) then
+			-- Skip when an active command is pending (fight, patrol, build, etc.): RMB cancels it, so intercepting would hijack the cancel.
+			local _, activeCmdID = spGetActiveCommand()
+			if activeCmdID then
+				return false
+			end
 			if spTraceScreenRay(x, y) ~= "unit" then
 				local sq
 				if shift and highlightLockedSquad and #highlightLockedSquad > 0 then
@@ -3082,7 +3168,7 @@ function widget:MousePress(x, y, button)
 					local wx, wz = getMouseWorldPos()
 					if wx then
 						local maxDistSq = config.rightClickMoveRange > 0 and config.rightClickMoveRange * config.rightClickMoveRange or nil
-						sq = findClosestSquad(nil, nil, nil, wx, wz, nil, maxDistSq)
+						sq = findClosestSquad(nil, nil, nil, wx, wz, nil, maxDistSq, rightClickMoveSquadKind())
 					end
 				end
 				-- If the picked squad is exactly the current selection, don't
@@ -3144,10 +3230,14 @@ function widget:MousePress(x, y, button)
 			return
 		end
 
-		local stepsConfig = config.leftClickStepsEnabled and config.leftClickSteps or {1}
-		local _, _, steps, maxDistance = parsePortionArgs(stepsConfig)
-		if #steps == 0 then
-			steps = {1}
+		-- Normal mode: the whole closest squad, any kind, no distance cap.
+		-- Alternative mode: leftClickAlternativeArgs in full — step values,
+		-- distance cap and squad-kind filter.
+		local steps, maxDistance, squadKind = {1}, nil, nil
+		if config.leftClickAlternativeSelection then
+			local _, _, _, cfgSquadKind, cfgSteps, cfgMaxDistance = parseSelectArgs(config.leftClickAlternativeArgs)
+			steps = #cfgSteps > 0 and cfgSteps or {1}
+			maxDistance, squadKind = cfgMaxDistance, cfgSquadKind
 		end
 		-- Whole-squad mode = the config is just {1} (or was empty and fell back
 		-- to {1}). Anything else (including {0.5} or {5}) is portion mode.
@@ -3161,6 +3251,7 @@ function widget:MousePress(x, y, button)
 			useDomainFilter = append and config.leftClickAppendFiltersDomain,
 			steps = steps,
 			maxDistance = maxDistance,
+			squadKind = squadKind,
 			isMousePress = true,
 			cycleWhenFull = append or (wholeSquad and config.cyclingToNextSquad),
 		}
@@ -3171,7 +3262,7 @@ function widget:MousePress(x, y, button)
 				return
 			end
 			local sel = analyzeSelection()
-			opts.filterDefs = (config.leftClickFilteredRetargets and not append) and resolveRetargetFilterDefs(sel, wx, wz) or resolveFilterDefs(sel, wx, wz)
+			opts.filterDefs = (config.leftClickFilteredRetargets and not append) and resolveRetargetFilterDefs(sel, wx, wz, squadKind) or resolveFilterDefs(sel, wx, wz, squadKind)
 			if not opts.filterDefs then
 				return
 			end
@@ -3197,11 +3288,6 @@ function widget:SetConfigData(data)
 		if config[key] ~= nil then
 			config[key] = value
 		end
-	end
-	-- Migrate existing users from the previous default {1} to the new {1, 0.5, "distance_850"}.
-	-- Anyone who deliberately customized leftClickSteps already has something other than {1}.
-	if type(config.leftClickSteps) == "table" and #config.leftClickSteps == 1 and config.leftClickSteps[1] == 1 then
-		config.leftClickSteps = {1, 0.5, "distance_850"}
 	end
 end
 

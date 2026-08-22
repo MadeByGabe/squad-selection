@@ -88,17 +88,18 @@ With `leftClickSelectsSquad` enabled (default), clicking on empty ground trigger
 
 Mouse squad selections are skipped when clicking directly on a unit or when an active command is pending (fight, patrol, build placement, etc.).
 
-**Portion-mode left-click.** `leftClickSteps` controls how many units each click selects when enabled. Default is `1 0.5 distance_850` (= whole squad capped to 850 elmos around the cursor, half the squad if the whole squad is already selected). Set anything else like `0.5` or `5` and the four combos above switch to portion selection: closest N units, re-sorted by cursor proximity on each press. Filter/append flags still come from the modifiers. A `distance_<N>` token anywhere in the list caps selection to units within N world-distance of the cursor, the same way it works for hotkey actions. Examples:
+**Alternative left-click selection.** Out of the box left-click selects the whole closest squad, of any kind, with no distance cap. `leftClickAlternativeSelection` (default `false`) switches all four combos above to a second, fully configurable selection defined by `leftClickAlternativeArgs`, which takes the same tokens as the `squad_select_portion` action: step values, an optional `distance_<N>` cap, and an optional `manual`/`reserve` squad-kind filter. Filter/append flags still come from the modifiers. The default is `1 0.5 distance_850` (= whole squad capped to 850 elmos around the cursor, half the squad if the whole squad is already selected). Examples:
 
 ```
-/squad_setting set leftClickSteps 0.25 0.5 1          # 25% → 50% → 100% on successive clicks
-/squad_setting set leftClickSteps 0.5                 # selects the closest 50%
-/squad_setting set leftClickSteps 5 10                # fixed counts
-/squad_setting set leftClickSteps distance_850 0.5 1  # same but capped to units within 850 elmos
-/squad_setting set leftClickSteps                     # clear → back to whole-squad (equivalent to 1)
+/squad_setting set leftClickAlternativeArgs 0.25 0.5 1          # 25% → 50% → 100% on successive clicks
+/squad_setting set leftClickAlternativeArgs 0.5                 # selects the closest 50%
+/squad_setting set leftClickAlternativeArgs 5 10                # fixed counts
+/squad_setting set leftClickAlternativeArgs distance_850 0.5 1  # same but capped to units within 850 elmos
+/squad_setting set leftClickAlternativeArgs manual              # whole squad, but only player-created squads
+/squad_setting set leftClickAlternativeArgs                     # clear → back to whole-squad (equivalent to 1)
 ```
 
-`leftClickSteps` is gated by `leftClickStepsEnabled` (default `false`). Out of the box left-click selects the whole squad with no distance cap. Bind `squad_setting toggle leftClickStepsEnabled` to a hotkey (e.g. `bind capslock squad_setting toggle leftClickStepsEnabled`) to flip your configured `leftClickSteps` (and any distance cap) on and off without losing the keyboard-only path to full-map selection. 
+Bind `squad_setting toggle leftClickAlternativeSelection` to a hotkey (e.g. `bind capslock squad_setting toggle leftClickAlternativeSelection`) to flip between the normal and the alternative selection on demand, without losing the keyboard-only path to full-map, whole-squad selection. 
 
 Append (Ctrl+Shift+click) always keeps growing the selection and extends into the next squad once the current one is exhausted. Replace (Ctrl+click) in portion mode snaps to the closest N each time. See [Portion selection](#portion-selection) for how step values work.
 
@@ -119,7 +120,7 @@ When you already have a full squad selected (or all matching types for filtered 
 Tap any non-append squad-select (hotkey or modifier-click) twice in quick succession at the same screen spot and the second tap centers the camera on the squad you just selected. (Same effect as the engine's `viewselection`)  
 Useful when the closest squad (or the squad you just cycled to) is off-screen: the first tap selects it, the second tap shows you where it is. Works on minimap too.
 
-Works for `squad_select`, `squad_select_filtered`, `squad_select_group`, the equivalent left-click commands, and any portion call (single-step like `leftClickSteps = 0.5`, or multi-step like `0.25 0.5 1` once you've already reached the last step so only a tap that *would* re-select the same count fires the gesture). 
+Works for `squad_select`, `squad_select_filtered`, `squad_select_group`, the equivalent left-click commands, and any portion call (single-step like `leftClickAlternativeArgs = 0.5`, or multi-step like `0.25 0.5 1` once you've already reached the last step so only a tap that *would* re-select the same count fires the gesture). 
 
 Append calls are skipped (their repeat semantics is "keep growing"). Tunables: `viewselectionDoubleTapMs` (default 300, set to 0 to disable) and `viewselectionDoubleTapPx` (default 5).
 
@@ -146,6 +147,24 @@ bind Ctrl+sc_x squad_select_portion_filtered retarget 0.5 1
 ```
 
 The same behavior is available on Alt+Ctrl-click (replace-mode left-click filtered) via `/squad_setting toggle leftClickFilteredRetargets` — default on.
+
+### Squad-kind filter (`manual` / `reserve`)
+
+Every `squad_select*` action accepts an optional squad-kind keyword that restricts which squads it will consider:
+
+- `manual` — only squads you created yourself.
+- `reserve` — only the automatic ones: the per-factory reserves and the uncategorized reserve.
+- `any` — the default. It only exists so a bind can state it explicitly.
+
+The keyword is position-independent and combines with everything else (`append`, `append_domain`, `retarget`, `distance_<N>`, step values):
+
+```
+bind sc_v squad_select manual
+bind Shift+sc_v squad_select append_domain manual
+bind Ctrl+sc_v squad_select_portion reserve distance_850 0.5 1
+```
+
+Use `reserve` to grab fresh factory output without touching your organized squads, or `manual` to cycle only through the squads you built by hand. The same filter is available on left-click through `leftClickAlternativeArgs`.
 
 ### Limit-or-flip selection
 
@@ -208,6 +227,10 @@ Modifiers stack:
 Without `Alt`, the gesture only fires when nothing is selected, so it never hijacks a normal right-click move of your current selection. `Alt` opts in even with a selection; `Alt+anything` works the same as the unmodified variants above but applies while units are selected. The `Space` variant is the way to grab a squad for follow-up micro: it issues the move *and* selects the squad, so it doubles as a "select and command in one click."
 
 The pick range is capped by `rightClickMoveRange` (elmos from the cursor; `0` = unlimited). While the gesture is armed the targeted squad is highlighted so you can see which one will receive the order.
+
+Reserve squads are left alone by default: the gesture only picks **manual** squads, so a right-click near a factory won't drag its fresh output off the rally point. The reserve still highlights, at half strength, because left-click select can still take it. Turn on `rightClickMoveControlsReserves` and the gesture commands reserves too — and the commanded reserve is promoted to a manual squad on the spot, so it stops collecting new factory output.
+
+The gesture is skipped whenever an active command is pending (fight, patrol, build placement, etc.), since right-click is how you cancel that command.
 
 ### Control group intersection
 
@@ -332,14 +355,14 @@ Optionally install any [companion widgets](#companion-widgets) the same way for 
 
 Most settings can be changed through the **in-game settings panel**.
 
-For settings that don't have a panel control (like `leftClickSteps` and `excludedUnitTypes`), use chat commands:
+For settings that don't have a panel control (like `leftClickAlternativeArgs` and `excludedUnitTypes`), use chat commands:
 
 ```
 /squad_setting toggle rightClickSquadCreate
 /squad_setting toggle cyclingToNextSquad
 /squad_setting set visualizationMode convexHull
 /squad_setting set visualizationMode none
-/squad_setting set leftClickSteps 0.5
+/squad_setting set leftClickAlternativeArgs 0.5
 /squad_setting set excludedUnitTypes armrectr cornecro legrezbot
 /squad_setting add excludedUnitTypes armrectr cornecro legrezbot
 /squad_setting remove excludedUnitTypes armrectr cornecro legrezbot
@@ -352,8 +375,8 @@ All changes persist across games.
 | Setting                          | Default                         | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | -------------------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `leftClickSelectsSquad`          | `true`                          | Modifier+click on empty ground selects squads                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `leftClickSteps`                 | `1 0.5 distance_850`            | Step values for left-click selection (only honored when `leftClickStepsEnabled` is true); `1` = whole squad, `0.5 1` = 50% then 100%; add `distance_<N>` anywhere in the list to cap selection to units within N elmos of the cursor                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `leftClickStepsEnabled`          | `false`                         | When enabled, left-click (replace and append) uses `leftClickSteps`; when disabled, both use whole-squad with no distance cap. Toggle with `squad_setting toggle leftClickStepsEnabled` (bind to a hotkey for on-the-fly flipping)                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `leftClickAlternativeSelection`  | `false`                         | When enabled, left-click (replace and append) uses `leftClickAlternativeArgs`; when disabled, both select the whole closest squad, any kind, with no distance cap. Toggle with `squad_setting toggle leftClickAlternativeSelection` (bind to a hotkey for on-the-fly flipping)                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `leftClickAlternativeArgs`       | `1 0.5 distance_850`            | What the alternative left-click selection does (only honored when `leftClickAlternativeSelection` is true). Same tokens as `squad_select_portion`: `1` = whole squad, `0.5 1` = 50% then 100%, `distance_<N>` anywhere in the list caps selection to units within N elmos of the cursor, and `manual`/`reserve` restricts it to that kind of squad                                                                                                                                                                                                                                                                                                                                |
 | `leftClickAppendFiltersDomain`   | `true`                          | When enabled, left-click append (Ctrl+Shift / Alt+Shift) uses `append_domain`; when disabled, it uses plain `append` (on double click it switches mode)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `leftClickFilteredRetargets`     | `true`                          | When enabled, replace-mode left-click filtered (Alt+Ctrl-click) acts like the `retarget` keyword — peeks the closest unit and uses its type as the filter when it isn't already in the selection. Append left-click is unaffected.                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `cyclingToNextSquad`             | `true`                          | Cycle to next squad when full squad is selected                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
@@ -362,6 +385,7 @@ All changes persist across games.
 | `ctrlRightClickDragCreatesSquad` | `true`                          | Ctrl+right-click *drag* (past the engine's front-command threshold) creates a squad; a no-drag Ctrl+RMB does nothing (click passes through)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `rightClickMovesSquad`           | `true`                          | Right-click-drag move-orders the nearest squad (nearest to the press point) without disturbing your selection. Hold Alt to do it while have a selection, Shift to lock+queue, Ctrl for formation move, Space to also select the squad.                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `rightClickMoveRange`            | `850`                           | Max distance (elmos) from the cursor for right-click-move to highlight and pick a squad; `0` = unlimited                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `rightClickMoveControlsReserves` | `false`                         | When enabled, right-click-move can also command reserve squads, and promotes the commanded reserve to a manual squad. When disabled, the gesture only picks manual squads and a nearby reserve previews at half strength                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `viewselectionDoubleTapMs`       | `300`                           | Max ms between two single-step replace selects for the double-tap → `viewselection` gesture; `0` disables                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `viewselectionDoubleTapPx`       | `5`                             | Max screen-pixel distance between the two taps of the `viewselection` double-tap                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `mruSize`                        | `3`                             | How many recent squads `squad_cycle_recent` cycles through                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
@@ -441,7 +465,7 @@ bind Shift+sc_d squad_cycle_idle
 bind Alt selectbox_same
 
 keysym capslock sc_0x039
-bind capslock squad_setting toggle leftClickStepsEnabled
+bind capslock squad_setting toggle leftClickAlternativeSelection
 ```
 
 Then in game write `/keyreload` in chat to apply the changes if the game is already running.
@@ -489,7 +513,7 @@ Select some units and right click. Selected squad-eligible units are now a squad
 
 If you don't want to bother with `c` and `x`, you can use `ctrl+leftclick` and `alt+ctrl+leftclick` respectively. Both can be used with shift to append instead of replace.  
 
-There are many options worth experimenting with. For example I use hotkeys to select full squads but I use `leftClickSteps = 0.5` to select half squads with the mouse to quickly split off a portion of a squad for micro.  
+There are many options worth experimenting with. For example I use hotkeys to select full squads but I use `leftClickAlternativeArgs = 0.5` (toggled on with capslock) to select half squads with the mouse to quickly split off a portion of a squad for micro.  
 There are also many convenience features like the double-tap to focus camera, the recent squad cycling, and the idle squad finder that you can set up hotkeys for and use to quickly jump between squads.
 
 ## Companion widgets
