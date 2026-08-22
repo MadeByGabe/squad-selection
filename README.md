@@ -18,13 +18,6 @@ Jump straight to [installation](#installation) if you want to get going right aw
 
 Every factory (lab) gets its own **reserve squad**, and the squad-eligible units it builds start there. Units that don't come from a factory you built (gifted, resurrected, alive at widget load, etc.) go into domain-specific **uncategorized reserves** (`land`, `air`, `naval`). Reserve squads are hidden by default — turn them on with `/squad_setting set showReserveSquads true` if you want to visualize reserves as squads.
 
-The widget can also keep your selection in sync as units roll off the production line. With **Auto-extend selection with new units** enabled (off by default), when you have a **full reserve squad selected** and the factory produces a new unit into it, that unit is **automatically added to your selection** — no extra input needed.
-
-*Exception:* even when enabled, units are NOT auto-added to your selection when **the factory rally ends with wait or patrol**: new units sit at the rally waiting or patrolling, so the widget doesn't pull them into your selection. 
-- **Freshly resurrected units still healing** — rez bots leave units in wait state until healed, so they don't extend their reserve's selection.
-
-Turn it on with `/squad_setting set selectionAutoExtend true` (also in the settings panel as "Auto-extend selection with new units"). While off (the default), freshly built units never join your current selection.
-
 Squad-eligible means: any mobile unit, minus exclusions. Exclusions come from independent sources that are unioned together: the **Exclude constructors & commanders** toggle (on by default), the **Exclude resurrection units** toggle (off by default), the **Exclude combat engineers** toggle (off by default), and your own manual `excludedUnitTypes` list. Each toggle covers a curated unit list; flipping one never touches your manual list, and your manual exclusions never affect the toggles. To track an otherwise-excluded unit type, turn the corresponding toggle off (settings panel, or `/squad_setting toggle excludeConstructors` / `excludeResurrectionUnits` / `excludeCombatEngineers`).
 
 **Creating squads:** Select some units and **right-click** (with no modifier keys held). Those units are pulled out of their current reserve squad into a new one.
@@ -355,6 +348,17 @@ Optionally install any [companion widgets](#companion-widgets) the same way for 
 
 Most settings can be changed through the **in-game settings panel**.
 
+**Playstyle presets.** The widget has more switches than most players want to think about, so the settings panel leads with a **Playstyle preset** select. Picking one writes every setting that preset owns in a single step:
+
+| Preset | For |
+| ------ | --- |
+| `minimal` | The least surprising behaviour: no cycling, no domain filtering on append, Ctrl+right-click drag creates squads, reserves stay hidden |
+| `autogroup` | Mostly filtering group selections, occasionally building a manual squad: cycling and domain-filtered appends on, reserves visualized |
+| `squad` | Constantly creating and merging squads: alternative left-click selection, plain right-click creates squads, right-click move commands reserves, per-squad hull colors |
+| `custom` | Your own mix. This is the default, so a fresh install (or a config saved before presets existed) never has its settings rewritten |
+
+Presets are also reachable from chat: `/squad_setting preset squad` (no argument prints the active one). Changing any setting a preset owns — from the panel, from chat, or through the `WG` API — drops the active preset back to `custom`, so what the panel shows always matches what the config holds.
+
 For settings that don't have a panel control (like `leftClickAlternativeArgs` and `excludedUnitTypes`), use chat commands:
 
 ```
@@ -367,6 +371,7 @@ For settings that don't have a panel control (like `leftClickAlternativeArgs` an
 /squad_setting add excludedUnitTypes armrectr cornecro legrezbot
 /squad_setting remove excludedUnitTypes armrectr cornecro legrezbot
 /squad_setting set hullPulseRate 2.0                 # animation tuning (no panel control)
+/squad_setting preset squad
 ```
 
 All changes persist across games.
@@ -374,6 +379,7 @@ All changes persist across games.
 
 | Setting                          | Default                         | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | -------------------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `preset`                         | `"custom"`                      | Active playstyle preset: `minimal`, `autogroup`, `squad` or `custom`. Set it with `squad_setting preset <name>`; writing any setting a preset owns drops it back to `custom`                                                                                                    |
 | `leftClickSelectsSquad`          | `true`                          | Modifier+click on empty ground selects squads                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `leftClickAlternativeSelection`  | `false`                         | When enabled, left-click (replace and append) uses `leftClickAlternativeArgs`; when disabled, both select the whole closest squad, any kind, with no distance cap. Toggle with `squad_setting toggle leftClickAlternativeSelection` (bind to a hotkey for on-the-fly flipping)                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `leftClickAlternativeArgs`       | `1 0.5 distance_850`            | What the alternative left-click selection does (only honored when `leftClickAlternativeSelection` is true). Same tokens as `squad_select_portion`: `1` = whole squad, `0.5 1` = 50% then 100%, `distance_<N>` anywhere in the list caps selection to units within N elmos of the cursor, and `manual`/`reserve` restricts it to that kind of squad                                                                                                                                                                                                                                                                                                                                |
@@ -407,6 +413,7 @@ All changes persist across games.
 | `squad_setting add excludedUnitTypes <name> [name ...]`     | Adds one or more unit names to the exclusion list (applied immediately)      |
 | `squad_setting remove excludedUnitTypes <name> [name ...]`  | Removes one or more unit names from the exclusion list (applied immediately) |
 | `squad_setting get <key>`                        | Prints the current value of a setting                                           |
+| `squad_setting preset [name]`                    | Applies a playstyle preset, or prints the active one when called without a name |
 | `squad_setting reload`                           | Resets all settings to the defaults defined in the Lua file                     |
 
 *Note: for quickly centering the camera on the current selection (the equivalent of double-tapping a control group's number key), you can either double-tap a squad-select hotkey/click (see [Double-tap to focus camera](#double-tap-to-focus-camera)) or bind `viewselection` directly to a hotkey. See also the [recent-squad cycling](#recent-squad-cycling-mru) feature, which selects a recently-used squad and focuses the camera on it in one press.*

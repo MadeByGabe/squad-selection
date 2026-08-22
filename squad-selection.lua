@@ -25,6 +25,7 @@ end
 -------------------------------------------------------------------------------
 
 local config = {
+	preset = "custom", -- active playstyle preset; see PRESETS below. Defaults to "custom" so the widget never presumes a playstyle: a fresh install, or a config saved before presets existed, keeps every setting exactly as it is until the player picks one
 	cyclingToNextSquad = true, -- when full squad/type is selected, exclude it to cycle to next
 	leftClickSelectsSquad = true, -- left-click can be used to select squads
 	leftClickAlternativeSelection = false, -- switches left-click (replace and append) between the normal selection — the whole closest squad, any kind, no distance cap — and the alternative one defined by leftClickAlternativeArgs. Bind a hotkey via `squad_setting toggle leftClickAlternativeSelection` to flip on demand
@@ -39,7 +40,6 @@ local config = {
 	ctrlRightClickDragCreatesSquad = true, -- hold Ctrl then right-click drag past the engine's MouseDragFrontCommandThreshold to create a squad (click still passes through)
 	commandCreatesSquad = false,
 	mergeIntoReserves = true, -- when false, `squad_create` never merges the selection into a reserve squad; it always creates a fresh manual squad
-	selectionAutoExtend = false, -- when true, freshly built units auto-extend the current selection while their reserve is fully selected (the wait/patrol rally opt-out still applies on top)
 	showReserveSquads = false, -- when true, auto per-factory reserves + uncategorized reserve are visualized
 	viewselectionDoubleTapMs = 300, -- second rapid same-place non-append squad-select tap (single-step, or multi-step at the last step) calls viewselection on the just-selected squad (0 disables)
 	viewselectionDoubleTapPx = 5, -- max screen-pixel distance between the two taps (0 disables the gesture, same as Ms — the comparison is strict)
@@ -76,6 +76,72 @@ for k, v in pairs(config) do
 end
 
 -------------------------------------------------------------------------------
+-- Playstyle presets
+--
+-- The widget supports several playstyles and each one wants a different set of
+-- its switches. A preset owns a group of settings and writes them all in one
+-- go; `custom` owns nothing. Writing an owned setting by hand afterwards (panel
+-- row, squad_setting, WG setter) drops the active preset back to `custom`, so
+-- the preset shown never lies about what the config actually holds.
+-------------------------------------------------------------------------------
+
+local PRESET_NAMES = {"minimal", "autogroup", "squad", "custom"}
+
+local PRESETS = {
+	-- Least surprising way to use the widget.
+	minimal = {
+		cyclingToNextSquad = false,
+		leftClickAppendFiltersDomain = false,
+		leftClickAlternativeSelection = false,
+		mergeIntoReserves = true,
+		rightClickSquadCreate = false,
+		ctrlRightClickCreatesSquad = false,
+		ctrlRightClickDragCreatesSquad = true,
+		rightClickMoveControlsReserves = false,
+		showReserveSquads = false,
+		visualizationMode = "convexHull",
+		convexHullColorMode = "player",
+	},
+	-- For players who mostly filter their group selections and only occasionally build a manual squad.
+	autogroup = {
+		cyclingToNextSquad = true,
+		leftClickAppendFiltersDomain = true,
+		leftClickAlternativeSelection = false,
+		mergeIntoReserves = true,
+		rightClickSquadCreate = false,
+		ctrlRightClickCreatesSquad = false,
+		ctrlRightClickDragCreatesSquad = true,
+		rightClickMoveControlsReserves = false,
+		showReserveSquads = true,
+		visualizationMode = "convexHull",
+		convexHullColorMode = "player",
+	},
+	-- For players who create and merge manual squads constantly.
+	squad = {
+		cyclingToNextSquad = true,
+		leftClickAppendFiltersDomain = true,
+		leftClickAlternativeSelection = true,
+		mergeIntoReserves = false,
+		rightClickSquadCreate = true,
+		ctrlRightClickCreatesSquad = false,
+		ctrlRightClickDragCreatesSquad = false,
+		rightClickMoveControlsReserves = true,
+		showReserveSquads = true,
+		visualizationMode = "convexHull",
+		convexHullColorMode = "squad",
+	},
+	custom = {},
+}
+
+-- Union of every key any preset writes.
+local PRESET_OWNED_KEYS = {}
+for _, values in pairs(PRESETS) do
+	for key in pairs(values) do
+		PRESET_OWNED_KEYS[key] = true
+	end
+end
+
+-------------------------------------------------------------------------------
 -- Localized Spring API
 --
 -- Avoids repeated global table lookups. Matters most in DrawScreen where we
@@ -103,7 +169,6 @@ local spGetMouseCursor = Spring.GetMouseCursor
 local spGetConfigInt = Spring.GetConfigInt
 local spIsReplay = Spring.IsReplay
 local spGetGroundHeight = Spring.GetGroundHeight
-local spGetUnitCommands = Spring.GetUnitCommands
 local spGetUnitCommandCount = Spring.GetUnitCommandCount
 local spGetTeamColor = Spring.GetTeamColor
 local spSendCommands = Spring.SendCommands
@@ -587,38 +652,6 @@ end
 -------------------------------------------------------------------------------
 -- Squad creation from selection
 -------------------------------------------------------------------------------
-
--- Returns true if `unitId`'s command queue contains a CMD_WAIT anywhere.
--- Used by the uncategorized-reserve path in UnitCreated to skip the selection
--- auto-extend for a freshly resurrected unit (rez bots leave units in
--- CMD_WAIT until fully healed).
-local function unitQueueHasWait(unitId)
-	local cmds = spGetUnitCommands(unitId, -1)
-	if not cmds then
-		return false
-	end
-	for i = 1, #cmds do
-		if cmds[i].id == CMD.WAIT then
-			return true
-		end
-	end
-	return false
-end
-
-
--- Returns true if the factory's command queue ends with CMD_WAIT or
--- CMD_PATROL — i.e. the rally's last waypoint is a "stay busy here" signal
--- rather than a move-and-forget. Used to opt the reserve out of the
--- selection auto-extend in UnitCreated.
-local function factoryRallyEndsWithWaitOrPatrol(factoryId)
-	local cmds = spGetUnitCommands(factoryId, -1)
-	if not cmds or #cmds == 0 then
-		return false
-	end
-	local lastId = cmds[#cmds].id
-	return lastId == CMD.WAIT or lastId == CMD.PATROL
-end
-
 
 -- Returns true if every unit in `sq` is present in `selectedSet`.
 -- Empty squads return false to avoid vacuous matches.
@@ -2093,10 +2126,41 @@ local function hullDisplayModeIndex()
 end
 
 
+-- Synthetic "preset" select: the panel stores a 1-based index into PRESET_NAMES
+-- while config.preset holds the name.
+local function presetIndex()
+	for i = 1, #PRESET_NAMES do
+		if PRESET_NAMES[i] == config.preset then
+			return i
+		end
+	end
+	return #PRESET_NAMES -- "custom"
+end
+
+
+-- Set while applyPreset writes the settings it owns, so those writes don't
+-- immediately demote the preset back to "custom".
+local applyingPreset = false
+
 -- Single config-write entry point: writes config[key] and mirrors it onto the
 -- registered panel option (selects translate to a 1-based index).
 local function setOptionValue(key, value)
 	config[key] = value
+	if key == "preset" then
+		local sel = panelOptionsByKey["preset"]
+		if sel then
+			sel.value = presetIndex()
+		end
+		return
+	end
+	-- A hand-written change to a setting a preset owns means the player has left that preset.
+	if PRESET_OWNED_KEYS[key] and not applyingPreset and config.preset ~= "custom" then
+		config.preset = "custom"
+		local sel = panelOptionsByKey["preset"]
+		if sel then
+			sel.value = presetIndex()
+		end
+	end
 	if HULL_DISPLAY_MODE_KEYS[key] then
 		local sel = panelOptionsByKey["hullDisplayMode"]
 		if sel then
@@ -2141,27 +2205,43 @@ local function setOptionValue(key, value)
 end
 
 
+-- Write every setting the named preset owns, then record it as the active one.
+local function applyPreset(name)
+	local preset = PRESETS[name]
+	if not preset then
+		return false
+	end
+	applyingPreset = true
+	for key, value in pairs(preset) do
+		setOptionValue(key, value)
+	end
+	applyingPreset = false
+	setOptionValue("preset", name)
+	return true
+end
+
+
 local OPTION_SPECS = {
 	{
+		configVariable = "preset", -- synthetic; the select index maps onto PRESET_NAMES
+		name = "Playstyle preset",
+		description = "Sets every switch a playstyle needs in one go.\n\nMinimal: the least surprising behaviour.\nAuto-group focused: leans on the automatic squads to limit your auto-group selections. You can still use manual squads.\nSquad focused: for constantly creating and merging squads and using primarily the squad selection features to select your units.\nCustom: your own mix — picked automatically as soon as you change a setting a preset owns.",
+		type = "select",
+		options = {"Minimal", "Auto-group focused", "Squad focused", "Custom (advanced)"},
+	}, {
 		configVariable = "cyclingToNextSquad",
-		name = "Cycle to next squad on retap",
+		name = "Selects next closest squad on re-tap",
 		description = "If squad selection would produce the current selection, selects from the next-closest squad instead.",
 		type = "bool",
 	}, {
 		configVariable = "leftClickSelectsSquad",
-		name = "Modifier+left-click selects squad",
-		description = "Ctrl-click empty ground triggers squad select. Ctrl+Shift = append, +Alt = filtered.",
+		name = "Modifier + left-click selects a squad",
+		description = "Ctrl-clicking empty ground selects the nearest squad. Ctrl+Shift appends it; hold Alt to select with type filter.\n\nAppends stay within the domain of what you already have selected, e.g. a nearby air squad is skipped while you have a land selection. Double-tap the append to select across domains instead.",
 		type = "bool",
 	}, {
-		configVariable = "leftClickAppendFiltersDomain",
-		name = "Left-click append filters by domain",
-		description = "Shift-click squad append merges stick to the squad's domain (e.g. nearby air squads are skipped if you have a land squad selected). Double-tap squad append to do the opposite.",
-		type = "bool",
-		category = OPTION_ADVANCED,
-	}, {
-		configVariable = "leftClickFilteredRetargets",
-		name = "Left-click filtered retargets",
-		description = "Alt+Ctrl-click swings the active filter to the closest unit's type even when it's not in the current selection.",
+		configVariable = "leftClickAlternativeSelection",
+		name = "Alternative left-click selection",
+		description = "When on, left-click squad selections are limited by distance, and selecting the same squad again narrows the selection down to the closest half of it (useful to split up squads).",
 		type = "bool",
 		category = OPTION_ADVANCED,
 	}, {
@@ -2172,24 +2252,19 @@ local OPTION_SPECS = {
 		options = {"Off", "Plain right-click", "Ctrl+right-click", "Ctrl+right-click drag"},
 	}, {
 		configVariable = "rightClickMovesSquad",
-		name = "Right-click moves nearest squad",
+		name = "Right-click moves the nearest squad",
 		description = "With nothing selected, right-click-drag move-orders the squad nearest the press point to the release point. Hold Alt to do this even when you have a selection. With shift you lock the squad and append the order to its queue. With ctrl it moves in formation. Hold Space to also select the squad.",
 		type = "bool",
 	}, {
 		configVariable = "rightClickMoveControlsReserves",
-		name = "Right-click move controls reserves",
-		description = "When on, right-click move can command reserve squads (the automatic per-factory and uncategorized ones) and converts the commanded reserve into a manual squad. When off, the feature ignores reserves and only picks manual squads.",
-		type = "bool",
-	}, {
-		configVariable = "mergeIntoReserves",
-		name = "Merge into reserves",
-		description = "When on, appending a reserve squad to selection and running squad_create merges your selection into it. When off, squad_create always creates a fresh manual squad.",
+		name = "Right-click move on automatic squads",
+		description = "When on, right-click move can command automatic squads (the per-factory ones and the catch-all squad the game keeps for everything else) and converts the commanded one into a manual squad. When off, it ignores them and only picks manual squads.",
 		type = "bool",
 		category = OPTION_ADVANCED,
 	}, {
-		configVariable = "selectionAutoExtend",
-		name = "Auto-extend selection with new units",
-		description = "When on, units freshly built into a fully selected reserve auto-extend your current selection except when last factory rally is patrol or wait.",
+		configVariable = "mergeIntoReserves",
+		name = "Merge into automatic squads",
+		description = "When on, appending an automatic squad to your selection and running squad_create merges the selection into that automatic squad. When off, squad_create always creates a fresh manual squad.",
 		type = "bool",
 		category = OPTION_ADVANCED,
 	}, {
@@ -2225,7 +2300,7 @@ local OPTION_SPECS = {
 	}, {
 		configVariable = "hullDisplayMode", -- synthetic; not a real config field
 		name = "Squad hulls",
-		description = "Convex hull outlines around squads; 'Manual squads only' excludes reserves.",
+		description = "Convex hull outlines around squads; 'Manual squads only' excludes the automatic ones.",
 		type = "select",
 		options = {"Off", "All squads", "Manual squads only"},
 	}, {
@@ -2351,6 +2426,8 @@ local function buildOption(spec)
 			option.value = squadCreateMethodIndex()
 		elseif spec.configVariable == "hullDisplayMode" then
 			option.value = hullDisplayModeIndex()
+		elseif spec.configVariable == "preset" then
+			option.value = presetIndex()
 		else
 			option.value = 1
 			for i, v in ipairs(spec.options) do
@@ -2366,6 +2443,10 @@ local function buildOption(spec)
 
 	-- Translate the panel value back to config shape, then write through.
 	option.onchange = function(_, panelValue)
+		if spec.configVariable == "preset" then
+			applyPreset(PRESET_NAMES[panelValue])
+			return
+		end
 		if spec.configVariable == "hullDisplayMode" then
 			setOptionValue("visualizationMode", panelValue == 1 and "none" or "convexHull")
 			setOptionValue("showReserveSquads", panelValue == 2)
@@ -2477,15 +2558,29 @@ end
 --   /luaui squad_setting set visualizationMode convexHull
 --   /luaui squad_setting set visualizationMode none
 --   /luaui squad_setting get cyclingToNextSquad
+--   /luaui squad_setting preset squad
 --   /luaui squad_setting reload
 -------------------------------------------------------------------------------
 
 local function squadSetting(_, _, args)
 	if not args or not args[1] then
-		spEcho("[Squad] Usage: squad_setting toggle|set|add|remove|get|reload <key> [value]")
+		spEcho("[Squad] Usage: squad_setting toggle|set|add|remove|get|preset|reload <key> [value]")
 		return
 	end
 	local action = args[1]
+
+	if action == "preset" then
+		if not args[2] then
+			spEcho("[Squad] preset = " .. config.preset .. " (available: " .. table.concat(PRESET_NAMES, ", ") .. ")")
+			return
+		end
+		if not applyPreset(args[2]) then
+			spEcho("[Squad] Unknown preset: " .. tostring(args[2]) .. " (available: " .. table.concat(PRESET_NAMES, ", ") .. ")")
+			return
+		end
+		spEcho("[Squad] preset = " .. config.preset)
+		return
+	end
 
 	if action == "reload" then
 		for k, v in pairs(configDefaults) do
@@ -2499,6 +2594,11 @@ local function squadSetting(_, _, args)
 	local key = args[2]
 	if not key or config[key] == nil then
 		spEcho("[Squad] Unknown config key: " .. tostring(key))
+		return
+	end
+	-- The preset owns other keys, so it is only ever written through applyPreset.
+	if key == "preset" and action ~= "get" then
+		spEcho("[Squad] Use: squad_setting preset " .. table.concat(PRESET_NAMES, "|"))
 		return
 	end
 
@@ -2624,7 +2724,7 @@ local function squadSetting(_, _, args)
 	elseif action == "get" then
 		spEcho("[Squad] " .. key .. " = " .. formatValue(config[key]))
 	else
-		spEcho("[Squad] Unknown action: " .. action .. " (use toggle, set, add, remove, get, or reload)")
+		spEcho("[Squad] Unknown action: " .. action .. " (use toggle, set, add, remove, get, preset, or reload)")
 	end
 end
 
@@ -2718,8 +2818,9 @@ function widget:Initialize()
 
 	-- WG interface. Auto-generates
 	-- get<Key>/set<Key> pairs for every exposed config key.
+	-- `preset` is deliberately absent: it owns other keys, so it goes through applyPreset below.
 	local exposedSettings = {
-		"leftClickSelectsSquad", "leftClickAlternativeSelection", "leftClickAlternativeArgs", "leftClickAppendFiltersDomain", "leftClickFilteredRetargets", "cyclingToNextSquad", "rightClickSquadCreate", "rightClickMovesSquad", "rightClickMoveControlsReserves", "ctrlRightClickCreatesSquad", "ctrlRightClickDragCreatesSquad", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "mergeIntoReserves", "selectionAutoExtend", "visualizationMode", "convexHullPadding", "convexHullArcResolution", "convexHullFillOpacity", "convexHullBorderOpacity", "convexHullBorderThickness", "convexHullColorMode", "convexHullCustomColorR", "convexHullCustomColorG", "convexHullCustomColorB", "excludeConstructors", "excludeResurrectionUnits", "excludeCombatEngineers"}
+		"leftClickSelectsSquad", "leftClickAlternativeSelection", "leftClickAlternativeArgs", "leftClickAppendFiltersDomain", "leftClickFilteredRetargets", "cyclingToNextSquad", "rightClickSquadCreate", "rightClickMovesSquad", "rightClickMoveControlsReserves", "ctrlRightClickCreatesSquad", "ctrlRightClickDragCreatesSquad", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "mergeIntoReserves", "visualizationMode", "convexHullPadding", "convexHullArcResolution", "convexHullFillOpacity", "convexHullBorderOpacity", "convexHullBorderThickness", "convexHullColorMode", "convexHullCustomColorR", "convexHullCustomColorG", "convexHullCustomColorB", "excludeConstructors", "excludeResurrectionUnits", "excludeCombatEngineers"}
 	WG['squadselection'] = {}
 	for _, key in ipairs(exposedSettings) do
 		local cap = key:sub(1, 1):upper() .. key:sub(2)
@@ -2734,6 +2835,16 @@ function widget:Initialize()
 
 
 	end
+
+	WG['squadselection'].getPreset = function()
+		return config.preset
+	end
+
+
+	WG['squadselection'].applyPreset = function(name)
+		return applyPreset(name)
+	end
+
 
 	-- Re-classify units. Called by gui_options.lua after writing any of the exclude* settings
 	WG['squadselection'].rebuildTracking = function()
@@ -3022,33 +3133,7 @@ function widget:UnitCreated(unitId, unitDefId, unitTeam, builderId)
 
 	if unitDefId and isCombat[unitDefId] then
 		local sq = (builderId and factorySquad[builderId]) or getUncategorizedReserveForDef(unitDefId)
-		local extendSelection = false
-		if sq.isReserve and config.selectionAutoExtend then
-			local selSet = {}
-			for _, u in ipairs(spGetSelectedUnits()) do
-				selSet[u] = true
-			end
-			extendSelection = squadFullySelected(sq, selSet)
-		end
-		-- Opt-out for the selection auto-extend, split by reserve kind:
-		--   Factory reserve → the rally's trailing CMD_WAIT or CMD_PATROL is
-		--     the signal — suppress the extend when set.
-		--   Uncategorized reserve → no rally to inspect; fall back to the
-		--     unit's own queue. Covers resurrection bots, which wake with
-		--     CMD_WAIT until fully healed.
-		if extendSelection then
-			if sq.fromFactory and builderId then
-				if factoryRallyEndsWithWaitOrPatrol(builderId) then
-					extendSelection = false
-				end
-			elseif unitQueueHasWait(unitId) then
-				extendSelection = false
-			end
-		end
 		addToSquad(unitId, sq)
-		if extendSelection then
-			spSelectUnitArray({unitId}, true)
-		end
 		log("Unit ", unitId, " created → squad [", sq.index or "?", "] (", #sq, " units)")
 	end
 end
