@@ -40,7 +40,7 @@ local config = {
 	ctrlRightClickDragCreatesSquad = true, -- hold Ctrl then right-click drag past the engine's MouseDragFrontCommandThreshold to create a squad (click still passes through)
 	commandCreatesSquad = false,
 	mergeIntoReserves = true, -- when false, `squad_create` never merges the selection into a reserve squad; it always creates a fresh manual squad
-	showReserveSquads = false, -- when true, auto per-factory reserves + uncategorized reserve are visualized
+	showReserveSquads = false, -- when true, auto per-factory reserves + uncategorized reserves are visualized
 	viewselectionDoubleTapMs = 300, -- second rapid same-place non-append squad-select tap (single-step, or multi-step at the last step) calls viewselection on the just-selected squad (0 disables)
 	viewselectionDoubleTapPx = 5, -- max screen-pixel distance between the two taps (0 disables the gesture, same as Ms — the comparison is strict)
 	mruSize = 3, -- how many recent squads squad_cycle_recent cycles through
@@ -200,7 +200,6 @@ local squads = {} -- ordered list of squad arrays
 local unitSquad = {} -- unitID -> the squad array it belongs to
 local unitSlot = {} -- unitID -> index within that squad (for O(1) removal)
 local factorySquad = {} -- factoryUnitID -> squad (every factory gets an auto-created squad)
-local uncategorizedReserve = {} -- domain -> reserve squad ("land" | "air" | "naval") for units with no factory origin
 
 local mru = {} -- most-recently-used squads, newest at index 1
 
@@ -492,12 +491,6 @@ local function reserveDomainForDef(defId)
 end
 
 
-local function getUncategorizedReserveForDef(defId)
-	local d = reserveDomainForDef(defId)
-	return uncategorizedReserve[d] or uncategorizedReserve.land
-end
-
-
 -------------------------------------------------------------------------------
 -- Squad change listeners
 --
@@ -618,14 +611,10 @@ local function recallMru(i)
 end
 
 
--- A squad is prunable when empty, except:
---   - the uncategorized reserve is permanent
---   - factory reserves are kept while any factory still references them
+-- A squad is prunable when empty, except factory reserves, which are kept while
+-- any factory still references them.
 local function isPrunable(sq)
 	if #sq ~= 0 then
-		return false
-	end
-	if sq.uncatDomain then
 		return false
 	end
 	if sq.fromFactory then
@@ -634,9 +623,8 @@ local function isPrunable(sq)
 				return false
 			end
 		end
-		return true
 	end
-	return not sq.isReserve
+	return true
 end
 
 
@@ -699,7 +687,7 @@ end
 
 
 --- Create a new hidden reserve squad and register it in `squads`.
--- Used for per-factory auto-squads and the uncategorized reserve.
+-- Used for per-factory auto-squads and the uncategorized reserves.
 local function makeReserveSquad(fromFactory)
 	local sq = {}
 	assignSquadTag(sq)
@@ -715,6 +703,57 @@ local function createFactorySquad(factoryId)
 	local sq = makeReserveSquad(true)
 	factorySquad[factoryId] = sq
 	log("Factory ", factoryId, " → auto squad [", sq.index, "]")
+	return sq
+end
+
+
+-------------------------------------------------------------------------------
+-- Uncategorized reserves
+--
+-- Units with no factory origin — resurrected, gifted, Twitcher-spawned — land in
+-- an uncategorized reserve. One reserve per domain would collect everything ever
+-- raised anywhere on the map into a single squad that spans it, which is useless
+-- to select or command, so they are clustered instead: a unit joins the
+-- same-domain reserve holding the closest member within UNCAT_CLUSTER_RANGE, and
+-- seeds a fresh one when nothing is in range. They are seeded on demand and prune
+-- like any other squad, so a cluster that dies off or gets promoted to a manual
+-- squad disappears again.
+-------------------------------------------------------------------------------
+
+-- Max world-distance (elmos) from an existing reserve member for a new uncategorized unit to join that reserve instead of seeding its own.
+local UNCAT_CLUSTER_RANGE = 850
+
+--- Pick (or seed) the uncategorized reserve a unit with no factory origin belongs to.
+local function getUncategorizedReserve(unitId, defId)
+	local domain = reserveDomainForDef(defId)
+	local ux, _, uz = spGetUnitPosition(unitId)
+
+	-- The cylinder does the range test for us, and unitSquad is nil for everything we don't track (enemy, allied, non-combat), so the nearest same-domain reserve member in it is the reserve to join.
+	if ux then
+		local nearby = spGetUnitsInCylinder(ux, uz, UNCAT_CLUSTER_RANGE)
+		local best, bestDistSq = nil, math.huge
+		for i = 1, #nearby do
+			local u = nearby[i]
+			local sq = unitSquad[u]
+			if sq and sq.uncatDomain == domain then
+				local x, _, z = spGetUnitPosition(u)
+				if x then
+					local dx, dz = x - ux, z - uz
+					local distSq = dx * dx + dz * dz
+					if distSq < bestDistSq then
+						best, bestDistSq = sq, distSq
+					end
+				end
+			end
+		end
+		if best then
+			return best
+		end
+	end
+
+	local sq = makeReserveSquad(false)
+	sq.uncatDomain = domain
+	log("Seeded uncategorized-", domain, " reserve [", sq.index, "]")
 	return sq
 end
 
@@ -2789,13 +2828,6 @@ function rebuildTracking()
 
 	classifyUnitdefs()
 
-	uncategorizedReserve = {}
-	for _, d in ipairs({"land", "air", "naval"}) do
-		local sq = makeReserveSquad(false)
-		sq.uncatDomain = d
-		uncategorizedReserve[d] = sq
-	end
-
 	local all = spGetTeamUnits(spGetMyTeamID())
 	local count = 0
 
@@ -2809,12 +2841,12 @@ function rebuildTracking()
 	end
 
 	-- Combat units: we have no builder info here, so everything goes to the
-	-- domain-specific uncategorized reserves. Future builds route via UnitCreated.
+	-- uncategorized reserves, clustered by domain and position. Future builds route via UnitCreated.
 	for i = 1, #all do
 		local u = all[i]
 		local defId = getDefid(u)
 		if defId and isCombat[defId] then
-			addToSquad(u, getUncategorizedReserveForDef(defId))
+			addToSquad(u, getUncategorizedReserve(u, defId))
 			count = count + 1
 		end
 	end
@@ -2907,7 +2939,6 @@ function widget:Initialize()
 			squads = squads,
 			unitSquad = unitSquad,
 			factorySquad = factorySquad,
-			uncategorizedReserve = uncategorizedReserve,
 			squadIdleState = squadIdleState,
 			squadIdleBlend = squadIdleBlend,
 		}
@@ -2971,7 +3002,7 @@ function widget:Initialize()
 
 	registerOptions()
 
-	log("Initialized — ", count, " combat units in domain uncategorized reserves")
+	log("Initialized — ", count, " combat units in uncategorized reserves")
 end
 
 
@@ -3177,7 +3208,7 @@ function widget:UnitCreated(unitId, unitDefId, unitTeam, builderId)
 	end
 
 	if unitDefId and isCombat[unitDefId] then
-		local sq = (builderId and factorySquad[builderId]) or getUncategorizedReserveForDef(unitDefId)
+		local sq = (builderId and factorySquad[builderId]) or getUncategorizedReserve(unitId, unitDefId)
 		addToSquad(unitId, sq)
 		log("Unit ", unitId, " created → squad [", sq.index or "?", "] (", #sq, " units)")
 	end
@@ -3230,7 +3261,7 @@ function widget:UnitGiven(unitId, unitDefId, unitTeam, oldTeam)
 	end
 
 	if unitDefId and isCombat[unitDefId] then
-		local sq = getUncategorizedReserveForDef(unitDefId)
+		local sq = getUncategorizedReserve(unitId, unitDefId)
 		addToSquad(unitId, sq)
 		log("Unit ", unitId, " given to us → uncategorized-", (sq.uncatDomain or "?"), " reserve (", #sq, " units)")
 	end

@@ -16,7 +16,7 @@ Jump straight to [installation](#installation) if you want to get going right aw
 
 ## How it works
 
-Every factory (lab) gets its own **reserve squad**, and the squad-eligible units it builds start there. Units that don't come from a factory you built (gifted, resurrected, alive at widget load, etc.) go into domain-specific **uncategorized reserves** (`land`, `air`, `naval`). Reserve squads are hidden by default — turn them on with `/squad_setting set showReserveSquads true` if you want to visualize reserves as squads.
+Every factory (lab) gets its own **reserve squad**, and the squad-eligible units it builds start there. Units that don't come from a factory you built (gifted, resurrected, alive at widget load, etc.) go into **uncategorized reserves**, which are clustered by domain (`land`, `air`, `naval`) *and* by position: a unit joins the nearest same-domain reserve within 850 elmos, or starts a new one. So a batch of units resurrected on one flank is its own squad rather than being lumped in with everything ever raised across the map. Reserve squads are hidden by default — turn them on with `/squad_setting set showReserveSquads true` if you want to visualize reserves as squads.
 
 Squad-eligible means: any mobile unit, minus exclusions. Exclusions come from independent sources that are unioned together: the **Exclude constructors & commanders** toggle (on by default), the **Exclude resurrection units** toggle (off by default), the **Exclude combat engineers** toggle (off by default), and your own manual `excludedUnitTypes` list. Each toggle covers a curated unit list; flipping one never touches your manual list, and your manual exclusions never affect the toggles. To track an otherwise-excluded unit type, turn the corresponding toggle off (settings panel, or `/squad_setting toggle excludeConstructors` / `excludeResurrectionUnits` / `excludeCombatEngineers`).
 
@@ -146,7 +146,7 @@ The same behavior is available on Alt+Ctrl-click (replace-mode left-click filter
 Every `squad_select*` action accepts an optional squad-kind keyword that restricts which squads it will consider:
 
 - `manual` — only squads you created yourself.
-- `reserve` — only the automatic ones: the per-factory reserves and the uncategorized reserve.
+- `reserve` — only the automatic ones: the per-factory reserves and the uncategorized reserves.
 - `any` — the default. It only exists so a bind can state it explicitly.
 
 The keyword is position-independent and combines with everything else (`append`, `append_domain`, `retarget`, `distance_<N>`, step values):
@@ -549,12 +549,11 @@ local state = WG['squadselection'].getSquadState()
 -- state.squads               — array of squad arrays (integer keys = unitIDs)
 -- state.unitSquad            — unitID → squad table
 -- state.factorySquad         — factoryUnitID → squad table
--- state.uncategorizedReserve — domain → reserve squad
 -- state.squadIdleState       — squad → bool
 -- state.squadIdleBlend       — squad → 0..1
 ```
 
-Each squad array carries metadata on string keys: `.index` (monotonic ID), `.tagSeed` (golden-ratio phase offset), `.isReserve`, `.fromFactory`.
+Each squad array carries metadata on string keys: `.index` (monotonic ID), `.tagSeed` (golden-ratio phase offset), `.isReserve`, `.fromFactory`, and `.uncatDomain` on uncategorized reserves.
 
 **`addSquadChangeListener(fn)` / `removeSquadChangeListener(fn)`**: Register for incremental notifications. The callback receives `(event, unitID, squad)`:
 
