@@ -41,6 +41,7 @@ local config = {
 	commandCreatesSquad = false,
 	mergeIntoReserves = true, -- when false, `squad_create` never merges the selection into a reserve squad; it always creates a fresh manual squad
 	showReserveSquads = false, -- when true, auto per-factory reserves + uncategorized reserves are visualized
+	showLockedSquads = false, -- when true, locked squads keep their (outline-only, dimmed) hull; when false it only shows while they have selected units or are flashing a lock change
 	viewselectionDoubleTapMs = 300, -- second rapid same-place non-append squad-select tap (single-step, or multi-step at the last step) calls viewselection on the just-selected squad (0 disables)
 	viewselectionDoubleTapPx = 5, -- max screen-pixel distance between the two taps (0 disables the gesture, same as Ms — the comparison is strict)
 	mruSize = 3, -- how many recent squads squad_cycle_recent cycles through
@@ -210,16 +211,18 @@ local squadIdleBlend = {} -- squad table -> 0..1 blend between team color and id
 local squadHighlightBlend = {} -- squad table -> 0..1 blend for the closest-squad preview highlight (opacity only)
 local squadControlBlend = {} -- squad table -> 0..1 blend for the actively-commanded squad (RMB held); adds the border emphasis
 local squadHideIdleAirHull = {} -- squad table -> true when an idle squad is entirely airborne air units
+local squadLockFlash = {} -- squad table -> 1..0 decaying flash fired by squad_lock
 local idleScanIndex = 0 -- round-robin index into squads for incremental idle-state updates
 
 local highlightTarget = nil
 local controlTarget = nil
 local highlightRecomputeAccum = 0.0 -- dt accumulator (seconds) gating the throttle recompute
 local HIGHLIGHT_RECOMPUTE_INTERVAL = 1 / 30 -- 30 Hz is enough for a cosmetic highlight
+local LOCK_FLASH_SECONDS = 0.8 -- how long the squad_lock hull flash takes to fade out
 
 local pendingDragCreate = nil -- { x, y } screen pos of a Ctrl+RMB press awaiting a drag past MouseDragFrontCommandThreshold to fire squad_create (config.ctrlRightClickDragCreatesSquad)
 local pendingSquadMove = nil -- { squad, formation, keepSelection, x, y, requiresDrag, dragged } captured on an Alt/Space RMB (or plain RMB with empty selection) press (config.rightClickMovesSquad)
-local highlightLockedSquad = nil -- while Shift is held over the squad-move highlight, the latched target squad — so a Shift-queue stays on one squad even as the cursor drifts near others
+local highlightLatchedSquad = nil -- while Shift is held over the squad-move highlight, the latched target squad — so a Shift-queue stays on one squad even as the cursor drifts near others
 local beforeSquadSelectCallback = nil -- optional WG hook: return false to cancel a doSquadSelect call
 local squadChangeListeners = {} -- array of callback functions
 
@@ -275,7 +278,7 @@ end
 -- Recompute whether a squad is "idle" (>50% units with no commands).
 local function refreshSquadIdleState(sq)
 	local size = #sq
-	if size == 0 then
+	if size == 0 or sq.isLocked then
 		squadIdleState[sq] = false
 		squadHideIdleAirHull[sq] = false
 		return false
@@ -341,10 +344,11 @@ local function sweepIdleState()
 			squadHideIdleAirHull[sq] = nil
 			squadHighlightBlend[sq] = nil
 			squadControlBlend[sq] = nil
+			squadLockFlash[sq] = nil
 		end
 	end
-	if highlightLockedSquad and not present[highlightLockedSquad] then
-		highlightLockedSquad = nil
+	if highlightLatchedSquad and not present[highlightLatchedSquad] then
+		highlightLatchedSquad = nil
 	end
 end
 
@@ -364,9 +368,8 @@ local nextSquadTag = 0
 -- Per-squad color helpers
 -------------------------------------------------------------------------------
 
-local GOLDEN_HUE_STEP = 0.381966
-local SQUAD_SAT = 0.75
-local SQUAD_VAL = 0.7
+-- Golden-ratio hue step plus the fixed saturation/value squad colors use.
+local SQUAD_HUE = { step = 0.381966, sat = 0.75, val = 0.7 }
 
 local function hsvToRgb(h, s, v)
 	local i = math.floor(h * 6)
@@ -392,8 +395,8 @@ end
 
 
 local function indexToColor(idx)
-	local h = ((idx - 1) * GOLDEN_HUE_STEP) % 1
-	return hsvToRgb(h, SQUAD_SAT, SQUAD_VAL)
+	local h = ((idx - 1) * SQUAD_HUE.step) % 1
+	return hsvToRgb(h, SQUAD_HUE.sat, SQUAD_HUE.val)
 end
 
 
@@ -486,11 +489,6 @@ local function classifyUnitdefs()
 end
 
 
-local function reserveDomainForDef(defId)
-	return unitDomain[defId] or "land"
-end
-
-
 -------------------------------------------------------------------------------
 -- Squad change listeners
 --
@@ -569,6 +567,9 @@ local function pushToMru(sq)
 	end
 	-- With rightClickMoveControlsReserves on, reserves are a staging pool so we should keep them out of the MRU
 	if sq.isReserve and config.rightClickMoveControlsReserves then
+		return
+	end
+	if sq.isLocked then
 		return
 	end
 	for i = 1, #mru do
@@ -725,7 +726,7 @@ local UNCAT_CLUSTER_RANGE = 850
 
 --- Pick (or seed) the uncategorized reserve a unit with no factory origin belongs to.
 local function getUncategorizedReserve(unitId, defId)
-	local domain = reserveDomainForDef(defId)
+	local domain = unitDomain[defId] or "land"
 	local ux, _, uz = spGetUnitPosition(unitId)
 
 	-- The cylinder does the range test for us, and unitSquad is nil for everything we don't track (enemy, allied, non-combat), so the nearest same-domain reserve member in it is the reserve to join.
@@ -868,7 +869,8 @@ local function createSquadFromSelection(unitThatMustBeInSelection)
 			for i = 1, #selected do
 				local u = selected[i]
 				local defId = getDefid(u)
-				if defId and isCombat[defId] and unitSquad[u] ~= sq then
+				local from = unitSquad[u]
+				if defId and isCombat[defId] and from ~= sq and not (from and from.isLocked) then
 					removeFromSquad(u)
 					addToSquad(u, sq)
 					moved = moved + 1
@@ -892,17 +894,26 @@ local function createSquadFromSelection(unitThatMustBeInSelection)
 	end
 
 	local newSquad = {}
+	local lockedSkipped = 0
 	for i = 1, #selected do
 		local u = selected[i]
 		local defId = getDefid(u)
 		if defId and isCombat[defId] then
-			removeFromSquad(u)
-			addToSquad(u, newSquad)
-			playerInputSinceLastResquad = false
+			local from = unitSquad[u]
+			if from and from.isLocked then
+				lockedSkipped = lockedSkipped + 1
+			else
+				removeFromSquad(u)
+				addToSquad(u, newSquad)
+				playerInputSinceLastResquad = false
+			end
 		end
 	end
 
 	if #newSquad == 0 then
+		if lockedSkipped > 0 then
+			log("No squad created: all ", lockedSkipped, " selected unit(s) belong to locked squads")
+		end
 		return
 	end
 
@@ -931,7 +942,45 @@ local function createSquadFromSelection(unitThatMustBeInSelection)
 	selectionDirty = true
 	pushToMru(newSquad)
 
-	log("New squad [", newSquad.index, "]: ", #newSquad, " units")
+	if lockedSkipped > 0 then
+		log("New squad [", newSquad.index, "]: ", #newSquad, " units (", lockedSkipped, " locked unit(s) left alone)")
+	else
+		log("New squad [", newSquad.index, "]: ", #newSquad, " units")
+	end
+end
+
+
+--- Create a new manual squad from an explicit list of unit IDs, ignoring
+-- untracked ones. Members of locked squads are skipped.
+local function createSquadFromUnitList(unitIds)
+	if not unitIds or #unitIds == 0 then
+		return nil
+	end
+
+	local newSquad = {}
+	for i = 1, #unitIds do
+		local u = unitIds[i]
+		local defId = getDefid(u)
+		local from = unitSquad[u]
+		if defId and isCombat[defId] and from and not from.isLocked then
+			removeFromSquad(u)
+			addToSquad(u, newSquad)
+		end
+	end
+
+	if #newSquad == 0 then
+		return nil
+	end
+
+	assignSquadTag(newSquad)
+	squads[#squads + 1] = newSquad
+	pruneEmptySquads()
+	notifySquadChange("rebuild", nil, nil)
+	selectionDirty = true
+	pushToMru(newSquad)
+
+	log("New squad from unit list [", newSquad.index, "]: ", #newSquad, " units")
+	return newSquad
 end
 
 
@@ -1015,8 +1064,15 @@ end
 local SEARCH_RADIUS = 850
 
 -- Squad-kind gate shared by both scans: "manual" keeps player-created squads,
--- "reserve" keeps per-factory + uncategorized reserves, nil keeps everything.
+-- "reserve" keeps per-factory + uncategorized reserves, "locked" keeps locked
+-- squads, nil keeps everything except locked squads.
 local function squadMatchesKind(sq, squadKind)
+	if squadKind == "locked" then
+		return sq.isLocked == true
+	end
+	if sq.isLocked then
+		return false
+	end
 	if not squadKind then
 		return true
 	end
@@ -1074,7 +1130,7 @@ end
 -- domainFilter (set of allowed domain strings) rejects entire squads whose
 -- units include any domain not in the set — so e.g. a pure-land filter skips
 -- mixed land+air squads, not just their air units.
--- squadKind ("manual"/"reserve") restricts the search to that kind of squad;
+-- squadKind ("manual"/"reserve"/"locked") restricts the search to that kind of squad;
 -- nil considers both.
 --
 -- A cylinder around the cursor pre-filters the candidates. 
@@ -1252,12 +1308,15 @@ end
 
 
 --- Squad-kind keywords accepted by every selection action: restrict the search
--- to manual squads (player-created) or reserve squads (per-factory +
--- uncategorized). "any" is the default and only exists so a bind can state it
--- explicitly.
+-- to manual squads (player-created), reserve squads (per-factory +
+-- uncategorized) or locked squads (parked via squad_lock; asking for the
+-- "locked" kind is the only way a select action reaches them). "any" is the
+-- default and only exists so a bind can state it explicitly.
 local SQUAD_KIND_TOKENS = {
 	manual = "manual",
 	reserve = "reserve",
+	automatic = "reserve", -- newer name for "reserve" (as used by the options)
+	locked = "locked",
 	any = false, -- recognized as a token, but imposes no filter
 }
 
@@ -1269,7 +1328,8 @@ local SQUAD_KIND_TOKENS = {
 --                     ("land"/"air"/"naval") present in the current selection
 --   "retarget"      — filtered actions only; let a replace-mode click swing
 --                     the type filter to the closest unit's type
---   "manual"/"reserve"/"any" — squad-kind filter (see SQUAD_KIND_TOKENS)
+--   "manual"/"reserve" (a.k.a. "automatic")/"locked"/"any" — squad-kind filter
+--                     (see SQUAD_KIND_TOKENS)
 --   "distance_<N>"  — cap the selection to units within N world-distance of
 --                     the cursor
 --   numbers         — step values, in order
@@ -1503,7 +1563,7 @@ end
 --   groupSet           nil or unitID set (narrow pool to group members),
 --   maxDistance        nil or number — cap pool to units within that world
 --                      distance from the cursor,
---   squadKind          nil, "manual" or "reserve" — only consider squads of
+--   squadKind          nil, "manual", "reserve" or "locked" — only consider squads of
 --                      that kind; nil considers both,
 --   cycleWhenFull      bool — when the closest squad's pool is already fully
 --                      selected, re-pick a squad with those units excluded,
@@ -1747,7 +1807,7 @@ local function squadCycleIdle()
 	for offset = 1, n do
 		local sq = squads[((startIndex - 1 + offset) % n) + 1]
 		local size = #sq
-		if size > 0 and squadIdleState[sq] then
+		if size > 0 and squadIdleState[sq] and not sq.isLocked then
 			local units = {}
 			for j = 1, size do
 				units[j] = sq[j]
@@ -1930,16 +1990,6 @@ local function limitOrFlip(doFlip)
 end
 
 
-local function squadLimitFlip()
-	return limitOrFlip(true)
-end
-
-
-local function squadLimit()
-	return limitOrFlip(false)
-end
-
-
 -- Always flips, across every squad that has a selected unit: each such squad's
 -- selected units are swapped for its unselected ones. Cursor-independent.
 local function squadFlip()
@@ -1974,6 +2024,114 @@ local function squadFlip()
 
 	spSelectUnitArray(result)
 	log("Flip ", squadCount, " squad(s): ", #result, " units")
+	return true
+end
+
+
+-------------------------------------------------------------------------------
+-- Locked squads
+--
+-- A locked squad is parked — early-warning scouts on random patrol, say. Every
+-- path that finds a squad goes through squadMatchesKind, which only yields
+-- locked squads to callers asking for the "locked" squad kind.
+-------------------------------------------------------------------------------
+
+local function setSquadLocked(sq, locked)
+	if (sq.isLocked == true) == locked then
+		return
+	end
+	sq.isLocked = locked or nil
+	squadLockFlash[sq] = 1
+	if locked then
+		for i = #mru, 1, -1 do
+			if mru[i] == sq then
+				table.remove(mru, i)
+			end
+		end
+		if highlightLatchedSquad == sq then
+			highlightLatchedSquad = nil
+		end
+	else
+		pushToMru(sq)
+	end
+	log(locked and "Locked" or "Unlocked", " squad [", sq.index or "?", "]")
+end
+
+
+local function squadLock(_, _, args)
+	local mode = args and args[1] -- nil/"toggle" (default) | "lock" | "unlock"
+
+	local selected = spGetSelectedUnits()
+	local touched = {} -- squad -> true, for every non-reserve squad with a selected member
+	local touchedAny = false
+	local touchedLocked = false
+	local reserveUnits = {} -- selected members of reserve squads
+	for i = 1, #selected do
+		local u = selected[i]
+		local sq = unitSquad[u]
+		if sq then
+			if sq.isReserve then
+				reserveUnits[#reserveUnits + 1] = u
+			else
+				touched[sq] = true
+				touchedAny = true
+				if sq.isLocked then
+					touchedLocked = true
+				end
+			end
+		end
+	end
+
+	if not touchedAny and #reserveUnits == 0 then
+		if mode == "lock" or mode == "unlock" then
+			return true
+		end
+		-- Nothing tracked selected: fetch the closest locked squad instead, so
+		-- a second press unlocks what this one just selected.
+		doSquadSelect({
+			squadKind = "locked",
+			cycleWhenFull = config.cyclingToNextSquad,
+		})
+		return true
+	end
+
+	local unlock
+	if mode == "lock" then
+		unlock = false
+	elseif mode == "unlock" then
+		unlock = true
+	else
+		unlock = touchedLocked
+	end
+
+	local n = 0
+	if unlock then
+		for sq in pairs(touched) do
+			if sq.isLocked then
+				setSquadLocked(sq, false)
+				n = n + 1
+			end
+		end
+		log("Unlocked ", n, " squad(s)")
+		return true
+	end
+
+	for sq in pairs(touched) do
+		if not sq.isLocked then
+			setSquadLocked(sq, true)
+			n = n + 1
+		end
+	end
+	-- Reserves keep collecting factory output, so they are never locked
+	-- themselves: extract the selected ones into a fresh manual squad.
+	if #reserveUnits > 0 then
+		local sq = createSquadFromUnitList(reserveUnits)
+		if sq then
+			setSquadLocked(sq, true)
+			n = n + 1
+		end
+	end
+	log("Locked ", n, " squad(s)")
 	return true
 end
 
@@ -2694,12 +2852,11 @@ local function squadSetting(_, _, args)
 			return
 		end
 		local existing = {}
-		for entry in config.excludedUnitTypes:gmatch("[^,]+") do
-			existing[entry:match("^%s*(.-)%s*$")] = true
-		end
 		local parts = {}
 		for entry in config.excludedUnitTypes:gmatch("[^,]+") do
-			parts[#parts + 1] = entry:match("^%s*(.-)%s*$")
+			local name = entry:match("^%s*(.-)%s*$")
+			existing[name] = true
+			parts[#parts + 1] = name
 		end
 		for i = 3, #args do
 			local name = args[i]
@@ -2768,7 +2925,14 @@ local function squadSetting(_, _, args)
 				local n = tonumber(tok)
 				if n then
 					list[#list + 1] = n
-				elseif tok:match("^distance_%d+%.?%d*$") or tok == "manual" or tok == "reserve" or tok == "any" then
+				elseif
+					tok:match("^distance_%d+%.?%d*$")
+					or tok == "manual"
+					or tok == "reserve"
+					or tok == "automatic"
+					or tok == "locked"
+					or tok == "any"
+				then
 					list[#list + 1] = tok
 				end
 			end
@@ -2821,6 +2985,7 @@ function rebuildTracking()
 	squadIdleState = {}
 	squadIdleBlend = {}
 	squadHideIdleAirHull = {}
+	squadLockFlash = {}
 	mru = {}
 	lastSquadSelect = nil
 	idleScanIndex = 0
@@ -2876,18 +3041,23 @@ function widget:Initialize()
 	widgetHandler:AddAction("squad_select_portion", squadSelectPortion, nil, "pt")
 	widgetHandler:AddAction("squad_select_portion_filtered", squadSelectPortionFiltered, nil, "pt")
 	widgetHandler:AddAction("squad_select_portion_group", squadSelectPortionGroup, nil, "pt")
-	widgetHandler:AddAction("squad_limit_flip", squadLimitFlip, nil, "pt")
-	widgetHandler:AddAction("squad_limit", squadLimit, nil, "pt")
+	widgetHandler:AddAction("squad_limit_flip", function()
+		return limitOrFlip(true)
+	end, nil, "pt")
+	widgetHandler:AddAction("squad_limit", function()
+		return limitOrFlip(false)
+	end, nil, "pt")
 	widgetHandler:AddAction("squad_flip", squadFlip, nil, "pt")
 	widgetHandler:AddAction("squad_setting", squadSetting, nil, "t")
 	widgetHandler:AddAction("squad_cycle_recent", squadCycleRecent, nil, "pt")
 	widgetHandler:AddAction("squad_cycle_idle", squadCycleIdle, nil, "pt")
+	widgetHandler:AddAction("squad_lock", squadLock, nil, "pt")
 
 	-- WG interface. Auto-generates
 	-- get<Key>/set<Key> pairs for every exposed config key.
 	-- `preset` is deliberately absent: it owns other keys, so it goes through applyPreset below.
 	local exposedSettings = {
-		"leftClickSelectsSquad", "leftClickAlternativeSelection", "leftClickAlternativeArgs", "leftClickAppendFiltersDomain", "leftClickFilteredRetargets", "cyclingToNextSquad", "rightClickSquadCreate", "rightClickMovesSquad", "rightClickMoveControlsReserves", "ctrlRightClickCreatesSquad", "ctrlRightClickDragCreatesSquad", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "mergeIntoReserves", "visualizationMode", "convexHullPadding", "convexHullArcResolution", "convexHullFillOpacity", "convexHullBorderOpacity", "convexHullBorderThickness", "convexHullColorMode", "convexHullCustomColorR", "convexHullCustomColorG", "convexHullCustomColorB", "excludeConstructors", "excludeResurrectionUnits", "excludeCombatEngineers"}
+		"leftClickSelectsSquad", "leftClickAlternativeSelection", "leftClickAlternativeArgs", "leftClickAppendFiltersDomain", "leftClickFilteredRetargets", "cyclingToNextSquad", "rightClickSquadCreate", "rightClickMovesSquad", "rightClickMoveControlsReserves", "ctrlRightClickCreatesSquad", "ctrlRightClickDragCreatesSquad", "viewselectionDoubleTapMs", "viewselectionDoubleTapPx", "mruSize", "excludedUnitTypes", "showReserveSquads", "showLockedSquads", "mergeIntoReserves", "visualizationMode", "convexHullPadding", "convexHullArcResolution", "convexHullFillOpacity", "convexHullBorderOpacity", "convexHullBorderThickness", "convexHullColorMode", "convexHullCustomColorR", "convexHullCustomColorG", "convexHullCustomColorB", "excludeConstructors", "excludeResurrectionUnits", "excludeCombatEngineers"}
 	WG['squadselection'] = {}
 	for _, key in ipairs(exposedSettings) do
 		local cap = key:sub(1, 1):upper() .. key:sub(2)
@@ -2941,6 +3111,7 @@ function widget:Initialize()
 			factorySquad = factorySquad,
 			squadIdleState = squadIdleState,
 			squadIdleBlend = squadIdleBlend,
+			squadLockFlash = squadLockFlash,
 		}
 	end
 
@@ -2970,33 +3141,8 @@ function widget:Initialize()
 	-- Returns the new squad's .index on success, nil if no eligible units were found.
 	-- Does not touch the player's selection or the reserve-merge gate.
 	WG['squadselection'].createSquadFromUnits = function(unitIds)
-		if not unitIds or #unitIds == 0 then
-			return nil
-		end
-
-		local newSquad = {}
-		for i = 1, #unitIds do
-			local u = unitIds[i]
-			local defId = getDefid(u)
-			if defId and isCombat[defId] and unitSquad[u] then
-				removeFromSquad(u)
-				addToSquad(u, newSquad)
-			end
-		end
-
-		if #newSquad == 0 then
-			return nil
-		end
-
-		assignSquadTag(newSquad)
-		squads[#squads + 1] = newSquad
-		pruneEmptySquads()
-		notifySquadChange("rebuild", nil, nil)
-		selectionDirty = true
-		pushToMru(newSquad)
-
-		log("WG createSquadFromUnits: squad [", newSquad.index, "] with ", #newSquad, " units")
-		return newSquad.index
+		local newSquad = createSquadFromUnitList(unitIds)
+		return newSquad and newSquad.index or nil
 	end
 
 
@@ -3062,8 +3208,8 @@ function widget:Update(dt)
 						local promoted = unitSquad[units[1]]
 						if promoted then
 							-- Re-latch the Shift lock so queued follow-up moves keep hitting the same units.
-							if highlightLockedSquad == sq then
-								highlightLockedSquad = promoted
+							if highlightLatchedSquad == sq then
+								highlightLatchedSquad = promoted
 							end
 							sq = promoted
 						end
@@ -3107,15 +3253,15 @@ function widget:Update(dt)
 			if config.rightClickMovesSquad and (alt or spGetSelectedUnits()[1] == nil) and not rightClickWouldIssueOrder() then
 				-- Squad-move engaged: RMB commands the closest squad.
 				local hx, hz = getMouseWorldPos()
-				if not (shift and highlightLockedSquad) then
-					highlightLockedSquad = hx and findClosestSquad(nil, nil, nil, hx, hz, nil, maxDistSq, rightClickMoveSquadKind()) or nil
+				if not (shift and highlightLatchedSquad) then
+					highlightLatchedSquad = hx and findClosestSquad(nil, nil, nil, hx, hz, nil, maxDistSq, rightClickMoveSquadKind()) or nil
 				end
-				highlightTarget = highlightLockedSquad
+				highlightTarget = highlightLatchedSquad
 				if shift then
 					-- A Shift-latched squad is the live target of the queued moves, so show it as controlled.
-					controlTarget = highlightLockedSquad
+					controlTarget = highlightLatchedSquad
 				else
-					highlightLockedSquad = nil
+					highlightLatchedSquad = nil
 					-- A reserve the gesture skips is still selectable, so the preview keeps
 					-- showing the closest squad of any kind — same thing the passive highlight shows.
 					if hx and rightClickMoveSquadKind() then
@@ -3124,7 +3270,7 @@ function widget:Update(dt)
 				end
 			else
 				-- Passive closest-squad highlight
-				highlightLockedSquad = nil
+				highlightLatchedSquad = nil
 				local hx, hz = getMouseWorldPos()
 				if hx then
 					highlightTarget = findClosestSquad(nil, nil, nil, hx, hz, nil, maxDistSq)
@@ -3154,6 +3300,11 @@ function widget:Update(dt)
 		squadIdleBlend[s] = approach(squadIdleBlend[s] or 0, squadIdleState[s] and 1 or 0, step)
 		squadHighlightBlend[s] = approach(squadHighlightBlend[s] or 0, s == highlightTarget and hlStrength or 0, hlStep)
 		squadControlBlend[s] = approach(squadControlBlend[s] or 0, s == controlTarget and 1 or 0, hlStep)
+		local lf = squadLockFlash[s]
+		if lf then
+			lf = lf - dt / LOCK_FLASH_SECONDS
+			squadLockFlash[s] = lf > 0 and lf or nil
+		end
 	end
 end
 
@@ -3176,6 +3327,7 @@ function widget:Shutdown()
 	widgetHandler:RemoveAction("squad_setting")
 	widgetHandler:RemoveAction("squad_cycle_recent")
 	widgetHandler:RemoveAction("squad_cycle_idle")
+	widgetHandler:RemoveAction("squad_lock")
 	cleanupGlHull()
 	log("Shutdown")
 end
@@ -3323,9 +3475,9 @@ function widget:MousePress(x, y, button)
 			end
 			if spTraceScreenRay(x, y) ~= "unit" then
 				local sq
-				if shift and highlightLockedSquad and #highlightLockedSquad > 0 then
+				if shift and highlightLatchedSquad and #highlightLatchedSquad > 0 then
 					-- Shift reuses the latched squad so each queued move hits it.
-					sq = highlightLockedSquad
+					sq = highlightLatchedSquad
 				else
 					local wx, wz = getMouseWorldPos()
 					if wx then
@@ -3638,6 +3790,7 @@ function widget:DrawWorldPreUnit()
 	local padding = config.convexHullPadding
 	local arcRes = config.convexHullArcResolution
 	local showReserves = config.showReserveSquads
+	local showLocked = config.showLockedSquads
 	local colorMode = config.convexHullColorMode
 
 	if not hullTimeOrigin then
@@ -3650,8 +3803,14 @@ function widget:DrawWorldPreUnit()
 	glLineWidth(borderThickness)
 
 	for _, squad in ipairs(squads) do
-		if not squad.isReserve or showReserves then
-			local size = #squad
+		local size = #squad
+		local locked = squad.isLocked
+		local lockFlash = squadLockFlash[squad] or 0
+		-- A locked squad only shows while selected or flashing, unless showLockedSquads keeps it up.
+		if
+			(not squad.isReserve or showReserves)
+			and (not locked or showLocked or lockFlash > 0 or (squadSelCount[squad] or 0) > 0)
+		then
 			if size > 0 then
 				local idleBlend = squadIdleBlend[squad] or 0
 				local hb = squadHighlightBlend[squad] or 0
@@ -3663,7 +3822,7 @@ function widget:DrawWorldPreUnit()
 					alphaScale = fullySelected and 1 or math.max(1 - idleBlend, hb, ctb)
 				end
 
-				if alphaScale <= 0.001 then
+				if alphaScale <= 0.001 and lockFlash <= 0 then
 					-- Fully hidden for idle flying-air squads.
 				else
 					local cr, cg, cb
@@ -3691,6 +3850,10 @@ function widget:DrawWorldPreUnit()
 						alphaScale = alphaScale * 0.70
 						cr, cg, cb = cr * 1.25, cg * 1.25, cb * 1.25
 					end
+					-- Locked squads drop the fill entirely and dim, so squad_lock reads instantly.
+					if locked then
+						alphaScale = alphaScale * (fullySelected and 0.85 or 0.6)
+					end
 
 					-- Highlight tiers faded in by their blends.
 					local effFill, effBorder = fillOpacity, borderOpacity
@@ -3703,6 +3866,15 @@ function widget:DrawWorldPreUnit()
 						cr = cr + (1 - cr) * bright
 						cg = cg + (1 - cg) * bright
 						cb = cb + (1 - cb) * bright
+					end
+					if lockFlash > 0 then
+						-- Bright ring that snaps outwards and fades.
+						effBorder = math.min(1, effBorder + 0.6 * lockFlash)
+						effPadding = effPadding + 10 * lockFlash
+						alphaScale = math.max(alphaScale, lockFlash)
+						cr = cr + (1 - cr) * lockFlash
+						cg = cg + (1 - cg) * lockFlash
+						cb = cb + (1 - cb) * lockFlash
 					end
 
 					-- fill scratchWorld in place (reuse {x,y} tables) and track
@@ -3795,14 +3967,17 @@ function widget:DrawWorldPreUnit()
 								else
 									glUniform(hullStripeLoc, 0, 1, 0)
 								end
-								glUniform(hullColorLoc, cr, cg, cb, effFill * alphaScale)
-								hullVao:DrawArrays(GL.TRIANGLE_FAN, n)
+								if not locked then
+									glUniform(hullColorLoc, cr, cg, cb, effFill * alphaScale)
+									hullVao:DrawArrays(GL.TRIANGLE_FAN, n)
+								end
 								if squad.isReserve then
 									glUniform(hullStripeLoc, 0, 1, 0)
 								end
 								glUniform(hullColorLoc, cr, cg, cb, effBorder * alphaScale)
-								if hb > 0 then
-									glLineWidth(borderThickness + 1.5 * hb)
+								local extraWidth = 1.5 * hb + 2.5 * lockFlash
+								if extraWidth > 0 then
+									glLineWidth(borderThickness + extraWidth)
 									hullVao:DrawArrays(GL.LINE_LOOP, n)
 									glLineWidth(borderThickness)
 								else

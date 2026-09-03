@@ -67,6 +67,8 @@ bind Alt+Shift+sc_x  squad_select_filtered append
 | `squad_select_portion_group <N> [append | append_domain] [distance_<N>] <steps...>`                                                                                                                                                                                                                                                | Same, but limited to squad ∩ control group N (probably will be removed) |
 | `squad_cycle_recent`                    | Select + focus camera on the most recently used squad; each press steps further back; wraps around (up to `mruSize` entries, default 3)                                                                                                                                                  |
 | `squad_cycle_idle`                      | Select + focus camera on the next squad that's mostly idle; each press moves on to the next one                                                                                                                                                                                          |
+| `squad_lock [lock\|unlock]`             | Lock (park) the selected squads so no other squad action can touch them; press again on the same selection to unlock. With nothing tracked selected, it selects the nearest locked squad instead (so the next press unlocks it). The optional `lock`/`unlock` argument forces one direction |
+| `squad_select locked`                   | Select the nearest locked squad (any selection action takes the `locked` squad-kind token; add `append` to keep collecting the next-nearest ones)                                                                                                                                        |
 
 ### Mouse controls
 
@@ -327,6 +329,29 @@ Suggested keybind:
 bind Shift+sc_d squad_cycle_idle
 ```
 
+### Locking squads
+
+Some squads should be left alone: early-warning scouts on random patrol, anti-air group parked somewhere, etc.. `squad_lock` marks the selected squads as *locked*, which parks them — every action that *finds* a squad (all the select actions, `squad_cycle_recent`, `squad_cycle_idle`, right-click move and the closest-squad preview highlight) skips locked squads entirely, so they can't be scooped up by accident.
+
+Their membership is frozen too: a selection that spills over a locked squad splits off the rest and leaves the locked squad whole, so `squad_create` never eats one. To split or merge a locked squad, unlock it first.
+
+- Press `squad_lock` with squads selected → lock them (press again with the same selection → unlock).
+- Selected units belonging to an automatic (reserve) squad are extracted into a fresh manual squad which is then locked — reserves keep receiving factory output, so they are never locked themselves.
+- Press it with nothing tracked selected → it selects the nearest locked squad, so a second press unlocks it.
+- `squad_lock lock` / `squad_lock unlock` force one direction instead of toggling.
+
+Actions that only *shape* the current selection (`squad_limit`, `squad_flip`) still work on a locked squad you deliberately selected, and the selection is kept after locking — "select scouts, lock, send them off" works in either order.
+
+To reach a locked squad on purpose, any selection action accepts the `locked` squad-kind token, e.g. `squad_select locked`. Bound with `append`, repeated presses collect the next-nearest locked squads, so one `squad_lock` press afterwards unlocks them all at once.
+
+Locked squads are drawn outline-only and dimmed instead of filled, and only while they have selected units (plus a short bright flash whenever you lock or unlock one). Set `squad_setting toggle showLockedSquads` to keep their outline visible at all times.
+
+Suggested keybinds:
+```
+bind Meta+sc_v squad_lock
+bind Meta+shift+sc_v squad_select append locked
+```
+
 ### Minimap support
 
 All squad selection actions work when your cursor is on the minimap. Both the standard engine minimap and the PIP-style minimap are supported.
@@ -468,6 +493,9 @@ bind sc_d gridmenu_key 2 3
 bind Shift+sc_d gridmenu_key 2 3
 
 bind Shift+sc_d squad_cycle_idle
+
+bind Meta+sc_v squad_lock
+bind Meta+shift+sc_v squad_select append locked
 
 bind Alt selectbox_same
 
